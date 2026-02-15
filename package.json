@@ -1,0 +1,16 @@
+{
+  "name": "sqlc-d1-typescript",
+  "description": "sqlc plugin for Cloudflare D1 TypeScript code generation",
+  "main": "app.js",
+  "author": "Max Kuznetsov",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "typescript": "^5.2.2",
+    "@cloudflare/workers-types": "^4.20260214.0"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^1.4.2",
+    "javy": "^0.1.2"
+  }
+}
