@@ -20,6 +20,14 @@ _Avoid_: Executed query, prepared statement
 The generated runtime-facing API that executes query descriptors through a D1 database or session binding.
 _Avoid_: Database driver
 
+**Session executor**:
+A request-flow-local query executor backed by a D1 session, providing D1 session consistency and access to the latest session bookmark.
+_Avoid_: Persistent session, transaction
+
+**Session bookmark**:
+An opaque D1 string transferred between session executors to continue a consistency constraint across requests.
+_Avoid_: Session executor, authentication token
+
 **Compatibility surface**:
 The sqlc SQLite commands, macros, metadata shapes, and D1 value representations that the plugin promises to translate correctly.
 _Avoid_: Every SQLite feature
