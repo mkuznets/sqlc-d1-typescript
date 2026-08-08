@@ -94,16 +94,18 @@ function codegen(input: GenerateRequest): GenerateResponse {
     const nodes: string[] = [];
 
     for (const query of queries) {
-      const colmap = new Map<string, number>();
-      for (let column of query.columns) {
+      const columnNames = new Set<string>();
+      for (const column of query.columns) {
         if (!column.name) {
           continue;
         }
-        const count = colmap.get(column.name) || 0;
-        if (count > 0) {
-          column.name = `${column.name}_${count + 1}`;
+        if (columnNames.has(column.name)) {
+          throw new Error(
+            `query ${query.name} returns duplicate column ${column.name}; ` +
+              "D1 object rows require unique output names, so add a unique SQL alias"
+          );
         }
-        colmap.set(column.name, count + 1);
+        columnNames.add(column.name);
       }
 
       const lowerName = query.name[0].toLowerCase() + query.name.slice(1);
