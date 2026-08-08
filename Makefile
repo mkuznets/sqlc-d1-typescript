@@ -27,6 +27,12 @@ build/plugin.wasm: build/out.js | $(JAVY)
 generate: build/plugin.wasm examples/sqlc.dev.yaml
 	cd examples && sqlc -f sqlc.dev.yaml generate
 
+.PHONY: test
+test: generate
+	npx tsc --noEmit
+	cd examples/d1-worker && bun install --frozen-lockfile
+	cd examples/d1-worker && bunx tsc --noEmit && bun run test -- --run
+
 .PHONY: clean
 clean:
 	rm -rf build

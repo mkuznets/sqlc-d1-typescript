@@ -1,0 +1,14 @@
+version: "2"
+plugins:
+  - name: ts
+    wasm:
+      url: file://../build/plugin.wasm
+sql:
+  - schema: "schema.sql"
+    queries: "queries.sql"
+    engine: "sqlite"
+    codegen:
+      - plugin: ts
+        out: d1-worker/src
+        options:
+          interface: workers
