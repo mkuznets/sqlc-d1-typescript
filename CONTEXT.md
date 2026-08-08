@@ -24,6 +24,14 @@ _Avoid_: Database driver
 The sqlc SQLite commands, macros, metadata shapes, and D1 value representations that the plugin promises to translate correctly.
 _Avoid_: Every SQLite feature
 
+**Bind value**:
+A TypeScript value accepted by a query factory for conversion to a parameter representation supported by the Workers binding interface.
+_Avoid_: Arbitrary JavaScript value
+
+**Row mapping**:
+The compatibility-surface conversion from a D1 result object's physical fields into a generated public query row.
+_Avoid_: Type assertion
+
 **Release gate**:
 The explicit evidence and checks required before publishing a plugin release as trustworthy for experienced sqlc and Cloudflare users.
 _Avoid_: Done, production-ready
