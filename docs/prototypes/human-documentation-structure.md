@@ -29,15 +29,14 @@ README.md
 
 **Cost:** an experienced user must scroll through TypeScript teaching to find reference facts, while a maintainer must reconstruct one mechanism from examples scattered through a long page.
 
-### B. Fast path plus a code tour and reference — recommended
+### B. Fast path plus a public code tour and focused guides — selected
 
 ```text
-README.md                         2-minute orientation and copy/paste install
+README.md                         install and one end-to-end query in a Worker
 examples/d1-worker/              runnable canonical example
 docs/
-├── getting-started.md           one end-to-end query in a Worker
-├── generated-code-tour.md       simple, annotated TypeScript mechanisms
-├── query-reference.md           six commands and four macros
+├── generated-code-tour.md       simple annotations of the public TypeScript
+├── sqlc-to-d1.md                general rules for how sqlc metadata maps to D1
 ├── runtime-and-errors.md        batches, sessions, values, errors, retry warning
 ├── compatibility.md             tested versions and D1 evidence
 └── troubleshooting.md           generation diagnostics and common failures
@@ -45,9 +44,9 @@ docs/
 
 Add `docs/migrating.md` only when a release has an actual migration to explain. Release-specific versions, hashes, compatibility evidence, and changes also live in that GitHub release.
 
-**Feels like:** a short on-ramp with progressively deeper layers.
+**Feels like:** a complete fast path in the README with progressively deeper guides.
 
-**Strength:** experienced users can install without reading a lesson. The generated-code tour gives maintainers one stable teaching path through the TypeScript mechanisms. Reference facts have obvious homes.
+**Strength:** experienced users reach a working query without following another page. The code tour teaches only the generated public contract. `sqlc-to-d1.md` explains this Plugin's general translation rules while linking to sqlc for sqlc syntax and reference material.
 
 **Cost:** concepts link across several small pages, so navigation and terminology must stay consistent.
 
@@ -77,7 +76,7 @@ handbook/
 |---|---:|---:|---:|
 | Install quickly | Good | **Best** | Weak |
 | Learn the TypeScript | Fair | **Good** | Best |
-| Look up one command | Weak | **Best** | Fair |
+| Understand sqlc-to-D1 mapping | Weak | **Best** | Fair |
 | Keep release facts current | Weak | **Good** | Fair |
 | Avoid duplicating explanations | Weak | **Good** | Good |
 
@@ -85,7 +84,7 @@ handbook/
 
 # Rendered sample of structure B
 
-The following is a rough composite. Headings marked with a file name would live in separate documents.
+The following is a rough composite. The README contains the complete first-use path; headings marked with another file name would live in separate guides.
 
 ## `README.md`
 
@@ -139,7 +138,24 @@ generated/
 └── users_sql.ts
 ```
 
-### Use one generated query
+### Add one query
+
+```sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  nickname TEXT
+);
+
+-- name: GetUser :one
+SELECT id, name, nickname
+FROM users
+WHERE id = sqlc.arg(id);
+```
+
+`:one` and `sqlc.arg` are sqlc features. The Plugin uses sqlc's analyzed metadata to generate the D1-facing TypeScript shown below.
+
+Run `sqlc generate`, then execute the generated query:
 
 ```ts
 import { DB } from "./generated/runtime";
@@ -158,66 +174,11 @@ export default {
 
 `getUser(...)` builds a **query descriptor**. It does not contact D1. `db.execute(...)` executes that descriptor and returns the mapped result.
 
-- Continue with [Getting started](docs/getting-started.md).
-- Understand the output in [Generated-code tour](docs/generated-code-tour.md).
-- Look up commands and macros in [Query reference](docs/query-reference.md).
+The returned value has type `GetUserRow | null`. A runnable version belongs in `examples/d1-worker/`; the README links there instead of maintaining a second full application.
 
----
-
-## `docs/getting-started.md`
-
-# Getting started
-
-This page makes one query work end to end. It assumes the reader already knows how to create a Worker with a D1 binding.
-
-### 1. Describe the table
-
-```sql
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY NOT NULL,
-  name TEXT NOT NULL,
-  nickname TEXT
-);
-```
-
-### 2. Name the query
-
-```sql
--- name: GetUser :one
-SELECT id, name, nickname
-FROM users
-WHERE id = sqlc.arg(id);
-```
-
-`:one` means “return the first row, or `null` when there is no row.” `sqlc.arg(id)` gives the generated argument its name.
-
-### 3. Generate TypeScript
-
-```sh
-sqlc generate
-```
-
-### 4. Execute the query descriptor
-
-```ts
-const db = new DB(env.DB);
-const query = getUser({ id: 42 }); // Builds data. No D1 call yet.
-const user = await db.execute(query); // Calls D1 here.
-
-if (user === null) {
-  return new Response("Not found", { status: 404 });
-}
-
-return Response.json(user);
-```
-
-TypeScript knows the result is:
-
-```ts
-GetUserRow | null
-```
-
-A runnable version belongs in `examples/d1-worker/`. The guide should link to that example rather than grow a second, slightly different application.
+- Learn the public generated API in [Generated-code tour](docs/generated-code-tour.md).
+- Learn the Plugin's translation rules in [How sqlc maps to D1](docs/sqlc-to-d1.md).
+- Look up operational behavior in [Runtime and errors](docs/runtime-and-errors.md).
 
 ---
 
@@ -225,7 +186,7 @@ A runnable version belongs in `examples/d1-worker/`. The guide should link to th
 
 # Generated-code tour
 
-This page explains the generated TypeScript in plain language. You do not need to edit generated files.
+This page explains the public generated TypeScript in plain language. It documents only public types and calls; it does not show private descriptor fields, row-mapper code, or other generated internals. You do not need to edit generated files.
 
 The tour uses one query all the way through:
 
@@ -263,18 +224,7 @@ const query = getUser({ id: 42 }); // [1]
 
 1. The factory checks the argument and returns an immutable **query descriptor**. It does not execute SQL.
 
-Conceptually, the private descriptor contains:
-
-```ts
-{
-  kind: "one",                              // How to shape the result.
-  sql: "SELECT id, name FROM users ...",   // Exact SQL data, safely escaped.
-  params: [42],                             // A snapshot of bind values.
-  parse: parseGetUserRow,                   // The private row mapper.
-}
-```
-
-This object is a teaching picture, not a public type. Application code creates descriptors only through generated factories and should not inspect their private shape.
+The descriptor is opaque: application code creates it through a generated factory and passes it to an executor. Human documentation does not show or describe its private fields.
 
 Why separate construction from execution? The same checked descriptor can be executed directly, included in a heterogeneous batch, or executed through a session.
 
@@ -290,26 +240,15 @@ const user = await db.execute(query);        // [2]
 
 The executor does not become a repository object with methods such as `db.getUser()`. Generated query factories stay in query modules; execution stays in the shared runtime.
 
-### 4. Row mapping
-
-Suppose D1 returns:
+### 4. Checked results
 
 ```ts
-{ id: 42, name: "Ada", ignored_extra_field: true }
+const user = await db.execute(getUser({ id: 42 })); // [1]
 ```
 
-The private mapper:
+1. The public result is a fresh `GetUserRow | null`. The Plugin checks required fields and their expected SQLite/D1 value shapes before returning it. If stored data contradicts the generated contract, execution rejects with `QueryResultError` instead of returning a value that violates the TypeScript type.
 
-1. requires `id` and `name` to exist;
-2. checks that `id` is a safe integer and `name` is a string;
-3. ignores unexpected physical fields;
-4. creates a fresh public object:
-
-```ts
-{ id: 42, name: "Ada" }
-```
-
-This is **row mapping**, not a TypeScript type assertion. Bad stored data can therefore produce a `QueryResultError` instead of silently violating the generated type.
+The private checking code is intentionally absent from human documentation; only its observable guarantee and errors are public.
 
 ### 5. Result types come from the command
 
@@ -319,7 +258,7 @@ await db.execute(listUsers());         // ListUsersRow[]    (:many)
 await db.execute(deleteUser({ id: 42 })); // void           (:exec)
 ```
 
-The query reference holds the complete six-command table. The tour shows only enough examples to explain the mechanism.
+[How sqlc maps to D1](sqlc-to-d1.md) explains the general result-shaping rule and the Plugin's supported compatibility surface. It links to sqlc's documentation for command syntax.
 
 ### 6. A heterogeneous batch
 
@@ -359,48 +298,38 @@ A `QueryResultError` after a write does not mean the write rolled back. Do not r
 ### End-of-tour mental model
 
 ```text
-sqlc metadata
+sqlc-analyzed query
     ↓ generation
-public types + query factory + private mapper
+public types + query factory
     ↓ factory call (synchronous validation)
-immutable query descriptor
+opaque query descriptor
     ↓ DB or session executor
-native D1 result
-    ↓ checked row mapping
 public typed result
 ```
 
 ---
 
-## `docs/query-reference.md`
+## `docs/sqlc-to-d1.md`
 
-# Query reference
+# How sqlc maps to D1
 
-Keep lookup facts compact. Link to focused examples instead of reteaching the generated-code model.
+This is not a sqlc query reference. Link to sqlc's documentation for command and macro syntax. This page explains the general translation performed by this Plugin:
 
-### Commands
+1. **sqlc owns analysis.** The Plugin consumes sqlc's SQLite query, parameter, column, command, nullability, and macro metadata; it does not parse SQL again.
+2. **Commands choose the public result shape.** Row commands become a row-or-null or row-array result. Execution commands become `void`, affected rows, last inserted ID, or the complete native D1 result according to the sqlc annotation.
+3. **Parameter metadata becomes checked factory input.** Named and nullable parameters become required object properties; slices become immutable array inputs. `null` is a SQL value, while omission and `undefined` are not.
+4. **Column metadata becomes checked public rows.** The Plugin maps SQLite/D1 storage values into generated TypeScript values, preserves sqlc nullability, and builds nested objects for embedded results.
+5. **The compatibility surface is explicit.** The six supported ordinary SQLite commands and four supported macros are named here so consumers know the boundary, but their syntax is not retaught. Unknown commands and ambiguous metadata fail generation rather than being approximated.
 
-| Command | `execute(...)` result |
-|---|---|
-| `:one` | generated row or `null` |
-| `:many` | generated row array |
-| `:exec` | `void` |
-| `:execrows` | affected-row count |
-| `:execlastid` | last inserted safe integer ID |
-| `:execresult` | complete native `D1Result<Record<string, unknown>>` |
+Use small contrastive examples to teach each rule:
 
-Unsupported commands fail generation; the Plugin never silently approximates or omits them.
+```ts
+getUser({ id: 42 });                  // required scalar
+renameUser({ nickname: null });       // required nullable value
+getUsers({ ids: [1, 2, 3] });         // slice
+```
 
-### Macros
-
-| Macro | Public shape | Important edge |
-|---|---|---|
-| `sqlc.arg(name)` | required scalar property | repeated uses remain one property |
-| `sqlc.narg(name)` | required `T | null` property | `undefined` and omission are invalid |
-| `sqlc.slice(name)` | `ReadonlyArray<T>` property | an empty slice throws synchronously |
-| `sqlc.embed(table)` | nested table-shaped row object | outer-join embeds stay objects with nullable fields |
-
-Each row links to one minimal SQL → generated type → invocation example.
+Then summarize the Plugin-specific outcomes in compact tables, with links out to sqlc for syntax and links inward to runtime behavior for D1 value checks, errors, batching, and sessions.
 
 ---
 
@@ -465,8 +394,8 @@ Each entry has:
 
 - One canonical runnable Worker lives in `examples/d1-worker/`.
 - README and guides use small excerpts; they link to the canonical example for the full application.
-- The six-command and four-macro tables have one canonical home in `query-reference.md`.
-- The generated-code tour owns the conceptual descriptor picture and execution pipeline.
+- sqlc owns command and macro syntax documentation; `sqlc-to-d1.md` owns only this Plugin's general translation rules and explicit compatibility boundary.
+- The generated-code tour shows only public generated types and calls. Private descriptor and row-mapper machinery stays undocumented.
 - Release-specific artifact hashes and tested versions come from the GitHub release; evergreen docs explain where to find them.
 - Generated files remain marked “do not edit”; annotations are shown around excerpts, not added to generated output.
 - A migration page exists only when an actual released API change needs one.
@@ -475,21 +404,13 @@ Each entry has:
 
 ## Review questions
 
-### Q1 — Which information architecture should the release use?
+### Q1 — Which information architecture should the release use? — selected
 
-- **A:** one linear README;
-- **B:** a fast-path README plus getting-started guide, generated-code tour, and focused references;
-- **C:** a generated-code-first handbook.
+**Selected:** a fast-path README containing the complete getting-started path, plus a public generated-code tour and focused guides. Example: an experienced user can copy the YAML, define one query, and run the first Worker snippet without leaving the README.
 
-**Recommendation: B.** Example: an experienced user can copy the YAML and first Worker snippet from the README, while a maintainer follows the separate `sqlc metadata → descriptor → executor → row mapper` tour.
+### Q2 — How should the generated-code walkthrough annotate TypeScript? — selected
 
-### Q2 — How should the generated-code walkthrough annotate TypeScript?
-
-- **A:** comments on nearly every line;
-- **B:** valid code excerpts with a few numbered markers and plain-language notes below;
-- **C:** prose first, followed by unannotated code.
-
-**Recommendation: B.** Example:
+**Selected:** valid code excerpts with a few numbered markers and plain-language notes below. Example:
 
 ```ts
 const query = getUser({ id: 42 }); // [1]
@@ -499,18 +420,10 @@ const user = await db.execute(query); // [2]
 1. Builds and checks a descriptor; no D1 call yet.
 2. Calls D1 and maps the native result.
 
-### Q3 — What should the runnable example optimize for?
+### Q3 — What should the runnable example optimize for? — selected
 
-- **A:** one small progressive `users` example used throughout the docs;
-- **B:** a feature matrix with one isolated example per command, macro, batch, and session;
-- **C:** a realistic multi-table application that demonstrates everything together.
+**Selected:** one small progressive `users` example for the teaching path, with focused fixtures for exhaustive verification. Example: `GetUser`, `ListUsers`, and `RenameUser` teach result shapes, batching, sessions, nullability, and errors without making readers learn a product domain.
 
-**Recommendation: A for the teaching path, with focused fixtures for exhaustive verification.** Example: `GetUser`, `ListUsers`, and `RenameUser` are enough to teach `:one`, `:many`, `:execrows`, batching, sessions, nullability, and errors without making readers learn a product domain.
+### Q4 — How much private generated machinery should human docs show? — selected
 
-### Q4 — How much private generated machinery should human docs show?
-
-- **A:** none; document only public calls;
-- **B:** one clearly labelled conceptual descriptor plus the mapping pipeline;
-- **C:** exact generated private interfaces and mapper implementations.
-
-**Recommendation: B.** Example: show `{ kind, sql, params, parse }` as a teaching picture and state that its exact representation is private. This explains why factories, batches, and checked row mapping work without turning private code into an accidental compatibility promise.
+**Selected:** none; document only public types, calls, guarantees, and errors. Example: say that `getUser({ id: 42 })` returns an opaque query descriptor which `db.execute(...)` accepts, without showing `{ kind, sql, params, parse }` or private row-mapper code.
