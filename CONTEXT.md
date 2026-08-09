@@ -43,3 +43,19 @@ _Avoid_: Type assertion
 **Release gate**:
 The explicit evidence and checks required before publishing a plugin release as trustworthy for experienced sqlc and Cloudflare users.
 _Avoid_: Done, production-ready
+
+**Publication candidate**:
+The exact plugin WASM bytes selected for a version and evaluated by the release gate before becoming publicly advertised.
+_Avoid_: Rebuild, latest build
+
+**Published artifact**:
+A publication candidate made available at its permanent versioned URL and identified by its SHA-256.
+_Avoid_: Latest artifact, replaceable release
+
+**Version key**:
+The permanent object-storage key assigned to one plugin version; retries may confirm its bytes but never replace them.
+_Avoid_: Latest key, release channel
+
+**Release record**:
+The public metadata that connects a version and source commit to the published artifact's URL and SHA-256.
+_Avoid_: Artifact, changelog alone
