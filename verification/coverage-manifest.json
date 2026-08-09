@@ -8,6 +8,7 @@
     { "id": "generator/unknown-protobuf-field", "layer": "generator" },
     { "id": "generator/sqlc-compatibility", "layer": "generator" },
     { "id": "generator/query-boundary", "layer": "generator" },
+    { "id": "generator/emission-readiness", "layer": "generator" },
     { "id": "generator/diagnostic-aggregation", "layer": "generator" },
     { "id": "generator/no-query-runtime", "layer": "generator" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
@@ -24,7 +25,7 @@
     {
       "id": "generator-boundary-validation",
       "primary": "generator/query-boundary",
-      "smoke": ["generator/options-boundary", "generator/protocol-boundary", "generator/sqlc-compatibility"]
+      "smoke": ["generator/options-boundary", "generator/protocol-boundary", "generator/sqlc-compatibility", "generator/emission-readiness"]
     },
     {
       "id": "stable-generator-diagnostics",

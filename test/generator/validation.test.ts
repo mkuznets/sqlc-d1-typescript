@@ -33,9 +33,9 @@ test("plugin options default to the Workers binding and are strict", () => {
   const cases: Array<[Uint8Array, string]> = [
     [new Uint8Array([0xff]), "OPTIONS/INVALID_UTF8"],
     [encoder.encode("{"), "OPTIONS/MALFORMED_JSON"],
-    [encoder.encode("null"), "OPTIONS/NON_OBJECT"],
+    ...["null", "[]", '"workers"', "1", "true"].map((json) => [encoder.encode(json), "OPTIONS/NON_OBJECT"] as [Uint8Array, string]),
     [encoder.encode('{"interfaces":"workers"}'), "OPTIONS/UNKNOWN_OPTION"],
-    [encoder.encode('{"interface":"http"}'), "OPTIONS/UNSUPPORTED_INTERFACE"],
+    ...['"http"', "null", "false", "1", "[]", "{}"].map((json) => [encoder.encode(`{"interface":${json}}`), "OPTIONS/UNSUPPORTED_INTERFACE"] as [Uint8Array, string]),
   ];
   for (const [pluginOptions, expected] of cases) {
     assert.deepEqual(reasons(request({ pluginOptions: Uint8Array.from(pluginOptions) })), [expected]);
@@ -48,20 +48,22 @@ test("compatibility validation implements the sqlc semantic-version floor and wa
   for (const sqlcVersion of ["v1.18.0", "1.18.0", "v1.31.1", "v1.31.1+build.7"]) {
     assert.equal(validateGenerateRequest(request({ sqlcVersion })).warnings.length, 0);
   }
-  for (const sqlcVersion of ["1.18", "1.018.0", "1.18.0-"]) {
+  for (const sqlcVersion of ["1.18", "1.018.0", "1.18.0-", "1.18.0-01", "1.18.0+bad..build"]) {
     assert.deepEqual(reasons(request({ sqlcVersion })), ["COMPATIBILITY/MALFORMED_SQLC_VERSION"]);
   }
   for (const sqlcVersion of ["v1.17.9", "v1.18.0-rc.1"]) {
     assert.deepEqual(reasons(request({ sqlcVersion })), ["COMPATIBILITY/UNSUPPORTED_SQLC_VERSION"]);
   }
-  assert.deepEqual(validateGenerateRequest(request({ sqlcVersion: "999999999999999999999.0.0" })).warnings.map(({ reason }) => reason), ["UNTESTED_SQLC_VERSION"]);
+  for (const sqlcVersion of ["v1.31.2", "v1.32.0-rc.1", "999999999999999999999.0.0"]) {
+    assert.deepEqual(validateGenerateRequest(request({ sqlcVersion })).warnings.map(({ reason }) => reason), ["UNTESTED_SQLC_VERSION"]);
+  }
 });
 
 test("query validation aggregates independent boundary findings", () => {
   const query = validQuery({
     filename: "",
     name: "",
-    cmd: ":copyfrom",
+    cmd: "",
     text: "",
     params: [new Parameter({ number: 0 })],
     columns: [],
@@ -69,14 +71,68 @@ test("query validation aggregates independent boundary findings", () => {
   assert.deepEqual(reasons(request({ queries: [query] })), [
     "QUERY/MISSING_FILENAME",
     "QUERY/MISSING_NAME",
+    "QUERY/MISSING_COMMAND",
     "QUERY/MISSING_SQL",
-    "QUERY/UNSUPPORTED_COMMAND",
     "QUERY/MISSING_PARAMETER_COLUMN",
     "QUERY/INVALID_BIND_NUMBER",
   ]);
 });
 
+test("repeated bind numbers compare every semantic column field but ignore comments", () => {
+  const baseData = { name: "id", notNull: true, type: identifier("integer") };
+  const changedColumns = [
+    new Column({ ...baseData, name: "other" }),
+    new Column({ ...baseData, notNull: false }),
+    new Column({ ...baseData, isArray: true }),
+    new Column({ ...baseData, length: 1 }),
+    new Column({ ...baseData, isNamedParam: true }),
+    new Column({ ...baseData, isFuncCall: true }),
+    new Column({ ...baseData, scope: "scope" }),
+    new Column({ ...baseData, table: identifier("table") }),
+    new Column({ ...baseData, tableAlias: "alias" }),
+    new Column({ ...baseData, type: identifier("text") }),
+    new Column({ ...baseData, isSqlcSlice: true }),
+    new Column({ ...baseData, embedTable: identifier("users") }),
+    new Column({ ...baseData, originalName: "original" }),
+    new Column({ ...baseData, unsigned: true }),
+    new Column({ ...baseData, arrayDims: 1 }),
+  ];
+  for (const changed of changedColumns) {
+    const query = validQuery({
+      cmd: ":exec",
+      columns: [],
+      text: changed.isSqlcSlice ? "DELETE /*SLICE:id*/?" : "DELETE",
+      params: [new Parameter({ number: 1, column: new Column(baseData) }), new Parameter({ number: 1, column: changed })],
+    });
+    assert.ok(reasons(request({ queries: [query] })).includes("QUERY/CONFLICTING_BIND_NUMBER"));
+  }
+  const commentsOnly = validQuery({
+    cmd: ":exec",
+    columns: [],
+    params: [
+      new Parameter({ number: 1, column: new Column({ ...baseData, comment: "first" }) }),
+      new Parameter({ number: 1, column: new Column({ ...baseData, comment: "second" }) }),
+    ],
+  });
+  assert.deepEqual(reasons(request({ queries: [commentsOnly] })), []);
+});
+
+test("slice validation suppresses SQL-dependent cascades and identifies duplicate marker locations", () => {
+  const slice = new Column({ name: "ids", type: identifier("integer"), isSqlcSlice: true });
+  const missingSql = validQuery({ cmd: ":exec", columns: [], text: "", params: [new Parameter({ number: 1, column: slice })] });
+  assert.deepEqual(reasons(request({ queries: [missingSql] })), ["QUERY/MISSING_SQL"]);
+
+  const duplicateMarkers = validQuery({
+    cmd: ":exec",
+    columns: [],
+    text: "DELETE /*SLICE:ids*/? OR /*SLICE:ids*/?",
+    params: [new Parameter({ number: 1, column: slice })],
+  });
+  assert.equal(reasons(request({ queries: [duplicateMarkers] })).filter((reason) => reason === "QUERY/SLICE_METADATA_MISMATCH").length, 2);
+});
+
 test("query metadata validates repeated binds, slices, embeds, result columns, and emission readiness", () => {
+  assert.deepEqual(reasons(request({ queries: [validQuery({ cmd: ":copyfrom", columns: [] })] })), ["QUERY/UNSUPPORTED_COMMAND"]);
   const id = column();
   const conflicting = column("other");
   assert.ok(reasons(request({ queries: [validQuery({ cmd: ":exec", columns: [], params: [new Parameter({ number: 1, column: id }), new Parameter({ number: 1, column: conflicting })] })] })).includes("QUERY/CONFLICTING_BIND_NUMBER"));

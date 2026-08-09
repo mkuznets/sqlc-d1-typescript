@@ -9,7 +9,6 @@ export const MINIMUM_SQLC_VERSION = "1.18.0";
 export const TESTED_SQLC_VERSION = "1.31.1";
 export const SUPPORTED_COMMANDS = [":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"] as const;
 
-type SupportedCommand = typeof SUPPORTED_COMMANDS[number];
 export interface ValidatedGeneration {
   request: GenerateRequest;
   options: { interface: "workers" };
@@ -200,14 +199,14 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
       diagnostics.push(error("QUERY", "MISSING_PARAMETER_COLUMN", "parameter column metadata is required", context({ fieldPath: `params[${parameterIndex}].column`, fieldIndex: parameterIndex })));
     }
     if (parameter.number <= 0) {
-      diagnostics.push(error("QUERY", "INVALID_BIND_NUMBER", `bind number ${parameter.number} must be positive`, context({ fieldPath: `params[${parameterIndex}].number`, fieldIndex: parameterIndex })));
+      diagnostics.push(error("QUERY", "INVALID_BIND_NUMBER", `bind number ${quoteDiagnosticValue(String(parameter.number))} must be positive`, context({ fieldPath: `params[${parameterIndex}].number`, fieldIndex: parameterIndex })));
     } else if (parameter.column) {
       const prior = priorBinds.get(parameter.number);
       if (prior && !columnsEquivalent(prior.column, parameter.column)) {
         diagnostics.push(error(
           "QUERY",
           "CONFLICTING_BIND_NUMBER",
-          `bind number ${parameter.number} has conflicting metadata at parameter positions ${prior.index + 1} and ${parameterIndex + 1}`,
+          `bind number ${quoteDiagnosticValue(String(parameter.number))} has conflicting metadata at parameter positions ${prior.index + 1} and ${parameterIndex + 1}`,
           context({ fieldPath: `params[${parameterIndex}]`, fieldIndex: parameterIndex }),
         ));
       } else if (!prior) {
@@ -216,7 +215,7 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     }
   });
 
-  validateSlices(query, queryIndex, diagnostics);
+  if (query.text) validateSlices(query, queryIndex, diagnostics);
   validateEmbeds(query, queryIndex, diagnostics);
 
   if ((query.cmd === ":one" || query.cmd === ":many") && query.columns.length === 0) {
@@ -267,22 +266,23 @@ function validateSlices(query: Query, queryIndex: number, diagnostics: Diagnosti
     }
     const matchingMarkers = markers.filter((marker) => marker.name === slice.column.name).length;
     const matchingSlices = slices.filter((candidate) => candidate.column.name === slice.column.name).length;
-    if (matchingMarkers !== 1 || matchingSlices !== 1) {
+    if (matchingMarkers === 0 || matchingSlices !== 1) {
       diagnostics.push(error(
         "QUERY",
         "SLICE_METADATA_MISMATCH",
-        `slice parameter ${quoteDiagnosticValue(slice.column.name)} must map to exactly one SQL slice marker`,
+        `slice parameter ${quoteDiagnosticValue(slice.column.name)} must map unambiguously to a SQL slice marker`,
         { ...base, fieldPath: `params[${slice.index}].column.isSqlcSlice`, fieldIndex: slice.index },
       ));
     }
   }
   for (const marker of markers) {
     const matchingSlices = slices.filter((slice) => slice.column.name === marker.name).length;
-    if (matchingSlices !== 1) {
+    const matchingMarkers = markers.filter((candidate) => candidate.name === marker.name).length;
+    if (matchingSlices !== 1 || matchingMarkers !== 1) {
       diagnostics.push(error(
         "QUERY",
         "SLICE_METADATA_MISMATCH",
-        `SQL slice marker ${quoteDiagnosticValue(marker.name)} must map to exactly one slice parameter`,
+        `SQL slice marker ${quoteDiagnosticValue(marker.name)} must map unambiguously to one slice parameter`,
         { ...base, fieldPath: `sliceMarkers[${marker.index}]`, fieldIndex: marker.index },
       ));
     }

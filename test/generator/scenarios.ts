@@ -148,6 +148,18 @@ const queryBoundary: GeneratorScenario = {
   },
 };
 
+const emissionReadiness: GeneratorScenario = {
+  id: "generator/emission-readiness",
+  createInput: () => queryInput(validRequest({ queries: [
+    new Query({ filename: "queries.sql", name: "DeleteUsers", cmd: ":execrows", text: "DELETE FROM users", columns: [column("id", "integer")] }),
+  ] })),
+  assert(outcome) {
+    assertFailure(outcome);
+    assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_COMMAND\]/);
+    assert.doesNotMatch(outcome.diagnostics, /\[QUERY\/UNSUPPORTED_COMMAND\]/);
+  },
+};
+
 const diagnosticAggregation: GeneratorScenario = {
   id: "generator/diagnostic-aggregation",
   createInput: () => queryInput(validRequest({
@@ -191,6 +203,7 @@ export const generatorScenarios = [
   unknownProtobufField,
   compatibility,
   queryBoundary,
+  emissionReadiness,
   diagnosticAggregation,
   noQueryRuntime,
 ];
