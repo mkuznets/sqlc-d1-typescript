@@ -5,9 +5,11 @@
   "author": "Max Kuznetsov",
   "license": "MIT",
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260214.0",
+    "@types/node": "^24.13.3",
+    "ajv": "^8.20.0",
     "esbuild": "^0.27.3",
-    "typescript": "^5.2.2",
-    "@cloudflare/workers-types": "^4.20260214.0"
+    "typescript": "^5.2.2"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^1.4.2",

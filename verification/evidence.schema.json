@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/mkuznets/sqlc-d1-typescript/verification/evidence.schema.json",
+  "title": "sqlc-d1-typescript release verification evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "candidateSha256", "tools", "configuration", "scenarios", "cleanup"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "candidateSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "sqlc", "typescript"],
+      "properties": {
+        "node": { "type": "string", "minLength": 1 },
+        "sqlc": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "typescript": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibilityFlags"],
+      "properties": {
+        "compatibilityFlags": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$" },
+          "status": { "enum": ["passed", "failed", "skipped"] }
+        }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["confirmed", "failed"] }
+      }
+    }
+  }
+}

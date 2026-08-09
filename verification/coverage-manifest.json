@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    { "id": "generator/current-commands", "layer": "generator" },
+    { "id": "generator/file-grouping", "layer": "generator" },
+    { "id": "generator/duplicate-result-column", "layer": "generator" },
+    { "id": "candidate/digest-validation", "layer": "candidate" },
+    { "id": "candidate/retained-bytes", "layer": "candidate" },
+    { "id": "verification/coverage-manifest", "layer": "verification" },
+    { "id": "verification/evidence-envelope", "layer": "verification" }
+  ],
+  "promises": [
+    {
+      "id": "pure-generator-boundary",
+      "primary": "generator/current-commands",
+      "smoke": ["generator/file-grouping", "generator/duplicate-result-column"]
+    },
+    {
+      "id": "exact-candidate-execution",
+      "primary": "candidate/retained-bytes",
+      "smoke": ["generator/current-commands", "candidate/digest-validation"]
+    },
+    {
+      "id": "verification-contracts",
+      "primary": "verification/coverage-manifest",
+      "smoke": ["verification/evidence-envelope"]
+    }
+  ]
+}
