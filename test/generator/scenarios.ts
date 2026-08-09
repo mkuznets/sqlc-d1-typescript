@@ -10,6 +10,7 @@ import {
   Settings,
 } from "../../src/gen/plugin/codegen_pb";
 import { GeneratorHarness, GeneratorOutcome } from "./harness";
+import { compileGeneratedResponse } from "./compile";
 
 export type GeneratorScenarioInput =
   | { kind: "request"; request: GenerateRequest }
@@ -18,7 +19,8 @@ export type GeneratorScenarioInput =
 export interface GeneratorScenario {
   id: string;
   createInput(): GeneratorScenarioInput;
-  assert(outcome: GeneratorOutcome): void;
+  assert(outcome: GeneratorOutcome): void | Promise<void>;
+  run?(harness: GeneratorHarness): Promise<void>;
 }
 
 const encoder = new TextEncoder();
@@ -60,9 +62,9 @@ const currentCommands: GeneratorScenario = {
     assert.equal(outcome.diagnostics, "");
     assert.ok(outcome.stdout.length > 0);
     assert.ok(outcome.response);
-    assert.equal(outcome.response.files.length, 2);
-    assert.deepEqual(outcome.response.files.map((file) => file.name), ["queries_sql.ts", "audit_sql.ts"]);
-    const actual = new TextDecoder().decode(outcome.response.files[0].contents);
+    assert.equal(outcome.response.files.length, 3);
+    assert.deepEqual(outcome.response.files.map((file) => file.name), ["runtime.ts", "audit_sql.ts", "queries_sql.ts"]);
+    const actual = new TextDecoder().decode(outcome.response.files[2].contents);
     const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/current-output.ts.txt"), "utf8");
     assert.equal(actual, expected);
   },
@@ -77,7 +79,7 @@ const fileGrouping: GeneratorScenario = {
   ] })),
   assert(outcome) {
     assert.equal(outcome.exitCode, 0, outcome.diagnostics);
-    assert.deepEqual(outcome.response?.files.map((file) => file.name), ["one_sql.ts", "two_sql.ts"]);
+    assert.deepEqual(outcome.response?.files.map((file) => file.name), ["runtime.ts", "one_sql.ts", "two_sql.ts"]);
   },
 };
 
@@ -183,6 +185,147 @@ const diagnosticAggregation: GeneratorScenario = {
   },
 };
 
+export function createSafeEmissionRequest(): GenerateRequest {
+  const hostileSql = "SELECT '\"\\\\` ${notSource}' AS user_id\r\n-- \0\u2028\u2029";
+  const repeated = column("default", "text");
+  return validRequest({ queries: [
+    new Query({ filename: "z.root.sql", name: "GetURL", cmd: ":one", text: hostileSql, params: [parameter(1, repeated), parameter(1, repeated), parameter(2, column("", "text"))], columns: [column("user_id", "text"), column("userID", "text"), column("USER_ID", "text"), column("", "text")] }),
+    new Query({ filename: "admin/a.b.sql", name: "CreateItem", cmd: ":one", text: "INSERT RETURNING", columns: [column("default", "text")], insertIntoTable: new Identifier({ name: "items" }) }),
+    new Query({ filename: "admin/a.b.sql", name: "ListItems", cmd: ":many", text: "SELECT", columns: [column("created_at_2", "text")] }),
+    new Query({ filename: "deep/audit.log.sql", name: "ClearLog", cmd: ":exec", text: "DELETE" }),
+  ] });
+}
+
+const safeEmission: GeneratorScenario = {
+  id: "generator/safe-emission",
+  createInput: () => queryInput(createSafeEmissionRequest()),
+  async assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.equal(outcome.diagnostics, "");
+    assert.ok(outcome.response);
+    assert.deepEqual(outcome.response.files.map((file) => file.name), ["runtime.ts", "admin/a_b_sql.ts", "deep/audit_log_sql.ts", "z_root_sql.ts"]);
+    const sources = new Map(outcome.response.files.map((file) => [file.name, new TextDecoder().decode(file.contents)]));
+    assert.match(sources.get("admin/a_b_sql.ts")!, /from "\.\.\/runtime"/);
+    assert.match(sources.get("deep/audit_log_sql.ts")!, /from "\.\.\/runtime"/);
+    assert.match(sources.get("z_root_sql.ts")!, /import type \{ OneQuery \} from "\.\/runtime"/);
+    assert.match(sources.get("z_root_sql.ts")!, /"userId_2"/);
+    assert.match(sources.get("z_root_sql.ts")!, /"userId_3"/);
+    assert.match(sources.get("z_root_sql.ts")!, /args\["default"\]/);
+    assert.match(sources.get("z_root_sql.ts")!, /args\["column3"\]/);
+    assert.match(sources.get("z_root_sql.ts")!, /"column4": string/);
+    const sqlLiteral = /const getURLQuery = (.*);/.exec(sources.get("z_root_sql.ts")!)?.[1];
+    assert.ok(sqlLiteral);
+    assert.equal(JSON.parse(sqlLiteral), createSafeEmissionRequest().queries[0].text);
+    assert.match(sqlLiteral, /\\u2028/);
+    assert.match(sqlLiteral, /\\u2029/);
+    assert.doesNotMatch(sources.get("z_root_sql.ts")!, /-- name:/);
+    assert.doesNotMatch(sources.get("z_root_sql.ts")!, /class QueryExecutor/);
+    compileGeneratedResponse(outcome.response);
+  },
+};
+
+const typescriptFloor: GeneratorScenario = {
+  id: "generator/typescript-floor",
+  createInput: () => queryInput(createSafeEmissionRequest()),
+  assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.ok(outcome.response);
+    compileGeneratedResponse(outcome.response);
+  },
+};
+
+export function createEmissionDiagnosticsRequest(): GenerateRequest {
+  return validRequest({ sqlcVersion: "v1.32.0", queries: [
+    new Query({ filename: "a.b", name: "Class", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "a_b", name: "URLValue", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "a_b", name: "UrlValue", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "Foo.sql", name: "GoodOne", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "foo.sql", name: "GoodTwo", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "../bad.sql", name: "Bad-Name", cmd: ":one", text: "SELECT", params: [parameter(1, column("bad-name", "text"))], columns: [column("also-bad", "text")] }),
+    new Query({ filename: "/absolute.sql", name: "AbsolutePath", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "bad\\path.sql", name: "BackslashPath", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "CON.sql", name: "DevicePath", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "runtime", name: "RuntimeOwner", cmd: ":exec", text: "DELETE" }),
+  ] });
+}
+
+const expectedEmissionDiagnostics = String.raw`sqlc-d1-typescript: generation failed with 13 errors and 1 warning
+
+Errors:
+[EMISSION/INVALID_OUTPUT_PATH] file "../bad.sql", field "filename":
+source filename "../bad.sql" is not a safe portable relative path
+
+[EMISSION/INVALID_QUERY_NAME] file "../bad.sql", query "Bad-Name", field "name":
+query name "Bad-Name" must match "^[A-Z][A-Za-z0-9]*$"
+
+[EMISSION/INVALID_FIELD_NAME] file "../bad.sql", query "Bad-Name", field "columns[0].name", position 1:
+result name "also-bad" must match "^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$"; add a safe ASCII SQL alias
+
+[EMISSION/INVALID_FIELD_NAME] file "../bad.sql", query "Bad-Name", field "params[0].column.name", position 1:
+argument name "bad-name" must match "^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$"
+
+[EMISSION/INVALID_OUTPUT_PATH] file "/absolute.sql", field "filename":
+source filename "/absolute.sql" is not a safe portable relative path
+
+[EMISSION/INVALID_OUTPUT_PATH] file "CON.sql", field "filename":
+source filename "CON.sql" is not a safe portable relative path
+
+[EMISSION/RESERVED_DECLARATION] file "a.b", query "Class", field "name":
+query "Class" derives reserved factory binding "class"
+
+[EMISSION/OUTPUT_PATH_COLLISION] file "a_b", field "filename":
+source files "a.b" and "a_b" both derive output path "a_b.ts"
+
+[EMISSION/DECLARATION_COLLISION] file "a_b", query "UrlValue", field "name":
+factory for query "URLValue" and factory for query "UrlValue" both derive module binding "urlValue"; rename a query
+
+[EMISSION/DECLARATION_COLLISION] file "a_b", query "UrlValue", field "name":
+SQL constant for query "URLValue" and SQL constant for query "UrlValue" both derive module binding "urlValueQuery"; rename a query
+
+[EMISSION/INVALID_OUTPUT_PATH] file "bad\\path.sql", field "filename":
+source filename "bad\\path.sql" is not a safe portable relative path
+
+[EMISSION/PORTABLE_OUTPUT_PATH_COLLISION] file "foo.sql", field "filename":
+source files "Foo.sql" and "foo.sql" derive paths "Foo_sql.ts" and "foo_sql.ts", which collide on case-insensitive filesystems
+
+[EMISSION/OUTPUT_PATH_COLLISION] file "runtime", field "filename":
+source files "generated runtime" and "runtime" both derive output path "runtime.ts"
+
+Warnings:
+[COMPATIBILITY/UNTESTED_SQLC_VERSION]
+sqlc "v1.32.0" is newer than the tested ceiling v1.31.1; generation will continue
+`;
+
+const emissionDiagnostics: GeneratorScenario = {
+  id: "generator/emission-diagnostics",
+  createInput: () => queryInput(createEmissionDiagnosticsRequest()),
+  assert(outcome) {
+    assertFailure(outcome);
+    assert.equal(outcome.diagnostics, expectedEmissionDiagnostics);
+    assert.doesNotMatch(outcome.diagnostics, /SELECT|DELETE/);
+  },
+};
+
+const emissionDeterminism: GeneratorScenario = {
+  id: "generator/emission-determinism",
+  createInput: () => queryInput(createSafeEmissionRequest()),
+  assert() {},
+  async run(harness) {
+    const first = await harness.run(createSafeEmissionRequest());
+    const second = await harness.run(createSafeEmissionRequest());
+    assert.equal(first.exitCode, 0, first.diagnostics);
+    assert.deepEqual(first.stdout, second.stdout);
+    const failing = emissionDiagnostics.createInput();
+    assert.equal(failing.kind, "request");
+    const failureOne = await harness.run(failing.request);
+    const permuted = GenerateRequest.fromBinary(failing.request.toBinary());
+    permuted.queries.reverse();
+    const failureTwo = await harness.run(permuted);
+    assert.equal(failureOne.diagnostics, failureTwo.diagnostics);
+    assert.equal(failureOne.stdout.length, 0);
+  },
+};
+
 const noQueryRuntime: GeneratorScenario = {
   id: "generator/no-query-runtime",
   createInput: () => queryInput(validRequest({ pluginOptions: new Uint8Array() })),
@@ -205,12 +348,17 @@ export const generatorScenarios = [
   queryBoundary,
   emissionReadiness,
   diagnosticAggregation,
+  safeEmission,
+  typescriptFloor,
+  emissionDiagnostics,
+  emissionDeterminism,
   noQueryRuntime,
 ];
 
 export async function runScenario(harness: GeneratorHarness, scenario: GeneratorScenario): Promise<void> {
+  if (scenario.run) return scenario.run(harness);
   const input = scenario.createInput();
-  scenario.assert(await (input.kind === "request" ? harness.run(input.request) : harness.runBytes(input.bytes)));
+  await scenario.assert(await (input.kind === "request" ? harness.run(input.request) : harness.runBytes(input.bytes)));
 }
 
 function assertFailure(outcome: GeneratorOutcome): void {

@@ -1,34 +1,21 @@
-import {
-  GenerateRequest,
-  GenerateResponse,
-  Parameter,
-  Column,
-  File,
-  Query,
-} from "./gen/plugin/codegen_pb";
-
-import { argName, colName } from "./utils";
+import { Column, File, GenerateRequest, GenerateResponse } from "./gen/plugin/codegen_pb";
 import { Driver as D1Driver } from "./d1";
+import { planEmission, type QueryPlan } from "./emission-plan";
 import { validateGenerateRequest, type ValidatedGeneration } from "./validation";
 
 type Options = ValidatedGeneration["options"];
 
 interface Driver {
-  runtimeCode: () => string;
-  columnType: (c?: Column) => string;
-  parseFnDecl: (funcName: string, returnIface: string, columns: Column[]) => string;
-  execDecl: (funcName: string, queryName: string, argIface: string | undefined, params: Parameter[]) => string;
-  oneDecl: (funcName: string, queryName: string, argIface: string | undefined, returnIface: string, parseFnName: string, params: Parameter[]) => string;
-  oneInsertDecl: (funcName: string, queryName: string, argIface: string | undefined, returnIface: string, parseFnName: string, params: Parameter[]) => string;
-  manyDecl: (funcName: string, queryName: string, argIface: string | undefined, returnIface: string, parseFnName: string, params: Parameter[]) => string;
+  runtimeCode(): string;
+  columnType(column?: Column): string;
+  parseFnDecl(funcName: string, returnIface: string, fields: QueryPlan["rowFields"]): string;
+  factoryDecl(plan: QueryPlan): string;
 }
 
 function createDriver(options: Options): Driver {
   switch (options.interface) {
-    case "workers":
-      return new D1Driver();
+    case "workers": return new D1Driver();
   }
-  throw new Error(`unknown interface: ${options.interface}`);
 }
 
 export function generate(input: GenerateRequest): GenerateResponse {
@@ -36,98 +23,37 @@ export function generate(input: GenerateRequest): GenerateResponse {
 }
 
 export function generateValidated(validated: ValidatedGeneration): GenerateResponse {
-  const files: File[] = [];
   const driver = createDriver(validated.options);
-  const input = validated.request;
-
-  if (input.queries.length === 0) {
-    return new GenerateResponse({
-      files: [new File({ name: "runtime.ts", contents: new TextEncoder().encode(driver.runtimeCode()) })],
-    });
-  }
-
-  const queryMap = new Map<string, Query[]>();
-
-  for (const query of input.queries) {
-    const queries = queryMap.get(query.filename) ?? [];
-    queries.push(query);
-    queryMap.set(query.filename, queries);
-  }
-
-  for (const [filename, queries] of queryMap.entries()) {
+  const plan = planEmission(validated);
+  const encoder = new TextEncoder();
+  const files: File[] = [new File({
+    name: plan.runtime.outputPath,
+    contents: encoder.encode(driver.runtimeCode()),
+  })];
+  for (const module of plan.queryModules) {
     const nodes: string[] = [];
-
-    for (const query of queries) {
-      const lowerName = query.name[0].toLowerCase() + query.name.slice(1);
-      const textName = `${lowerName}Query`;
-      nodes.push(queryDecl(textName, `-- name: ${query.name} ${query.cmd}\n${query.text}`));
-
-      let argIface: string | undefined;
-      let returnIface: string | undefined;
-      let parseFnName: string | undefined;
-      if (query.params.length > 0) {
-        argIface = `${query.name}Args`;
-        nodes.push(argsDecl(argIface, driver, query.params));
-      }
-      if (query.columns.length > 0) {
-        returnIface = `${query.name}Row`;
-        parseFnName = `parse${query.name}Row`;
-        nodes.push(rowDecl(returnIface, driver, query.columns));
-        nodes.push(driver.parseFnDecl(parseFnName, returnIface, query.columns));
-      }
-
-      switch (query.cmd) {
-        case ":exec":
-          nodes.push(driver.execDecl(lowerName, textName, argIface, query.params));
-          break;
-        case ":one":
-          if (query.insertIntoTable) {
-            nodes.push(driver.oneInsertDecl(lowerName, textName, argIface, returnIface ?? "void", parseFnName ?? "", query.params));
-          } else {
-            nodes.push(driver.oneDecl(lowerName, textName, argIface, returnIface ?? "void", parseFnName ?? "", query.params));
-          }
-          break;
-        case ":many":
-          nodes.push(driver.manyDecl(lowerName, textName, argIface, returnIface ?? "void", parseFnName ?? "", query.params));
-          break;
-      }
+    for (const query of module.queries) {
+      nodes.push(`const ${query.sqlConstantName} = ${query.sqlLiteral};`);
+      if (query.argsTypeName) nodes.push(interfaceDecl(query.argsTypeName, query.argumentFields, driver));
+      if (query.rowTypeName) nodes.push(interfaceDecl(query.rowTypeName, query.rowFields, driver));
+      if (query.parserName && query.rowTypeName) nodes.push(driver.parseFnDecl(query.parserName, query.rowTypeName, query.rowFields));
+      nodes.push(driver.factoryDecl(query));
     }
-
-    files.push(new File({
-      name: `${filename.replace(".", "_")}.ts`,
-      contents: new TextEncoder().encode(printNode(driver, nodes)),
-    }));
+    let source = "// Code generated by sqlc. DO NOT EDIT.\n\n";
+    if (module.runtimeTypeImports.length > 0) {
+      source += `import type { ${module.runtimeTypeImports.join(", ")} } from ${module.runtimeSpecifierLiteral};\n\n`;
+    }
+    source += nodes.map((node) => `${node}\n`).join("\n");
+    files.push(new File({ name: module.outputPath, contents: encoder.encode(source) }));
   }
-
   return new GenerateResponse({ files });
 }
 
-function queryDecl(name: string, sql: string): string {
-  return `const ${name} = \`${sql}\`;`;
-}
-
-function argsDecl(name: string, driver: Driver, params: Parameter[]): string {
-  const fields = params.map((param, i) => {
-    const fieldName = argName(i, param.column);
-    const type = driver.columnType(param.column);
-    return `    ${fieldName}: ${type}`;
-  }).join(";\n");
-  return `export interface ${name} {\n${fields};\n}`;
-}
-
-function rowDecl(name: string, driver: Driver, columns: Column[]): string {
-  const fields = columns.map((column, i) => {
-    const fieldName = colName(i, column);
-    const type = driver.columnType(column);
-    return `    ${fieldName}: ${type}`;
-  }).join(";\n");
-  return `export interface ${name} {\n${fields};\n}`;
-}
-
-function printNode(driver: Driver, nodes: string[]): string {
-  let output = "// Code generated by sqlc. DO NOT EDIT.\n\n";
-  output += driver.runtimeCode();
-  output += "\n";
-  for (const node of nodes) output += `${node}\n\n`;
-  return output;
+function interfaceDecl(
+  name: string,
+  fields: readonly { publicNameLiteral: string; column: Column }[],
+  driver: Driver,
+): string {
+  const body = fields.map((field) => `    ${field.publicNameLiteral}: ${driver.columnType(field.column)}`).join(";\n");
+  return `export interface ${name} {\n${body};\n}`;
 }

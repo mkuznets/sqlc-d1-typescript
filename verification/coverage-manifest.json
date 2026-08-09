@@ -10,6 +10,10 @@
     { "id": "generator/query-boundary", "layer": "generator" },
     { "id": "generator/emission-readiness", "layer": "generator" },
     { "id": "generator/diagnostic-aggregation", "layer": "generator" },
+    { "id": "generator/safe-emission", "layer": "generator" },
+    { "id": "generator/emission-diagnostics", "layer": "generator" },
+    { "id": "generator/emission-determinism", "layer": "generator" },
+    { "id": "generator/typescript-floor", "layer": "generator" },
     { "id": "generator/no-query-runtime", "layer": "generator" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
@@ -31,6 +35,26 @@
       "id": "stable-generator-diagnostics",
       "primary": "generator/diagnostic-aggregation",
       "smoke": ["generator/options-boundary", "generator/query-boundary"]
+    },
+    {
+      "id": "safe-typescript-emission",
+      "primary": "generator/safe-emission",
+      "smoke": ["generator/current-commands"]
+    },
+    {
+      "id": "portable-output-allocation",
+      "primary": "generator/emission-diagnostics",
+      "smoke": ["generator/file-grouping"]
+    },
+    {
+      "id": "deterministic-emission",
+      "primary": "generator/emission-determinism",
+      "smoke": ["generator/diagnostic-aggregation"]
+    },
+    {
+      "id": "typescript-floor",
+      "primary": "generator/typescript-floor",
+      "smoke": ["generator/safe-emission"]
     },
     {
       "id": "exact-candidate-execution",

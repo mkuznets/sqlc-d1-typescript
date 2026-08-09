@@ -1,8 +1,3 @@
-// The imports are only needed to avoid warning about unknown types and make editing easier.
-// They are not part of the generated code.
-import {D1Database, D1PreparedStatement, D1Result} from "@cloudflare/workers-types"
-
-// --- RUNTIME BEGIN ---
 
 interface Executor {
     prepare(sql: string): D1PreparedStatement
@@ -110,5 +105,3 @@ export class DB extends QueryExecutor {
         return new QueryExecutor((this.executor as D1Database).withSession(constraint))
     }
 }
-
-// --- RUNTIME END ---

@@ -1,5 +1,5 @@
+import {DB} from "./runtime";
 import {
-	DB,
 	createFeed,
 	getFeedById,
 	getFeedUserById,

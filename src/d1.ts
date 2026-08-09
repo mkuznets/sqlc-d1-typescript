@@ -1,5 +1,5 @@
-import { Parameter, Column } from "./gen/plugin/codegen_pb";
-import { argName, colName } from "./utils";
+import { Column } from "./gen/plugin/codegen_pb";
+import type { QueryPlan, RowFieldPlan } from "./emission-plan";
 import { RUNTIME } from "./runtime";
 
 export class Driver {
@@ -8,9 +8,7 @@ export class Driver {
   }
 
   columnType(column?: Column): string {
-    if (column === undefined || column.type === undefined) {
-      return "any";
-    }
+    if (column === undefined || column.type === undefined) return "any";
 
     let typ = "any";
     switch (column.type.name) {
@@ -50,26 +48,13 @@ export class Driver {
         typ = "string";
         break;
     }
-
-    if (column.notNull) {
-      return typ;
-    }
-    return `${typ} | null`;
+    return column.notNull ? typ : `${typ} | null`;
   }
 
-  parseFnDecl(
-    funcName: string,
-    returnIface: string,
-    columns: Column[]
-  ): string {
-    const properties = columns
-      .map((column, i) => {
-        const name = colName(i, column);
-        const typ = this.columnType(column);
-        return `        ${name}: row["${column.name}"] as ${typ}`;
-      })
-      .join(",\n");
-
+  parseFnDecl(funcName: string, returnIface: string, fields: readonly RowFieldPlan[]): string {
+    const properties = fields.map((field) =>
+      `        ${field.publicNameLiteral}: row[${field.physicalKeyLiteral}] as ${this.columnType(field.column)}`,
+    ).join(",\n");
     return `function ${funcName}(row: Record<string, unknown>): ${returnIface} {
     return {
 ${properties}
@@ -77,76 +62,16 @@ ${properties}
 }`;
   }
 
-  execDecl(
-    funcName: string,
-    queryName: string,
-    argIface: string | undefined,
-    params: Parameter[]
-  ): string {
-    return this.factoryFnDecl(funcName, queryName, argIface, "ExecQuery", undefined, undefined, "exec", params);
-  }
-
-  oneDecl(
-    funcName: string,
-    queryName: string,
-    argIface: string | undefined,
-    returnIface: string,
-    parseFnName: string,
-    params: Parameter[]
-  ): string {
-    return this.factoryFnDecl(funcName, queryName, argIface, "OneQuery", returnIface, parseFnName, "one", params);
-  }
-
-  oneInsertDecl(
-    funcName: string,
-    queryName: string,
-    argIface: string | undefined,
-    returnIface: string,
-    parseFnName: string,
-    params: Parameter[]
-  ): string {
-    return this.factoryFnDecl(funcName, queryName, argIface, "OneInsertQuery", returnIface, parseFnName, "one-insert", params);
-  }
-
-  manyDecl(
-    funcName: string,
-    queryName: string,
-    argIface: string | undefined,
-    returnIface: string,
-    parseFnName: string,
-    params: Parameter[]
-  ): string {
-    return this.factoryFnDecl(funcName, queryName, argIface, "ManyQuery", returnIface, parseFnName, "many", params);
-  }
-
-  private factoryFnDecl(
-    funcName: string,
-    queryName: string,
-    argIface: string | undefined,
-    queryType: string,
-    returnIface: string | undefined,
-    parseFnName: string | undefined,
-    kind: string,
-    params: Parameter[]
-  ): string {
-    const fnParams = argIface ? `args: ${argIface}` : "";
-    const returnType = returnIface ? `${queryType}<${returnIface}>` : queryType;
-
-    const paramsList = params
-      .map((param, i) => `args.${argName(i, param.column)}`)
-      .join(", ");
-
-    const properties: string[] = [
-      `        kind: "${kind}"`,
-      `        sql: ${queryName}`,
-      `        params: [${paramsList}]`,
+  factoryDecl(plan: QueryPlan): string {
+    const fnParams = plan.argsTypeName ? `args: ${plan.argsTypeName}` : "";
+    const params = plan.bindAccesses.map((field) => `args[${field.publicNameLiteral}]`).join(", ");
+    const properties = [
+      `        kind: ${plan.kindLiteral}`,
+      `        sql: ${plan.sqlConstantName}`,
+      `        params: [${params}]`,
     ];
-
-    if (parseFnName) {
-      properties.push(`        parse: ${parseFnName}`);
-    }
-
-    return `export function ${funcName}(${fnParams}): ${returnType} {
+    if (plan.parserName) properties.push(`        parse: ${plan.parserName}`);
+    return `export function ${plan.factoryName}(${fnParams}): ${plan.factoryReturnType} {
     return {
 ${properties.join(",\n")}
     };
