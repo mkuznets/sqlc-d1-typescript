@@ -3,6 +3,7 @@
 bin
 build
 .pi-subagents/
+.scratch/
 
 # Created by https://www.toptal.com/developers/gitignore/api/node,windows,macos,linux,visualstudiocode,jetbrains
 # Edit at https://www.toptal.com/developers/gitignore?templates=node,windows,macos,linux,visualstudiocode,jetbrains
