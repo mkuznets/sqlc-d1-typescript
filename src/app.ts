@@ -1,9 +1,12 @@
 // @ts-expect-error javy/fs is provided by the Javy runtime.
 import { readFileSync, writeFileSync, STDIO } from "javy/fs";
 
-import { GenerateRequest } from "./gen/plugin/codegen_pb";
-import { generate } from "./generator";
+import { runPlugin } from "./plugin";
 
-const input = GenerateRequest.fromBinary(readFileSync(STDIO.Stdin));
-const output = generate(input);
-writeFileSync(STDIO.Stdout, new Uint8Array(output.toBinary()));
+const result = runPlugin(readFileSync(STDIO.Stdin));
+if (result.stderr) {
+  const diagnostic = result.ok ? result.stderr : result.stderr.slice(0, -1);
+  writeFileSync(STDIO.Stderr, new TextEncoder().encode(diagnostic));
+}
+if (!result.ok) throw "";
+writeFileSync(STDIO.Stdout, result.stdout);

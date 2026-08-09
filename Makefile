@@ -3,6 +3,9 @@ JAVY := ./bin/javy
 
 GENERATOR_SOURCES := \
 	src/app.ts \
+	src/plugin.ts \
+	src/validation.ts \
+	src/diagnostics.ts \
 	src/generator.ts \
 	src/d1.ts \
 	src/utils.ts \
@@ -41,8 +44,8 @@ generate: build/plugin.wasm examples/sqlc.dev.yaml
 .PHONY: test-generator
 test-generator: node_modules
 	npx tsc -p test/tsconfig.json --noEmit
-	node test/build.mjs test/generator/source.test.ts test/verification-contracts.test.ts
-	node --test test/dist/generator-source.test.cjs test/dist/verification-contracts.test.cjs
+	node test/build.mjs test/generator/diagnostics.test.ts test/generator/validation.test.ts test/generator/source.test.ts test/verification-contracts.test.ts
+	node --test test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs test/dist/generator-source.test.cjs test/dist/verification-contracts.test.cjs
 
 .PHONY: test-candidate
 test-candidate: node_modules

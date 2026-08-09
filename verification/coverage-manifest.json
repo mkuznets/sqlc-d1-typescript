@@ -3,7 +3,13 @@
   "scenarios": [
     { "id": "generator/current-commands", "layer": "generator" },
     { "id": "generator/file-grouping", "layer": "generator" },
-    { "id": "generator/duplicate-result-column", "layer": "generator" },
+    { "id": "generator/options-boundary", "layer": "generator" },
+    { "id": "generator/protocol-boundary", "layer": "generator" },
+    { "id": "generator/unknown-protobuf-field", "layer": "generator" },
+    { "id": "generator/sqlc-compatibility", "layer": "generator" },
+    { "id": "generator/query-boundary", "layer": "generator" },
+    { "id": "generator/diagnostic-aggregation", "layer": "generator" },
+    { "id": "generator/no-query-runtime", "layer": "generator" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
     { "id": "verification/coverage-manifest", "layer": "verification" },
@@ -13,7 +19,17 @@
     {
       "id": "pure-generator-boundary",
       "primary": "generator/current-commands",
-      "smoke": ["generator/file-grouping", "generator/duplicate-result-column"]
+      "smoke": ["generator/file-grouping", "generator/no-query-runtime"]
+    },
+    {
+      "id": "generator-boundary-validation",
+      "primary": "generator/query-boundary",
+      "smoke": ["generator/options-boundary", "generator/protocol-boundary", "generator/sqlc-compatibility"]
+    },
+    {
+      "id": "stable-generator-diagnostics",
+      "primary": "generator/diagnostic-aggregation",
+      "smoke": ["generator/options-boundary", "generator/query-boundary"]
     },
     {
       "id": "exact-candidate-execution",

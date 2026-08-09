@@ -35,14 +35,17 @@ export async function createCandidateHarness(
   return {
     candidateSha256: actualSha256,
     async run(request: GenerateRequest): Promise<GeneratorOutcome> {
-      return runCandidate(module, request);
+      return runCandidate(module, request.toBinary());
+    },
+    async runBytes(input: Uint8Array): Promise<GeneratorOutcome> {
+      return runCandidate(module, input);
     },
   };
 }
 
 async function runCandidate(
   module: WebAssembly.Module,
-  request: GenerateRequest,
+  input: Uint8Array,
 ): Promise<GeneratorOutcome> {
   const directory = mkdtempSync(join(tmpdir(), "sqlc-d1-candidate-"));
   const stdinPath = join(directory, "stdin");
@@ -51,7 +54,7 @@ async function runCandidate(
   const descriptors: number[] = [];
 
   try {
-    writeFileSync(stdinPath, request.toBinary());
+    writeFileSync(stdinPath, input);
     const stdin = openSync(stdinPath, "r");
     descriptors.push(stdin);
     const stdout = openSync(stdoutPath, "w+");
@@ -82,24 +85,28 @@ async function runCandidate(
 
     closeDescriptors(descriptors);
     const diagnostics = readTextIfPresent(stderrPath);
+    const stdoutBytes = Uint8Array.from(readFileSync(stdoutPath));
     if (exitCode !== 0) {
-      return { diagnostics: diagnostics || errorMessage(executionError), exitCode };
+      return { stdout: stdoutBytes, diagnostics: diagnostics || errorMessage(executionError), exitCode };
     }
 
     try {
       return {
-        response: GenerateResponse.fromBinary(readFileSync(stdoutPath)),
+        response: GenerateResponse.fromBinary(stdoutBytes),
+        stdout: stdoutBytes,
         diagnostics,
         exitCode: 0,
       };
     } catch (error) {
       return {
+        stdout: stdoutBytes,
         diagnostics: diagnostics || `invalid candidate response: ${errorMessage(error)}`,
         exitCode: 1,
       };
     }
   } catch (error) {
     return {
+      stdout: readBytesIfPresent(stdoutPath),
       diagnostics: readTextIfPresent(stderrPath) || errorMessage(error),
       exitCode: 1,
     };
@@ -128,6 +135,14 @@ function readTextIfPresent(path: string): string {
     return readFileSync(path, "utf8");
   } catch {
     return "";
+  }
+}
+
+function readBytesIfPresent(path: string): Uint8Array {
+  try {
+    return Uint8Array.from(readFileSync(path));
+  } catch {
+    return new Uint8Array();
   }
 }
 

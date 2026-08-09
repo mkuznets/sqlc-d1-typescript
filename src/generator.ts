@@ -9,10 +9,9 @@ import {
 
 import { argName, colName } from "./utils";
 import { Driver as D1Driver } from "./d1";
+import { validateGenerateRequest, type ValidatedGeneration } from "./validation";
 
-interface Options {
-  interface?: "workers";
-}
+type Options = ValidatedGeneration["options"];
 
 interface Driver {
   runtimeCode: () => string;
@@ -33,14 +32,20 @@ function createDriver(options: Options): Driver {
 }
 
 export function generate(input: GenerateRequest): GenerateResponse {
-  const files: File[] = [];
-  let options: Options = {};
+  return generateValidated(validateGenerateRequest(input));
+}
 
-  if (input.pluginOptions.length > 0) {
-    options = JSON.parse(new TextDecoder().decode(input.pluginOptions)) as Options;
+export function generateValidated(validated: ValidatedGeneration): GenerateResponse {
+  const files: File[] = [];
+  const driver = createDriver(validated.options);
+  const input = validated.request;
+
+  if (input.queries.length === 0) {
+    return new GenerateResponse({
+      files: [new File({ name: "runtime.ts", contents: new TextEncoder().encode(driver.runtimeCode()) })],
+    });
   }
 
-  const driver = createDriver(options);
   const queryMap = new Map<string, Query[]>();
 
   for (const query of input.queries) {
@@ -53,18 +58,6 @@ export function generate(input: GenerateRequest): GenerateResponse {
     const nodes: string[] = [];
 
     for (const query of queries) {
-      const columnNames = new Set<string>();
-      for (const column of query.columns) {
-        if (!column.name) continue;
-        if (columnNames.has(column.name)) {
-          throw new Error(
-            `query ${query.name} returns duplicate column ${column.name}; ` +
-              "D1 object rows require unique output names, so add a unique SQL alias"
-          );
-        }
-        columnNames.add(column.name);
-      }
-
       const lowerName = query.name[0].toLowerCase() + query.name.slice(1);
       const textName = `${lowerName}Query`;
       nodes.push(queryDecl(textName, `-- name: ${query.name} ${query.cmd}\n${query.text}`));

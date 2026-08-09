@@ -1,19 +1,21 @@
 import test from "node:test";
-import { GenerateRequest } from "../../src/gen/plugin/codegen_pb";
-import { generate } from "../../src/generator";
+import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb";
+import { runPlugin } from "../../src/plugin";
 import { GeneratorHarness } from "./harness";
 import { generatorScenarios, runScenario } from "./scenarios";
 
 const sourceHarness: GeneratorHarness = {
   async run(request: GenerateRequest) {
-    try {
-      return { response: generate(request), diagnostics: "", exitCode: 0 };
-    } catch (error) {
-      return {
-        diagnostics: error instanceof Error ? error.message : String(error),
-        exitCode: 1,
-      };
-    }
+    return this.runBytes(request.toBinary());
+  },
+  async runBytes(input: Uint8Array) {
+    const result = runPlugin(input);
+    return {
+      response: result.ok ? GenerateResponse.fromBinary(result.stdout) : undefined,
+      stdout: result.stdout,
+      diagnostics: result.stderr,
+      exitCode: result.ok ? 0 : 1,
+    };
   },
 };
 
