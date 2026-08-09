@@ -92,7 +92,11 @@ function heading(diagnostic: Diagnostic): string {
   let output = `[${diagnostic.category}/${diagnostic.reason}]`;
   const contexts: string[] = [];
   if (diagnostic.filename !== undefined) contexts.push(`file ${quoteDiagnosticValue(diagnostic.filename)}`);
-  if (diagnostic.queryName !== undefined) contexts.push(`query ${quoteDiagnosticValue(diagnostic.queryName)}`);
+  if (diagnostic.queryName !== undefined) {
+    contexts.push(`query ${quoteDiagnosticValue(diagnostic.queryName)}`);
+  } else if (diagnostic.queryIndex !== undefined) {
+    contexts.push(`query position ${diagnostic.queryIndex + 1}`);
+  }
   if (diagnostic.fieldPath !== undefined) contexts.push(`field ${quoteDiagnosticValue(diagnostic.fieldPath)}`);
   if (diagnostic.fieldIndex !== undefined) contexts.push(`position ${diagnostic.fieldIndex + 1}`);
   if (contexts.length > 0) output += ` ${contexts.join(", ")}:`;

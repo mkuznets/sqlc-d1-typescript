@@ -131,6 +131,19 @@ test("slice validation suppresses SQL-dependent cascades and identifies duplicat
   assert.equal(reasons(request({ queries: [duplicateMarkers] })).filter((reason) => reason === "QUERY/SLICE_METADATA_MISMATCH").length, 2);
 });
 
+test("emission readiness is suppressed only by its own invalid metadata", () => {
+  assert.deepEqual(
+    reasons(request({ queries: [validQuery({ filename: "", cmd: ":execrows", columns: [] })] })),
+    ["QUERY/MISSING_FILENAME", "EMISSION/UNIMPLEMENTED_COMMAND"],
+  );
+
+  const validEmbed = new Column({ name: "user", embedTable: identifier("users") });
+  assert.deepEqual(
+    reasons(request({ queries: [validQuery({ filename: "", columns: [validEmbed] })] })),
+    ["QUERY/MISSING_FILENAME", "EMISSION/UNIMPLEMENTED_EMBED"],
+  );
+});
+
 test("query metadata validates repeated binds, slices, embeds, result columns, and emission readiness", () => {
   assert.deepEqual(reasons(request({ queries: [validQuery({ cmd: ":copyfrom", columns: [] })] })), ["QUERY/UNSUPPORTED_COMMAND"]);
   const id = column();

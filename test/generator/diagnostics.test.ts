@@ -31,7 +31,7 @@ Errors:
 [OPTIONS/UNKNOWN_OPTION]
 first
 
-[QUERY/MISSING_NAME] file "b.sql":
+[QUERY/MISSING_NAME] file "b.sql", query position 2:
 second
 
 Warnings:

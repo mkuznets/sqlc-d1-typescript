@@ -170,7 +170,6 @@ function compareNumericText(left: string, right: string): number {
 }
 
 function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]): void {
-  const start = diagnostics.length;
   const context = (extra: Partial<Diagnostic> = {}): Partial<Diagnostic> => ({
     filename: query.filename || undefined,
     queryName: query.name || undefined,
@@ -215,8 +214,12 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     }
   });
 
+  const sliceValidationStart = diagnostics.length;
   if (query.text) validateSlices(query, queryIndex, diagnostics);
+  const sliceMetadataValid = query.text !== "" && diagnostics.length === sliceValidationStart;
+  const embedValidationStart = diagnostics.length;
   validateEmbeds(query, queryIndex, diagnostics);
+  const embedMetadataValid = diagnostics.length === embedValidationStart;
 
   if ((query.cmd === ":one" || query.cmd === ":many") && query.columns.length === 0) {
     diagnostics.push(error("QUERY", "MISSING_RESULT_COLUMNS", `command ${quoteDiagnosticValue(query.cmd)} requires at least one result column`, context({ fieldPath: "columns" })));
@@ -237,14 +240,13 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     }
   });
 
-  if (diagnostics.slice(start).some((diagnostic) => diagnostic.severity === "error")) return;
   if ([":execrows", ":execlastid", ":execresult"].includes(query.cmd)) {
     diagnostics.push(error("EMISSION", "UNIMPLEMENTED_COMMAND", `command ${quoteDiagnosticValue(query.cmd)} is recognized but not yet renderable`, context({ fieldPath: "cmd" })));
   }
-  if (query.params.some((parameter) => parameter.column?.isSqlcSlice)) {
+  if (sliceMetadataValid && query.params.some((parameter) => parameter.column?.isSqlcSlice)) {
     diagnostics.push(error("EMISSION", "UNIMPLEMENTED_SLICE", "sqlc slice parameters are recognized but not yet renderable", context({ fieldPath: "params" })));
   }
-  if (query.columns.some((column) => column.embedTable !== undefined)) {
+  if (embedMetadataValid && query.columns.some((column) => column.embedTable !== undefined)) {
     diagnostics.push(error("EMISSION", "UNIMPLEMENTED_EMBED", "sqlc embed columns are recognized but not yet renderable", context({ fieldPath: "columns" })));
   }
 }
