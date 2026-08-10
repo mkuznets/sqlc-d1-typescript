@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import ts from "typescript";
 import {
   Column,
   GenerateRequest,
@@ -54,6 +55,85 @@ export function createCurrentCommandsRequest(): GenerateRequest {
   });
 }
 
+const publicApiConsumer = `import {
+  DB,
+  type QueryExecutor,
+  SessionExecutor,
+  type QueryDescriptor,
+  type D1NonNullValue,
+  type D1Value,
+  type JsonValue,
+  SqlcD1Error,
+  QueryArgumentError,
+  QueryUsageError,
+  QueryResultError,
+} from "./runtime";
+import {
+  createUser,
+  getUser,
+  listUsers,
+  updateName,
+  type CreateUserRow,
+  type GetUserRow,
+  type ListUsersRow,
+} from "./queries_sql";
+// @ts-expect-error command-specific descriptor variants are not public
+import type { OneQuery } from "./runtime";
+// @ts-expect-error command-specific descriptor variants are not public
+import type { OneInsertQuery } from "./runtime";
+// @ts-expect-error command-specific descriptor variants are not public
+import type { ManyQuery } from "./runtime";
+// @ts-expect-error command-specific descriptor variants are not public
+import type { ExecQuery } from "./runtime";
+// @ts-expect-error SQL constants are module-private
+import { getUserQuery } from "./queries_sql";
+// @ts-expect-error row parsers are module-private
+import { parseGetUserRow } from "./queries_sql";
+
+declare const binding: D1Database;
+const db = new DB(binding);
+const descriptor = getUser();
+const direct: Promise<GetUserRow | null> = db.execute(descriptor);
+const session = db.withSession("opaque-bookmark");
+const throughSession: Promise<GetUserRow | null> = session.execute(descriptor);
+const bookmark: string | null = session.getBookmark();
+const executor: QueryExecutor = session;
+void [direct, throughSession, bookmark, executor];
+const mixedResult: Promise<[
+  GetUserRow | null,
+  CreateUserRow | null,
+  ListUsersRow[],
+  void,
+]> = db.batch(
+  getUser(),
+  createUser({ name: "Ada" }),
+  listUsers(),
+  updateName({ name: "Ada", id: 1 }),
+);
+void mixedResult;
+// @ts-expect-error descriptor representation is opaque
+void descriptor.sql;
+// @ts-expect-error the hidden brand prevents structural construction
+const forged: QueryDescriptor<GetUserRow | null> = {};
+void forged;
+// @ts-expect-error SessionExecutor is abstract and cannot be directly constructed
+new SessionExecutor();
+class ExternalSessionExecutor extends SessionExecutor {
+  public constructor(sessionBinding: D1DatabaseSession) {
+    // @ts-expect-error external subclasses cannot supply the module-private capability
+    super(sessionBinding);
+  }
+  getBookmark(): string | null { return null; }
+}
+void ExternalSessionExecutor;
+const nonNullValues: D1NonNullValue[] = [true, 1, "text", new Uint8Array()];
+const nullableValue: D1Value = null;
+const json: JsonValue = { values: [null, true, 1, "text"] };
+void [nonNullValues, nullableValue, json];
+const errors: SqlcD1Error[] = [new QueryArgumentError(), new QueryUsageError(), new QueryResultError()];
+void errors;
+`;
+
 const currentCommands: GeneratorScenario = {
   id: "generator/current-commands",
   createInput: () => queryInput(createCurrentCommandsRequest()),
@@ -62,11 +142,40 @@ const currentCommands: GeneratorScenario = {
     assert.equal(outcome.diagnostics, "");
     assert.ok(outcome.stdout.length > 0);
     assert.ok(outcome.response);
-    assert.equal(outcome.response.files.length, 3);
-    assert.deepEqual(outcome.response.files.map((file) => file.name), ["runtime.ts", "audit_sql.ts", "queries_sql.ts"]);
-    const actual = new TextDecoder().decode(outcome.response.files[2].contents);
+    const response = outcome.response;
+    assert.equal(response.files.length, 3);
+    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "audit_sql.ts", "queries_sql.ts"]);
+    const actual = new TextDecoder().decode(response.files[2].contents);
     const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/current-output.ts.txt"), "utf8");
     assert.equal(actual, expected);
+    assert.match(actual, /params: Object\.freeze\(\[\]\)/);
+    assert.doesNotMatch(actual, /OneQuery|OneInsertQuery|ManyQuery|ExecQuery/);
+    const runtime = new TextDecoder().decode(response.files[0].contents);
+    assert.match(runtime, /export class QueryArgumentError extends SqlcD1Error/);
+    assert.match(runtime, /export class QueryUsageError extends SqlcD1Error/);
+    assert.match(runtime, /export class QueryResultError extends SqlcD1Error/);
+    assert.doesNotMatch(runtime, /export interface (?:OneQuery|OneInsertQuery|ManyQuery|ExecQuery)/);
+    const runtimeJavaScript = ts.transpileModule(runtime, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const runtimeExports: Record<string, unknown> = {};
+    new Function("exports", "module", runtimeJavaScript)(runtimeExports, { exports: runtimeExports });
+    const sessionExecutor = runtimeExports.SessionExecutor as abstract new (...args: unknown[]) => unknown;
+    assert.throws(
+      () => Reflect.construct(sessionExecutor, [{}, Symbol("wrong capability")]),
+      { name: "TypeError", message: "SessionExecutor must be created by DB.withSession" },
+    );
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(response, {
+        compiler,
+        additionalFiles: { "consumer.ts": publicApiConsumer },
+      });
+    }
+    for (const unsafePath of ["../consumer.ts", "/consumer.ts", "tsconfig.json", "queries_sql.ts"]) {
+      assert.throws(() => compileGeneratedResponse(response, {
+        additionalFiles: { [unsafePath]: "" },
+      }));
+    }
   },
 };
 
@@ -207,7 +316,7 @@ const safeEmission: GeneratorScenario = {
     const sources = new Map(outcome.response.files.map((file) => [file.name, new TextDecoder().decode(file.contents)]));
     assert.match(sources.get("admin/a_b_sql.ts")!, /from "\.\.\/runtime"/);
     assert.match(sources.get("deep/audit_log_sql.ts")!, /from "\.\.\/runtime"/);
-    assert.match(sources.get("z_root_sql.ts")!, /import type \{ OneQuery \} from "\.\/runtime"/);
+    assert.match(sources.get("z_root_sql.ts")!, /import type \{ QueryDescriptor \} from "\.\/runtime"/);
     assert.match(sources.get("z_root_sql.ts")!, /"userId_2"/);
     assert.match(sources.get("z_root_sql.ts")!, /"userId_3"/);
     assert.match(sources.get("z_root_sql.ts")!, /args\["default"\]/);
@@ -220,7 +329,21 @@ const safeEmission: GeneratorScenario = {
     assert.match(sqlLiteral, /\\u2029/);
     assert.doesNotMatch(sources.get("z_root_sql.ts")!, /-- name:/);
     assert.doesNotMatch(sources.get("z_root_sql.ts")!, /class QueryExecutor/);
-    compileGeneratedResponse(outcome.response);
+    const nestedConsumer = `import { DB, type QueryDescriptor } from "../runtime";
+import { createItem, listItems, type CreateItemRow, type ListItemsRow } from "./a_b_sql";
+declare const binding: D1Database;
+const db = new DB(binding);
+const one: Promise<CreateItemRow | null> = db.execute(createItem());
+const many: Promise<ListItemsRow[]> = db.execute(listItems());
+const descriptor: QueryDescriptor<CreateItemRow | null> = createItem();
+void [one, many, descriptor];
+`;
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(outcome.response, {
+        compiler,
+        additionalFiles: { "admin/consumer.ts": nestedConsumer },
+      });
+    }
   },
 };
 
@@ -230,7 +353,8 @@ const typescriptFloor: GeneratorScenario = {
   assert(outcome) {
     assert.equal(outcome.exitCode, 0, outcome.diagnostics);
     assert.ok(outcome.response);
-    compileGeneratedResponse(outcome.response);
+    compileGeneratedResponse(outcome.response, { compiler: "typescript-5-2" });
+    compileGeneratedResponse(outcome.response, { compiler: "typescript" });
   },
 };
 
@@ -335,6 +459,21 @@ const noQueryRuntime: GeneratorScenario = {
     const runtimeSource = readFileSync(resolve(process.cwd(), "src/runtime.d1.ts"), "utf8");
     const expected = runtimeSource.split("// --- RUNTIME BEGIN ---")[1].split("// --- RUNTIME END ---")[0].slice(1, -1);
     assert.equal(new TextDecoder().decode(outcome.response?.files[0].contents), expected);
+    assert.ok(outcome.response);
+    const consumer = `import { DB, SessionExecutor, type D1Value, QueryResultError } from "./runtime";
+declare const binding: D1Database;
+const db = new DB(binding);
+const session: SessionExecutor = db.withSession();
+const value: D1Value = null;
+const error: Error = new QueryResultError();
+void [session, value, error];
+`;
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(outcome.response, {
+        compiler,
+        additionalFiles: { "consumer.ts": consumer },
+      });
+    }
   },
 };
 

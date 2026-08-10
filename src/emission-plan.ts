@@ -9,10 +9,8 @@ import type { ValidatedGeneration } from "./validation";
 export const QUERY_NAME_PATTERN = /^[A-Z][A-Za-z0-9]*$/;
 export const FIELD_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$/;
 
-export type RuntimeTypeImport = "OneQuery" | "OneInsertQuery" | "ManyQuery" | "ExecQuery";
-export const RUNTIME_TYPE_IMPORT_ORDER: readonly RuntimeTypeImport[] = [
-  "OneQuery", "OneInsertQuery", "ManyQuery", "ExecQuery",
-];
+export type RuntimeTypeImport = "QueryDescriptor";
+export const RUNTIME_TYPE_IMPORT_ORDER: readonly RuntimeTypeImport[] = ["QueryDescriptor"];
 
 export interface PlannedPropertyAccess {
   readonly publicName: string;
@@ -38,7 +36,6 @@ export interface QueryPlan {
   readonly queryIndex: number;
   readonly command: ":one" | ":many" | ":exec";
   readonly insert: boolean;
-  readonly descriptorType: RuntimeTypeImport;
   readonly kindLiteral: string;
   readonly factoryReturnType: string;
   readonly sqlLiteral: string;
@@ -236,7 +233,7 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
     const importSet = new Set<RuntimeTypeImport>();
     for (const { query, index } of queryEntries) {
       const plannedQuery = planQuery(query, index, diagnostics);
-      importSet.add(plannedQuery.descriptorType);
+      importSet.add("QueryDescriptor");
       plannedQueries.push(plannedQuery);
     }
     const imports = RUNTIME_TYPE_IMPORT_ORDER.filter((name) => importSet.has(name));
@@ -295,18 +292,17 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
 
   const command = query.cmd as QueryPlan["command"];
   const insert = Boolean(query.insertIntoTable);
-  const descriptorType: RuntimeTypeImport = command === ":exec" ? "ExecQuery"
-    : command === ":many" ? "ManyQuery"
-    : insert ? "OneInsertQuery" : "OneQuery";
   const kind = command === ":exec" ? "exec" : command === ":many" ? "many" : insert ? "one-insert" : "one";
   const rowTypeName = rowFields.length > 0 ? `${query.name}Row` : undefined;
+  const resultType = command === ":exec" ? "void"
+    : command === ":many" ? `${rowTypeName}[]`
+    : `${rowTypeName} | null`;
   return {
     queryIndex,
     command,
     insert,
-    descriptorType,
     kindLiteral: quoteTypeScriptString(kind),
-    factoryReturnType: rowTypeName && descriptorType !== "ExecQuery" ? `${descriptorType}<${rowTypeName}>` : descriptorType,
+    factoryReturnType: `QueryDescriptor<${resultType}>`,
     sqlLiteral: quoteTypeScriptString(query.text),
     factoryName,
     sqlConstantName: `${factoryName}Query`,

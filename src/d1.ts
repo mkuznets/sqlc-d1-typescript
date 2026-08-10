@@ -68,13 +68,13 @@ ${properties}
     const properties = [
       `        kind: ${plan.kindLiteral}`,
       `        sql: ${plan.sqlConstantName}`,
-      `        params: [${params}]`,
+      `        params: Object.freeze([${params}])`,
     ];
     if (plan.parserName) properties.push(`        parse: ${plan.parserName}`);
     return `export function ${plan.factoryName}(${fnParams}): ${plan.factoryReturnType} {
-    return {
+    return Object.freeze({
 ${properties.join(",\n")}
-    };
+    }) as unknown as ${plan.factoryReturnType};
 }`;
   }
 }

@@ -26,7 +26,9 @@ describe("generated D1 queries", () => {
 			title: "Test Feed",
 			deletedAt: null,
 		});
-		expect(steps.getFeedById.feedRead).toEqual(steps.createFeed.feed);
+		expect(steps.descriptorReuse).toMatchObject({ descriptorFrozen: true });
+		expect(steps.descriptorReuse.feedRead).toEqual(steps.createFeed.feed);
+		expect(steps.descriptorReuse.feedReadAgain).toEqual(steps.descriptorReuse.feedRead);
 		expect(steps.updateFeedUpdatedAt.feedAfterUpdate).toMatchObject({
 			title: "Test Feed",
 		});
@@ -53,6 +55,8 @@ describe("generated D1 queries", () => {
 			batchFilesCount: 2,
 		});
 		expect(steps.batchMixed.batchNewFile).toMatchObject({ mimeType: "image/png" });
+		expect(steps.sessionExecute.sessionFeed).toEqual(steps.updateFeedUpdatedAt.feedAfterUpdate);
+		expect(["string", "null"]).toContain(steps.sessionExecute.bookmarkType);
 		expect(steps.sessionBatch).toMatchObject({
 			sessionItemsCount: 2,
 			sessionFilesCount: 3,

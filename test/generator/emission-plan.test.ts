@@ -65,6 +65,24 @@ test("complete planning aggregates naming, declaration, and path errors", () => 
   });
 });
 
+test("all current commands plan one opaque descriptor import and complete result types", () => {
+  const id = column("id");
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({ filename: "queries.sql", name: "GetOne", cmd: ":one", text: "SELECT", columns: [id] }),
+    new Query({ filename: "queries.sql", name: "InsertOne", cmd: ":one", text: "INSERT RETURNING", columns: [id], insertIntoTable: identifier("items") }),
+    new Query({ filename: "queries.sql", name: "ListMany", cmd: ":many", text: "SELECT", columns: [id] }),
+    new Query({ filename: "queries.sql", name: "RunExec", cmd: ":exec", text: "DELETE" }),
+  ])));
+  const module = plan.queryModules[0];
+  assert.deepEqual(module.runtimeTypeImports, ["QueryDescriptor"]);
+  assert.deepEqual(module.queries.map((query) => query.factoryReturnType), [
+    "QueryDescriptor<GetOneRow | null>",
+    "QueryDescriptor<InsertOneRow | null>",
+    "QueryDescriptor<ListManyRow[]>",
+    "QueryDescriptor<void>",
+  ]);
+});
+
 test("valid planning preserves request order within sorted modules and exact SQL", () => {
   const sql = "SELECT '` ${x}'\n\u2028";
   const plan = planEmission(validateGenerateRequest(request([
@@ -73,6 +91,8 @@ test("valid planning preserves request order within sorted modules and exact SQL
   ])));
   assert.deepEqual(plan.queryModules.map((module) => module.outputPath), ["a/users_sql.ts", "z_sql.ts"]);
   assert.equal(JSON.parse(plan.queryModules[1].queries[0].sqlLiteral), sql);
-  assert.deepEqual(plan.queryModules[1].runtimeTypeImports, ["OneQuery"]);
+  assert.deepEqual(plan.queryModules[1].runtimeTypeImports, ["QueryDescriptor"]);
+  assert.equal(plan.queryModules[1].queries[0].factoryReturnType, "QueryDescriptor<GetURLRow | null>");
+  assert.equal(plan.queryModules[0].queries[0].factoryReturnType, "QueryDescriptor<void>");
   assert.equal(plan.queryModules[0].runtimeSpecifierLiteral, '"../runtime"');
 });

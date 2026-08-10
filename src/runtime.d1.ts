@@ -1,6 +1,6 @@
 // The imports are only needed to avoid warning about unknown types and make editing easier.
 // They are not part of the generated code.
-import {D1Database, D1PreparedStatement, D1Result} from "@cloudflare/workers-types"
+import {D1Database, D1DatabaseSession, D1PreparedStatement, D1Result} from "@cloudflare/workers-types"
 
 // --- RUNTIME BEGIN ---
 
@@ -10,89 +10,94 @@ interface Executor {
     batch<T = unknown>(stmts: D1PreparedStatement[]): Promise<D1Result<T>[]>
 }
 
-export interface OneQuery<T> {
-    kind: "one"
-    sql: string
-    params: unknown[]
-    parse: (row: Record<string, unknown>) => T
+export type D1NonNullValue = boolean | number | string | Uint8Array
+export type D1Value = D1NonNullValue | null
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+export class SqlcD1Error extends Error {}
+export class QueryArgumentError extends SqlcD1Error {}
+export class QueryUsageError extends SqlcD1Error {}
+export class QueryResultError extends SqlcD1Error {}
+
+declare const queryDescriptorResult: unique symbol
+
+export interface QueryDescriptor<Result> {
+    readonly [queryDescriptorResult]: Result
 }
 
-export interface OneInsertQuery<T> {
-    kind: "one-insert"
-    sql: string
-    params: unknown[]
-    parse: (row: Record<string, unknown>) => T
-}
-
-export interface ManyQuery<T> {
-    kind: "many"
-    sql: string
-    params: unknown[]
-    parse: (row: Record<string, unknown>) => T
-}
-
-export interface ExecQuery {
-    kind: "exec"
-    sql: string
-    params: unknown[]
-}
-
-type AnyQuery = OneQuery<unknown> | OneInsertQuery<unknown> | ManyQuery<unknown> | ExecQuery
-
-type QueryResult<Q> =
-    Q extends OneQuery<infer T> ? T | null :
-        Q extends OneInsertQuery<infer T> ? T | null :
-            Q extends ManyQuery<infer T> ? T[] :
-                Q extends ExecQuery ? void :
-                    never
-
-type BatchResults<Q extends AnyQuery[]> = { [K in keyof Q]: QueryResult<Q[K]> }
-
-export class QueryExecutor {
-    constructor(protected executor: Executor) {
+type InternalQuery =
+    | {
+        readonly kind: "one" | "one-insert"
+        readonly sql: string
+        readonly params: readonly unknown[]
+        readonly parse: (row: Record<string, unknown>) => unknown
+    }
+    | {
+        readonly kind: "many"
+        readonly sql: string
+        readonly params: readonly unknown[]
+        readonly parse: (row: Record<string, unknown>) => unknown
+    }
+    | {
+        readonly kind: "exec"
+        readonly sql: string
+        readonly params: readonly unknown[]
     }
 
-    async execute<Q extends AnyQuery>(query: Q): Promise<QueryResult<Q>> {
-        const stmt = this.executor.prepare(query.sql).bind(...query.params)
-        switch (query.kind) {
+type DescriptorResult<Q> = Q extends QueryDescriptor<infer Result> ? Result : never
+type BatchResults<Q extends readonly QueryDescriptor<unknown>[]> = {
+    [K in keyof Q]: DescriptorResult<Q[K]>
+}
+
+export abstract class QueryExecutor {
+    protected constructor(protected executor: Executor) {
+    }
+
+    async execute<Result>(query: QueryDescriptor<Result>): Promise<Result> {
+        const internalQuery = query as unknown as InternalQuery
+        const stmt = this.executor.prepare(internalQuery.sql).bind(...internalQuery.params)
+        switch (internalQuery.kind) {
             case "one": {
                 const row = await stmt.first()
-                if (row === null) return null as QueryResult<Q>
-                return query.parse(row as Record<string, unknown>) as QueryResult<Q>
+                if (row === null) return null as Result
+                return internalQuery.parse(row as Record<string, unknown>) as Result
             }
             case "one-insert": {
                 const result = await stmt.run()
-                if (result.results.length === 0) return null as QueryResult<Q>
-                return query.parse(result.results[0] as Record<string, unknown>) as QueryResult<Q>
+                if (result.results.length === 0) return null as Result
+                return internalQuery.parse(result.results[0] as Record<string, unknown>) as Result
             }
             case "many": {
                 const result = await stmt.all()
                 return result.results.map((row) =>
-                    query.parse(row as Record<string, unknown>),
-                ) as QueryResult<Q>
+                    internalQuery.parse(row as Record<string, unknown>),
+                ) as Result
             }
             case "exec": {
                 await stmt.run()
-                return undefined as QueryResult<Q>
+                return undefined as Result
             }
         }
     }
 
-    async batch<Q extends AnyQuery[]>(...queries: Q): Promise<BatchResults<Q>> {
-        const stmts = queries.map((q) => this.executor.prepare(q.sql).bind(...q.params))
+    async batch<Q extends readonly QueryDescriptor<unknown>[]>(...queries: Q): Promise<BatchResults<Q>> {
+        const internalQueries = queries as unknown as readonly InternalQuery[]
+        const stmts = internalQueries.map((query) =>
+            this.executor.prepare(query.sql).bind(...query.params),
+        )
         const results = await this.executor.batch(stmts)
-        return results.map((result, i) => {
-            const q = queries[i]
-            switch (q.kind) {
+        return results.map((result, index) => {
+            const query = internalQueries[index]
+            switch (query.kind) {
                 case "one":
                 case "one-insert": {
                     const rows = (result as D1Result<Record<string, unknown>>).results
                     if (rows.length === 0) return null
-                    return q.parse(rows[0])
+                    return query.parse(rows[0])
                 }
                 case "many": {
                     const rows = (result as D1Result<Record<string, unknown>>).results
-                    return rows.map((row) => q.parse(row))
+                    return rows.map((row) => query.parse(row))
                 }
                 case "exec":
                     return undefined
@@ -101,13 +106,34 @@ export class QueryExecutor {
     }
 }
 
+const sessionExecutorCapability: unique symbol = Symbol("SessionExecutor")
+
+export abstract class SessionExecutor extends QueryExecutor {
+    protected constructor(executor: Executor, capability: typeof sessionExecutorCapability) {
+        if (capability !== sessionExecutorCapability) throw new TypeError("SessionExecutor must be created by DB.withSession")
+        super(executor)
+    }
+
+    abstract getBookmark(): string | null
+}
+
+class D1SessionExecutor extends SessionExecutor {
+    constructor(private readonly session: D1DatabaseSession) {
+        super(session, sessionExecutorCapability)
+    }
+
+    getBookmark(): string | null {
+        return this.session.getBookmark()
+    }
+}
+
 export class DB extends QueryExecutor {
     constructor(db: D1Database) {
         super(db)
     }
 
-    withSession(constraint?: "first-primary" | "first-unconstrained"): QueryExecutor {
-        return new QueryExecutor((this.executor as D1Database).withSession(constraint))
+    withSession(constraintOrBookmark?: string): SessionExecutor {
+        return new D1SessionExecutor((this.executor as D1Database).withSession(constraintOrBookmark))
     }
 }
 

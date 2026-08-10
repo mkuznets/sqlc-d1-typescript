@@ -32,7 +32,7 @@ export default {
 		const itemId2 = `item_${suffix}b`;
 		const log: unknown[] = [];
 
-		// 1. Create a feed (INSERT RETURNING → OneInsertQuery)
+		// 1. Create a feed (INSERT RETURNING → one row or null)
 		const feed = await db.execute(createFeed({
 			id: feedId,
 			userId: "user_1",
@@ -48,14 +48,21 @@ export default {
 
 		log.push({step: "createFeed", feed});
 
-		// 2. Read feed back (SELECT → OneQuery)
-		const feedRead = await db.execute(getFeedById({id: feedId}));
-		log.push({step: "getFeedById", feedRead});
+		// 2. Create one opaque descriptor and reuse it through multiple executors.
+		const reusableFeedDescriptor = getFeedById({id: feedId});
+		const feedRead = await db.execute(reusableFeedDescriptor);
+		const feedReadAgain = await db.execute(reusableFeedDescriptor);
+		log.push({
+			step: "descriptorReuse",
+			descriptorFrozen: Object.isFrozen(reusableFeedDescriptor),
+			feedRead,
+			feedReadAgain,
+		});
 
 		// 3. Exec: update feed timestamp
 		const newUpdatedAt = now + 1000;
 		await db.execute(updateFeedUpdatedAt({id: feedId, updatedAt: newUpdatedAt}));
-		const feedAfterUpdate = await db.execute(getFeedById({id: feedId}));
+		const feedAfterUpdate = await db.execute(reusableFeedDescriptor);
 		log.push({step: "updateFeedUpdatedAt", feedAfterUpdate});
 
 		// 4. GetFeedUserById (single-column select)
@@ -94,7 +101,7 @@ export default {
 		const fileForUser = await db.execute(getFileByIdForUser({id: fileId1, userId: "user_1"}));
 		log.push({step: "getFile", fileRead, fileForUser});
 
-		// 7. ListFiles (ManyQuery, no args)
+		// 7. ListFiles (many rows, no args)
 		const allFiles = await db.execute(listFiles());
 		log.push({step: "listFiles", count: allFiles.length, allFiles});
 
@@ -135,11 +142,11 @@ export default {
 		const fileAfterLink = await db.execute(getFileById({id: fileId1}));
 		log.push({step: "updateFileItemId", fileAfterLink});
 
-		// 10. GetItemById (OneQuery with multiple params)
+		// 10. GetItemById (one row with multiple params)
 		const itemRead = await db.execute(getItemById({id: itemId1, feedId}));
 		log.push({step: "getItemById", itemRead});
 
-		// 11. GetItemsByFeedId (ManyQuery)
+		// 11. GetItemsByFeedId (many rows)
 		const items = await db.execute(getItemsByFeedId({feedId}));
 		log.push({step: "getItemsByFeedId", count: items.length, items});
 
@@ -193,8 +200,13 @@ export default {
 		// 15. Session mode
 		const session = db.withSession("first-primary");
 
-		const sessionFeed = await session.execute(getFeedById({id: feedId}));
-		log.push({step: "sessionExecute", sessionFeed});
+		const sessionFeed = await session.execute(reusableFeedDescriptor);
+		const bookmark = session.getBookmark();
+		log.push({
+			step: "sessionExecute",
+			sessionFeed,
+			bookmarkType: bookmark === null ? "null" : typeof bookmark,
+		});
 
 		const [sessionItems, sessionFiles] = await session.batch(
 			getItemsByFeedId({feedId}),
