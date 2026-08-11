@@ -296,7 +296,8 @@ function rowBooleanOrNull(row: Record<string, unknown>, key: string, path: strin
 
 function toBytes(value: unknown): Uint8Array | undefined {
     if (value instanceof Uint8Array) return new Uint8Array(value)
-    if (value instanceof ArrayBuffer) return new Uint8Array(value)
+    // slice() first: new Uint8Array(buffer) would be a view over the caller's buffer.
+    if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0))
     if (!Array.isArray(value)) return undefined
     const bytes = new Uint8Array(value.length)
     for (let index = 0; index < value.length; index++) {

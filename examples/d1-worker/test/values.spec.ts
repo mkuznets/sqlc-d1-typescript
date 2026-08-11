@@ -79,6 +79,7 @@ describe("checked values against real D1", () => {
 		const inserted = await db.execute(createSample(completeArgs({
 			boolValue: false,
 			boolNull: true,
+			textNull: "2026-08-12T00:00:00Z",
 			blobNull: new Uint8Array([9]),
 			jsonNull: [1, 2],
 			anyValue: 7,
@@ -100,6 +101,9 @@ describe("checked values against real D1", () => {
 
 		expect(inserted!.boolValue).toBe(false);
 		expect(inserted!.boolNull).toBe(true);
+		// A DATETIME column is a string on both sides: no Date conversion, no format promise.
+		expect(physical!.text_null).toBe("2026-08-12T00:00:00Z");
+		expect(inserted!.textNull).toBe("2026-08-12T00:00:00Z");
 		expect(Array.from(inserted!.blobNull!)).toEqual([9]);
 		expect(inserted!.jsonNull).toEqual([1, 2]);
 	});

@@ -179,6 +179,8 @@ const currentCommands: GeneratorScenario = {
     assert.match(runtime, /export class QueryResultError extends SqlcD1Error/);
     assert.match(runtime, /export interface SqlcD1ErrorContext/);
     assert.doesNotMatch(runtime, /effectsMayHaveCommitted|mayHaveCommitted|commitState|retrySafe|retryable/i);
+    // Row validation is unconditional: no toggle, no opt-out, no fast path.
+    assert.doesNotMatch(runtime, /skipValidation|disableValidation|validateRows|unchecked|fastPath|process\.env/i);
     assert.doesNotMatch(runtime, /export interface (?:OneQuery|OneInsertQuery|ManyQuery|ExecQuery)/);
     const runtimeJavaScript = ts.transpileModule(runtime, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -510,7 +512,7 @@ const VALUE_COLUMNS: readonly (readonly [string, string, boolean])[] = [
   ["num_value", "DECIMAL(10,2)", true],
   ["num_null", "Real", false],
   ["text_value", "VARCHAR(255)", true],
-  ["text_null", "text", false],
+  ["text_null", "DATETIME", false],
   ["bool_value", "BOOLEAN", true],
   ["bool_null", "bool", false],
   ["blob_value", "BLOB", true],
@@ -714,14 +716,17 @@ const runtimeValues: GeneratorScenario = {
       anyNull: null,
     });
 
+    // Drives the full execute path so the assertion that D1 was never reached has teeth:
+    // the factory has to throw while its result is still being evaluated as an argument.
     const rejectsArgument = (
       args: Record<string, unknown>,
       expectations: { path?: string; expected: string; received: string },
     ): CheckedError => {
       const executor = new FakeExecutor();
+      const db = new DB(executor);
       let caught: unknown;
       try {
-        createSample(args);
+        void db.execute(createSample(args));
       } catch (error) {
         caught = error;
       }
@@ -912,10 +917,20 @@ const runtimeValues: GeneratorScenario = {
     const uint8Mapped = (await executeWithRows([uint8Row], getSample({ intValue: 1 }))).result as Record<string, unknown>;
     assert.deepEqual(uint8Mapped.blobValue, new Uint8Array([4, 5]));
     assert.notEqual(uint8Mapped.blobValue, uint8Row.blob_value);
+    const backingBuffer = new Uint8Array([6, 7]).buffer;
     const bufferRow = physicalRow();
-    bufferRow.blob_value = new Uint8Array([6, 7]).buffer;
+    bufferRow.blob_value = backingBuffer;
     const bufferMapped = (await executeWithRows([bufferRow], getSample({ intValue: 1 }))).result as Record<string, unknown>;
     assert.deepEqual(bufferMapped.blobValue, new Uint8Array([6, 7]));
+    // A view over the source buffer would not survive this.
+    new Uint8Array(backingBuffer)[0] = 99;
+    assert.deepEqual(bufferMapped.blobValue, new Uint8Array([6, 7]));
+    const sourceArray = [8, 9];
+    const arrayRow = physicalRow();
+    arrayRow.blob_value = sourceArray;
+    const arrayMapped = (await executeWithRows([arrayRow], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    sourceArray[0] = 99;
+    assert.deepEqual(arrayMapped.blobValue, new Uint8Array([8, 9]));
 
     // rowIndex through :many.
     const manyRows = [physicalRow(), physicalRow(), physicalRow()];
