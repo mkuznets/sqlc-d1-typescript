@@ -125,3 +125,25 @@ SET title        = ?,
     updated_at   = ?
 WHERE id = ?
   AND feed_id = ?;
+
+-- name: CreateSample :one
+INSERT INTO samples
+(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,
+ json_value, json_null, any_value, any_null)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: GetSampleById :one
+SELECT *
+FROM samples
+WHERE id = ?;
+
+-- name: ListSamples :many
+SELECT *
+FROM samples
+ORDER BY id;
+
+-- name: CreateQuirk :one
+INSERT INTO quirks (id)
+VALUES (?)
+RETURNING *;

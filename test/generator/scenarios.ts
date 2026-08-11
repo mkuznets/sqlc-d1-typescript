@@ -12,6 +12,7 @@ import {
 } from "../../src/gen/plugin/codegen_pb";
 import { GeneratorHarness, GeneratorOutcome } from "./harness";
 import { compileGeneratedResponse } from "./compile";
+import { FakeExecutor, loadGeneratedModules } from "./evaluate";
 
 export type GeneratorScenarioInput =
   | { kind: "request"; request: GenerateRequest }
@@ -64,6 +65,7 @@ const publicApiConsumer = `import {
   type D1Value,
   type JsonValue,
   SqlcD1Error,
+  type SqlcD1ErrorContext,
   QueryArgumentError,
   QueryUsageError,
   QueryResultError,
@@ -130,8 +132,29 @@ const nonNullValues: D1NonNullValue[] = [true, 1, "text", new Uint8Array()];
 const nullableValue: D1Value = null;
 const json: JsonValue = { values: [null, true, 1, "text"] };
 void [nonNullValues, nullableValue, json];
-const errors: SqlcD1Error[] = [new QueryArgumentError(), new QueryUsageError(), new QueryResultError()];
-void errors;
+const argumentContext: SqlcD1ErrorContext = {
+  operation: "construct",
+  queryName: "GetUser",
+  path: "id",
+  expected: "safe integer",
+  received: "non-integer number",
+};
+const errors: SqlcD1Error[] = [
+  new QueryArgumentError("bad argument", argumentContext),
+  new QueryUsageError("bad usage", { operation: "batch", batchIndex: 0 }),
+  new QueryResultError("bad row", { operation: "execute", queryName: "GetUser", rowIndex: 0, cause: new SyntaxError("x") }),
+];
+const operation: "construct" | "execute" | "batch" | "withSession" = errors[0].operation;
+const queryName: string | undefined = errors[0].queryName;
+const batchIndex: number | undefined = errors[1].batchIndex;
+const rowIndex: number | undefined = errors[2].rowIndex;
+const path: string | undefined = errors[0].path;
+const expected: string | undefined = errors[0].expected;
+const received: string | undefined = errors[0].received;
+const cause: unknown = errors[2].cause;
+void [errors, operation, queryName, batchIndex, rowIndex, path, expected, received, cause];
+// @ts-expect-error post-execution failures make no commit-state claim
+void errors[2].effectsMayHaveCommitted;
 `;
 
 const currentCommands: GeneratorScenario = {
@@ -154,6 +177,8 @@ const currentCommands: GeneratorScenario = {
     assert.match(runtime, /export class QueryArgumentError extends SqlcD1Error/);
     assert.match(runtime, /export class QueryUsageError extends SqlcD1Error/);
     assert.match(runtime, /export class QueryResultError extends SqlcD1Error/);
+    assert.match(runtime, /export interface SqlcD1ErrorContext/);
+    assert.doesNotMatch(runtime, /effectsMayHaveCommitted|mayHaveCommitted|commitState|retrySafe|retryable/i);
     assert.doesNotMatch(runtime, /export interface (?:OneQuery|OneInsertQuery|ManyQuery|ExecQuery)/);
     const runtimeJavaScript = ts.transpileModule(runtime, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -465,7 +490,7 @@ declare const binding: D1Database;
 const db = new DB(binding);
 const session: SessionExecutor = db.withSession();
 const value: D1Value = null;
-const error: Error = new QueryResultError();
+const error: Error = new QueryResultError("bad row", { operation: "execute", queryName: "GetUser", rowIndex: 0 });
 void [session, value, error];
 `;
     for (const compiler of ["typescript-5-2", "typescript"] as const) {
@@ -477,8 +502,555 @@ void [session, value, error];
   },
 };
 
+// One column per value kind in both nullabilities, spelled with the case, parameter,
+// and whitespace variety the declared-type normalizer has to absorb.
+const VALUE_COLUMNS: readonly (readonly [string, string, boolean])[] = [
+  ["int_value", "INTEGER", true],
+  ["int_null", "UNSIGNED BIG INT", false],
+  ["num_value", "DECIMAL(10,2)", true],
+  ["num_null", "Real", false],
+  ["text_value", "VARCHAR(255)", true],
+  ["text_null", "text", false],
+  ["bool_value", "BOOLEAN", true],
+  ["bool_null", "bool", false],
+  ["blob_value", "BLOB", true],
+  ["blob_null", "blob", false],
+  ["json_value", "JSON", true],
+  ["json_null", "JSONB", false],
+  ["any_value", "ULID", true],
+  ["any_null", "any", false],
+];
+
+const valueColumns = () => VALUE_COLUMNS.map(([name, typeName, notNull]) => column(name, typeName, notNull));
+
+export function createCheckedValuesRequest(): GenerateRequest {
+  const valueParameters = () => valueColumns().map((value, index) => parameter(index + 1, value));
+  return validRequest({
+    queries: [
+      new Query({ filename: "values.sql", name: "CreateSample", cmd: ":one", text: "INSERT INTO samples VALUES (?) RETURNING *;", params: valueParameters(), columns: valueColumns(), insertIntoTable: new Identifier({ name: "samples" }) }),
+      new Query({ filename: "values.sql", name: "GetSample", cmd: ":one", text: "SELECT * FROM samples WHERE int_value = ?;", params: [parameter(1, column("int_value", "INTEGER"))], columns: valueColumns() }),
+      new Query({ filename: "values.sql", name: "ListSamples", cmd: ":many", text: "SELECT * FROM samples;", columns: valueColumns() }),
+      new Query({ filename: "values.sql", name: "TouchSample", cmd: ":exec", text: "UPDATE samples SET int_value = ?;", params: valueParameters() }),
+      new Query({ filename: "plain.sql", name: "ClearSamples", cmd: ":exec", text: "DELETE FROM samples;" }),
+    ],
+  });
+}
+
+const checkedValuesConsumer = `import { DB, type D1NonNullValue, type D1Value, type JsonValue } from "./runtime";
+import {
+  createSample,
+  getSample,
+  listSamples,
+  touchSample,
+  type CreateSampleArgs,
+  type CreateSampleRow,
+  type GetSampleRow,
+  type ListSamplesRow,
+} from "./values_sql";
+import { clearSamples } from "./plain_sql";
+
+const bytes = new Uint8Array([1, 2, 3]);
+const complete: CreateSampleArgs = {
+  intValue: 1,
+  intNull: null,
+  numValue: 1.5,
+  numNull: 2.5,
+  textValue: "text",
+  textNull: null,
+  boolValue: true,
+  boolNull: null,
+  blobValue: bytes,
+  blobNull: null,
+  jsonValue: { nested: [1, "two", null, true, { deep: 3 }] },
+  jsonNull: null,
+  anyValue: "opaque",
+  anyNull: null,
+};
+declare const binding: D1Database;
+const db = new DB(binding);
+const inserted: Promise<CreateSampleRow | null> = db.execute(createSample(complete));
+const read: Promise<GetSampleRow | null> = db.execute(getSample({ intValue: 1 }));
+const listed: Promise<ListSamplesRow[]> = db.execute(listSamples());
+const cleared: Promise<void> = db.execute(clearSamples());
+void [inserted, read, listed, cleared, touchSample(complete)];
+
+const nonNullValue: D1NonNullValue = complete.anyValue;
+const nullableValue: D1Value = complete.anyNull;
+const json: JsonValue = complete.jsonValue;
+void [nonNullValue, nullableValue, json];
+
+declare const row: GetSampleRow;
+const intField: number = row.intValue;
+const intNullField: number | null = row.intNull;
+const numField: number = row.numValue;
+const textField: string = row.textValue;
+const textNullField: string | null = row.textNull;
+const boolField: boolean = row.boolValue;
+const blobField: Uint8Array = row.blobValue;
+const blobNullField: Uint8Array | null = row.blobNull;
+const jsonField: unknown = row.jsonValue;
+const anyField: unknown = row.anyValue;
+void [intField, intNullField, numField, textField, textNullField, boolField, blobField, blobNullField, jsonField, anyField];
+// @ts-expect-error JSON result fields are unknown, never any
+const jsonAsString: string = row.jsonValue;
+// @ts-expect-error unrecognized declared types produce unknown result fields, never any
+const anyAsString: string = row.anyValue;
+void [jsonAsString, anyAsString];
+
+const { intValue: _omitted, ...missingProperty } = complete;
+// @ts-expect-error every argument property is required
+createSample(missingProperty);
+// @ts-expect-error undefined is not an accepted argument value
+createSample({ ...complete, intValue: undefined });
+// @ts-expect-error bigint is not an accepted argument value
+createSample({ ...complete, intValue: 1n });
+// @ts-expect-error Date is not an accepted argument value
+createSample({ ...complete, textValue: new Date() });
+// @ts-expect-error plain objects are not accepted for scalar arguments
+createSample({ ...complete, intValue: {} });
+// @ts-expect-error null is rejected for a non-null argument
+createSample({ ...complete, intValue: null });
+// @ts-expect-error a JSON argument does not accept a Date
+createSample({ ...complete, jsonValue: new Date() });
+// @ts-expect-error a BLOB argument accepts only Uint8Array
+createSample({ ...complete, blobValue: new ArrayBuffer(3) });
+// @ts-expect-error a non-null unknown-typed argument rejects null
+createSample({ ...complete, anyValue: null });
+createSample({ ...complete, anyNull: null });
+createSample({ ...complete, jsonValue: null });
+`;
+
+const checkedValues: GeneratorScenario = {
+  id: "generator/checked-values",
+  createInput: () => queryInput(createCheckedValuesRequest()),
+  assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.equal(outcome.diagnostics, "");
+    assert.ok(outcome.response);
+    const response = outcome.response;
+    const sources = new Map(response.files.map((file) => [file.name, new TextDecoder().decode(file.contents)]));
+    const values = sources.get("values_sql.ts")!;
+    const plain = sources.get("plain_sql.ts")!;
+
+    assert.match(values, /^import \{ generatedInternals as d1_values \} from "\.\/runtime";\nimport type \{ QueryDescriptor, D1NonNullValue, D1Value, JsonValue \} from "\.\/runtime";$/m);
+    assert.match(values, /^type d1_Context = \{ readonly operation: "execute" \| "batch"; readonly queryName: string; readonly batchIndex\?: number \| undefined; readonly rowIndex\?: number \| undefined \};$/m);
+    assert.match(values, /name: "CreateSample"/);
+    assert.match(values, /d1_values\.requireArgs\(args, "CreateSample"\);/);
+
+    for (const [kind, nullable] of [["Integer", "int"], ["Number", "num"], ["Text", "text"], ["Boolean", "bool"], ["Blob", "blob"], ["Json", "json"], ["Unknown", "any"]] as const) {
+      const publicName = `${nullable}Value`;
+      const nullName = `${nullable}Null`;
+      assert.match(values, new RegExp(`d1_values\\.arg${kind}\\(args\\["${publicName}"\\], "CreateSample", "${publicName}"\\)`), publicName);
+      assert.match(values, new RegExp(`d1_values\\.arg${kind}OrNull\\(args\\["${nullName}"\\], "CreateSample", "${nullName}"\\)`), nullName);
+      assert.match(values, new RegExp(`d1_values\\.row${kind}\\(row, "${nullable}_value", "${publicName}", ctx\\)`), publicName);
+      assert.match(values, new RegExp(`d1_values\\.row${kind}OrNull\\(row, "${nullable}_null", "${nullName}", ctx\\)`), nullName);
+    }
+
+    // Argument-less :exec modules stay free of the codec import and the context alias.
+    assert.doesNotMatch(plain, /generatedInternals|d1_values|d1_Context/);
+    assert.match(plain, /^import type \{ QueryDescriptor \} from "\.\/runtime";$/m);
+
+    for (const source of [values, plain]) {
+      assert.doesNotMatch(source, /\bany\b/);
+      assert.doesNotMatch(source, /row\[[^\]]+\] as /);
+    }
+
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": checkedValuesConsumer } });
+    }
+  },
+};
+
+interface CheckedError {
+  name: string;
+  message: string;
+  operation: string;
+  queryName?: string;
+  batchIndex?: number;
+  rowIndex?: number;
+  path?: string;
+  expected?: string;
+  received?: string;
+  cause?: unknown;
+}
+
+const runtimeValues: GeneratorScenario = {
+  id: "generator/runtime-values",
+  createInput: () => queryInput(createCheckedValuesRequest()),
+  async assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.ok(outcome.response);
+    const load = loadGeneratedModules(outcome.response);
+    const runtime = load("runtime");
+    const queries = load("values_sql");
+    const DB = runtime.DB as new (executor: unknown) => {
+      execute(query: unknown): Promise<unknown>;
+      batch(...queries: unknown[]): Promise<unknown[]>;
+    };
+    const SqlcD1Error = runtime.SqlcD1Error as new (...args: never[]) => Error;
+    const QueryArgumentError = runtime.QueryArgumentError as new (...args: never[]) => Error;
+    const QueryResultError = runtime.QueryResultError as new (...args: never[]) => Error;
+    const QueryUsageError = runtime.QueryUsageError as new (...args: never[]) => Error;
+    const createSample = queries.createSample as (args: Record<string, unknown>) => { params: readonly unknown[] };
+    const getSample = queries.getSample as (args: Record<string, unknown>) => unknown;
+    const listSamples = queries.listSamples as () => unknown;
+    const touchSample = queries.touchSample as (args: Record<string, unknown>) => unknown;
+
+    const secret = "s3cr3t-value";
+    const validArgs = (): Record<string, unknown> => ({
+      intValue: 1,
+      intNull: null,
+      numValue: 1.5,
+      numNull: null,
+      textValue: "text",
+      textNull: null,
+      boolValue: true,
+      boolNull: null,
+      blobValue: new Uint8Array([1, 2, 3]),
+      blobNull: null,
+      jsonValue: { nested: [1, "two", null, true] },
+      jsonNull: null,
+      anyValue: "opaque",
+      anyNull: null,
+    });
+
+    const rejectsArgument = (
+      args: Record<string, unknown>,
+      expectations: { path?: string; expected: string; received: string },
+    ): CheckedError => {
+      const executor = new FakeExecutor();
+      let caught: unknown;
+      try {
+        createSample(args);
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryArgumentError, `expected QueryArgumentError for ${expectations.expected}`);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.name, "QueryArgumentError");
+      assert.equal(checked.operation, "construct");
+      assert.equal(checked.queryName, "CreateSample");
+      if (expectations.path !== undefined) assert.equal(checked.path, expectations.path);
+      assert.equal(checked.expected, expectations.expected);
+      assert.equal(checked.received, expectations.received);
+      assert.equal(executor.bound.length, 0);
+      return checked;
+    };
+
+    // Accepted arguments are validated and snapshotted before any executor call.
+    const bytes = new Uint8Array([1, 2, 3]);
+    const settings = { nested: [1, "two", null, true] as unknown[] };
+    const descriptor = createSample({ ...validArgs(), blobValue: bytes, jsonValue: settings });
+    assert.deepEqual(descriptor.params.slice(0, 8), [1, null, 1.5, null, "text", null, true, null]);
+    assert.deepEqual(descriptor.params[8], new Uint8Array([1, 2, 3]));
+    assert.notEqual(descriptor.params[8], bytes);
+    assert.equal(descriptor.params[10], JSON.stringify({ nested: [1, "two", null, true] }));
+    assert.equal(descriptor.params[11], null);
+    assert.equal(descriptor.params[12], "opaque");
+    bytes[0] = 99;
+    settings.nested[0] = 42;
+    assert.deepEqual(descriptor.params[8], new Uint8Array([1, 2, 3]));
+    assert.equal(descriptor.params[10], JSON.stringify({ nested: [1, "two", null, true] }));
+
+    // Nullability, and the decided nullable-JSON limitation.
+    assert.equal(createSample({ ...validArgs(), jsonValue: null }).params[10], "null");
+    assert.equal(createSample({ ...validArgs(), jsonNull: { a: 1 } }).params[11], '{"a":1}');
+    assert.deepEqual(createSample({ ...validArgs(), anyNull: new Uint8Array([7]) }).params[13], new Uint8Array([7]));
+    for (const accepted of [true, false, 1.5, 0, "text", new Uint8Array([1])]) {
+      assert.deepEqual(createSample({ ...validArgs(), anyValue: accepted }).params[12], accepted);
+    }
+
+    rejectsArgument({ ...validArgs(), intValue: 1.5 }, { path: "intValue", expected: "a safe integer", received: "non-integer number" });
+    rejectsArgument({ ...validArgs(), intValue: 2 ** 53 }, { path: "intValue", expected: "a safe integer", received: "unsafe integer" });
+    rejectsArgument({ ...validArgs(), intNull: 1.5 }, { path: "intNull", expected: "a safe integer or null", received: "non-integer number" });
+    rejectsArgument({ ...validArgs(), numValue: Number.POSITIVE_INFINITY }, { path: "numValue", expected: "a finite number", received: "non-finite number" });
+    rejectsArgument({ ...validArgs(), numValue: Number.NaN }, { path: "numValue", expected: "a finite number", received: "non-finite number" });
+    rejectsArgument({ ...validArgs(), textValue: 1 }, { path: "textValue", expected: "a string", received: "number" });
+    rejectsArgument({ ...validArgs(), boolValue: 1 }, { path: "boolValue", expected: "a boolean", received: "number" });
+    rejectsArgument({ ...validArgs(), blobValue: new ArrayBuffer(3) }, { path: "blobValue", expected: "a Uint8Array", received: "object" });
+    rejectsArgument({ ...validArgs(), blobValue: [1, 2, 3] }, { path: "blobValue", expected: "a Uint8Array", received: "array" });
+    rejectsArgument({ ...validArgs(), anyValue: 10n }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "bigint" });
+    rejectsArgument({ ...validArgs(), anyValue: new Date() }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "object" });
+    rejectsArgument({ ...validArgs(), anyValue: null }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "null" });
+    rejectsArgument({ ...validArgs(), anyValue: Number.POSITIVE_INFINITY }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "non-finite number" });
+
+    // Recursive JsonValue validation, with paths into the caller's own structure.
+    rejectsArgument({ ...validArgs(), jsonValue: new Date() }, { path: "jsonValue", expected: "a plain JSON object", received: "object" });
+    rejectsArgument({ ...validArgs(), jsonValue: { a: undefined } }, { path: "jsonValue.a", expected: "a JSON value", received: "undefined" });
+    rejectsArgument({ ...validArgs(), jsonValue: { a: [0, Number.POSITIVE_INFINITY] } }, { path: "jsonValue.a[1]", expected: "a finite number", received: "non-finite number" });
+    rejectsArgument({ ...validArgs(), jsonValue: { a: () => 1 } }, { path: "jsonValue.a", expected: "a JSON value", received: "function" });
+    rejectsArgument({ ...validArgs(), jsonValue: { a: 1n } }, { path: "jsonValue.a", expected: "a JSON value", received: "bigint" });
+    rejectsArgument({ ...validArgs(), jsonValue: { [Symbol("k")]: 1 } }, { path: "jsonValue", expected: "a JSON object without symbol keys", received: "object" });
+    rejectsArgument({ ...validArgs(), jsonValue: { a: Object.create({ inherited: 1 }) as object } }, { path: "jsonValue.a", expected: "a plain JSON object", received: "object" });
+    const cyclic: Record<string, unknown> = { name: "root" };
+    cyclic.self = cyclic;
+    rejectsArgument({ ...validArgs(), jsonValue: cyclic }, { path: "jsonValue.self", expected: "an acyclic JSON value", received: "object" });
+    const shared = { reused: true };
+    assert.equal(createSample({ ...validArgs(), jsonValue: [shared, shared] }).params[10], '[{"reused":true},{"reused":true}]');
+
+    // Every property is required; omission and explicit undefined are both violations.
+    for (const [property, expected] of [
+      ["intValue", "a safe integer"],
+      ["intNull", "a safe integer or null"],
+      ["numValue", "a finite number"],
+      ["textValue", "a string"],
+      ["boolValue", "a boolean"],
+      ["blobValue", "a Uint8Array"],
+      ["jsonValue", "a JSON value"],
+      ["anyValue", "a boolean, finite number, string, or Uint8Array"],
+    ] as const) {
+      const omitted = validArgs();
+      delete omitted[property];
+      rejectsArgument(omitted, { path: property, expected, received: "undefined" });
+      rejectsArgument({ ...validArgs(), [property]: undefined }, { path: property, expected, received: "undefined" });
+    }
+
+    // A non-object argument bag fails with the decided class, not a bare TypeError.
+    for (const [bag, received] of [[null, "null"], [undefined, "undefined"], ["text", "string"], [7, "number"]] as const) {
+      let caught: unknown;
+      try {
+        createSample(bag as unknown as Record<string, unknown>);
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryArgumentError);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.operation, "construct");
+      assert.equal(checked.queryName, "CreateSample");
+      assert.equal(checked.expected, "an arguments object");
+      assert.equal(checked.received, received);
+      assert.equal(checked.path, undefined);
+    }
+
+    // Row mapping.
+    const physicalRow = (): Record<string, unknown> => ({
+      int_value: 1,
+      int_null: null,
+      num_value: 1.5,
+      num_null: null,
+      text_value: "text",
+      text_null: null,
+      bool_value: 1,
+      bool_null: 0,
+      blob_value: [1, 2, 3],
+      blob_null: null,
+      json_value: '{"a":1}',
+      json_null: null,
+      any_value: "opaque",
+      any_null: null,
+      unexpected_extra: secret,
+    });
+
+    const executeWithRows = async (rows: unknown[], query: unknown): Promise<{ executor: FakeExecutor; result: unknown }> => {
+      const executor = new FakeExecutor();
+      executor.rows = rows;
+      const result = await new DB(executor).execute(query);
+      return { executor, result };
+    };
+
+    const mapped = (await executeWithRows([physicalRow()], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    assert.deepEqual(Object.keys(mapped), [
+      "intValue", "intNull", "numValue", "numNull", "textValue", "textNull",
+      "boolValue", "boolNull", "blobValue", "blobNull", "jsonValue", "jsonNull", "anyValue", "anyNull",
+    ]);
+    assert.equal(mapped.boolValue, true);
+    assert.equal(mapped.boolNull, false);
+    assert.deepEqual(mapped.blobValue, new Uint8Array([1, 2, 3]));
+    assert.equal(mapped.blobValue instanceof Uint8Array, true);
+    assert.deepEqual(mapped.jsonValue, { a: 1 });
+    assert.equal(mapped.jsonNull, null);
+    assert.equal(mapped.anyValue, "opaque");
+    assert.equal(mapped.anyNull, null);
+    assert.equal(Object.prototype.hasOwnProperty.call(mapped, "unexpected_extra"), false);
+
+    const rejectsRow = async (
+      mutate: (row: Record<string, unknown>) => void,
+      expectations: { path: string; expected: string; received: string },
+    ): Promise<CheckedError> => {
+      const row = physicalRow();
+      mutate(row);
+      let caught: unknown;
+      try {
+        await executeWithRows([row], getSample({ intValue: 1 }));
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryResultError, `expected QueryResultError for ${expectations.path}`);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.name, "QueryResultError");
+      assert.equal(checked.operation, "execute");
+      assert.equal(checked.queryName, "GetSample");
+      assert.equal(checked.rowIndex, 0);
+      assert.equal(checked.batchIndex, undefined);
+      assert.equal(checked.path, expectations.path);
+      assert.equal(checked.expected, expectations.expected);
+      assert.equal(checked.received, expectations.received);
+      return checked;
+    };
+
+    await rejectsRow((row) => { delete row.int_value; }, { path: "intValue", expected: "a safe integer", received: "missing field" });
+    await rejectsRow((row) => { delete row.any_null; }, { path: "anyNull", expected: "a present value", received: "missing field" });
+    await rejectsRow((row) => { row.int_value = null; }, { path: "intValue", expected: "a safe integer", received: "null" });
+    await rejectsRow((row) => { row.any_value = null; }, { path: "anyValue", expected: "a non-null value", received: "null" });
+    await rejectsRow((row) => { row.int_value = "1"; }, { path: "intValue", expected: "a safe integer", received: "string" });
+    await rejectsRow((row) => { row.int_value = 2 ** 53; }, { path: "intValue", expected: "a safe integer", received: "unsafe integer" });
+    await rejectsRow((row) => { row.num_value = "x"; }, { path: "numValue", expected: "a finite number", received: "string" });
+    await rejectsRow((row) => { row.text_value = 1; }, { path: "textValue", expected: "a string", received: "number" });
+    await rejectsRow((row) => { row.bool_value = 2; }, { path: "boolValue", expected: "the integer 0 or 1", received: "number" });
+    await rejectsRow((row) => { row.bool_value = "1"; }, { path: "boolValue", expected: "the integer 0 or 1", received: "string" });
+    await rejectsRow((row) => { row.bool_value = true; }, { path: "boolValue", expected: "the integer 0 or 1", received: "boolean" });
+    await rejectsRow((row) => { row.blob_value = [1, 300]; }, { path: "blobValue", expected: "a byte array", received: "array" });
+    await rejectsRow((row) => { row.blob_value = [1, 1.5]; }, { path: "blobValue", expected: "a byte array", received: "array" });
+    await rejectsRow((row) => { row.blob_value = "bytes"; }, { path: "blobValue", expected: "a byte array", received: "string" });
+    const malformed = await rejectsRow((row) => { row.json_value = "{oops"; }, { path: "jsonValue", expected: "JSON text", received: "malformed JSON string" });
+    assert.ok(malformed.cause instanceof SyntaxError);
+    await rejectsRow((row) => { row.json_value = 7; }, { path: "jsonValue", expected: "JSON text", received: "number" });
+
+    // Defensive BLOB representations, and freshly constructed public rows.
+    const uint8Row = physicalRow();
+    uint8Row.blob_value = new Uint8Array([4, 5]);
+    const uint8Mapped = (await executeWithRows([uint8Row], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    assert.deepEqual(uint8Mapped.blobValue, new Uint8Array([4, 5]));
+    assert.notEqual(uint8Mapped.blobValue, uint8Row.blob_value);
+    const bufferRow = physicalRow();
+    bufferRow.blob_value = new Uint8Array([6, 7]).buffer;
+    const bufferMapped = (await executeWithRows([bufferRow], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    assert.deepEqual(bufferMapped.blobValue, new Uint8Array([6, 7]));
+
+    // rowIndex through :many.
+    const manyRows = [physicalRow(), physicalRow(), physicalRow()];
+    manyRows[2].bool_value = 9;
+    let manyFailure: unknown;
+    try {
+      await executeWithRows(manyRows, listSamples());
+    } catch (error) {
+      manyFailure = error;
+    }
+    assert.ok(manyFailure instanceof QueryResultError);
+    assert.equal((manyFailure as unknown as CheckedError).rowIndex, 2);
+    assert.equal((manyFailure as unknown as CheckedError).queryName, "ListSamples");
+
+    // operation, batchIndex, and rowIndex through batch.
+    const batchExecutor = new FakeExecutor();
+    const badRow = physicalRow();
+    badRow.text_value = 7;
+    batchExecutor.batchRows = [[physicalRow()], [], [physicalRow(), badRow]];
+    let batchFailure: unknown;
+    try {
+      await new DB(batchExecutor).batch(getSample({ intValue: 1 }), touchSample(validArgs()), listSamples());
+    } catch (error) {
+      batchFailure = error;
+    }
+    assert.ok(batchFailure instanceof QueryResultError);
+    const batchChecked = batchFailure as unknown as CheckedError;
+    assert.equal(batchChecked.operation, "batch");
+    assert.equal(batchChecked.batchIndex, 2);
+    assert.equal(batchChecked.rowIndex, 1);
+    assert.equal(batchChecked.queryName, "ListSamples");
+
+    // Native rejections keep their identity, type, message, stack, and D1 fields.
+    const nativeFailure = Object.assign(new Error("D1_ERROR: no such table: samples"), { cause: undefined, code: "D1_ERROR" });
+    const nativeStack = nativeFailure.stack;
+    const nativeExecutor = new FakeExecutor();
+    nativeExecutor.failure = nativeFailure;
+    let nativeCaught: unknown;
+    try {
+      await new DB(nativeExecutor).execute(getSample({ intValue: 1 }));
+    } catch (error) {
+      nativeCaught = error;
+    }
+    assert.equal(nativeCaught, nativeFailure);
+    assert.equal((nativeCaught as Error).message, "D1_ERROR: no such table: samples");
+    assert.equal((nativeCaught as Error).stack, nativeStack);
+    assert.equal((nativeCaught as { code?: string }).code, "D1_ERROR");
+    assert.equal(nativeCaught instanceof SqlcD1Error, false);
+
+    // A forged or malformed descriptor fails closed before any executor call.
+    for (const [forged, operation, batchIndex] of [
+      [{}, "execute", undefined],
+      [{ kind: "one", name: "X", sql: "SELECT 1", params: [] }, "execute", undefined],
+      [{ kind: "unknown", name: "X", sql: "SELECT 1", params: [], parse: () => ({}) }, "execute", undefined],
+      [null, "execute", undefined],
+    ] as const) {
+      const executor = new FakeExecutor();
+      let caught: unknown;
+      try {
+        await new DB(executor).execute(forged);
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryUsageError, JSON.stringify(forged));
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.name, "QueryUsageError");
+      assert.equal(checked.operation, operation);
+      assert.equal(checked.batchIndex, batchIndex);
+      assert.equal(executor.bound.length, 0);
+    }
+    const forgedBatchExecutor = new FakeExecutor();
+    let forgedBatchCaught: unknown;
+    try {
+      await new DB(forgedBatchExecutor).batch(getSample({ intValue: 1 }), {});
+    } catch (error) {
+      forgedBatchCaught = error;
+    }
+    assert.ok(forgedBatchCaught instanceof QueryUsageError);
+    assert.equal((forgedBatchCaught as unknown as CheckedError).operation, "batch");
+    assert.equal((forgedBatchCaught as unknown as CheckedError).batchIndex, 1);
+    assert.equal(forgedBatchExecutor.bound.length, 0);
+
+    // An unexpected mapper defect stays an ordinary exception.
+    const defect = new ReferenceError("mapper defect");
+    const defectExecutor = new FakeExecutor();
+    defectExecutor.rows = [physicalRow()];
+    let defectCaught: unknown;
+    try {
+      await new DB(defectExecutor).execute({
+        kind: "one",
+        name: "Defective",
+        sql: "SELECT 1",
+        params: [],
+        parse: () => { throw defect; },
+      });
+    } catch (error) {
+      defectCaught = error;
+    }
+    assert.equal(defectCaught, defect);
+    assert.equal(defectCaught instanceof SqlcD1Error, false);
+
+    // Errors carry no commit-state claim and never leak values, rows, SQL text, or parameters.
+    const leakedRow = physicalRow();
+    leakedRow.text_value = 7;
+    let leakCaught: unknown;
+    try {
+      await executeWithRows([leakedRow], getSample({ intValue: 1 }));
+    } catch (error) {
+      leakCaught = error;
+    }
+    const leaked = leakCaught as Error;
+    let argumentLeak: unknown;
+    try {
+      createSample({ ...validArgs(), intValue: secret });
+    } catch (error) {
+      argumentLeak = error;
+    }
+    assert.ok(argumentLeak instanceof QueryArgumentError);
+    for (const candidate of [leaked, argumentLeak as Error]) {
+      const serialized = `${candidate.message}|${JSON.stringify(candidate, Object.getOwnPropertyNames(candidate))}`;
+      assert.equal(serialized.includes(secret), false, serialized);
+      assert.equal(serialized.includes("SELECT * FROM samples"), false, serialized);
+      assert.equal(serialized.includes("opaque"), false, serialized);
+      assert.equal("effectsMayHaveCommitted" in candidate, false);
+      for (const property of Object.getOwnPropertyNames(candidate)) {
+        assert.doesNotMatch(property, /commit|retry/i);
+      }
+    }
+  },
+};
+
 export const generatorScenarios = [
   currentCommands,
+  checkedValues,
+  runtimeValues,
   fileGrouping,
   optionsBoundary,
   protocolBoundary,

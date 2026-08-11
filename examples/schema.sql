@@ -45,3 +45,32 @@ create table files
     updated_at integer          not null check (updated_at > 0),
     deleted_at integer check (deleted_at is null or deleted_at > 0)
 ) strict;
+
+-- Deliberately non-strict: STRICT tables only permit INT/INTEGER/REAL/TEXT/BLOB/ANY,
+-- so the declared types this table exercises require an ordinary table.
+create table samples
+(
+    id         integer primary key autoincrement not null,
+    int_value  INTEGER                           not null,
+    int_null   UNSIGNED BIG INT,
+    num_value  DECIMAL(10, 2)                    not null,
+    num_null   REAL,
+    text_value VARCHAR(255)                      not null,
+    text_null  TEXT,
+    bool_value BOOLEAN                           not null,
+    bool_null  BOOLEAN,
+    blob_value BLOB                              not null,
+    blob_null  BLOB,
+    json_value JSON                              not null,
+    json_null  JSONB,
+    any_value  ULID                              not null,
+    any_null   ULID
+);
+
+-- flag defaults to a value no BOOLEAN column may hold, so RETURNING it fails
+-- mapping after the write has already committed.
+create table quirks
+(
+    id   integer primary key autoincrement not null,
+    flag BOOLEAN                           not null default 2
+);

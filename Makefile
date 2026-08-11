@@ -8,6 +8,7 @@ GENERATOR_SOURCES := \
 	src/diagnostics.ts \
 	src/generator.ts \
 	src/emission-plan.ts \
+	src/sqlite-types.ts \
 	src/d1.ts \
 	src/runtime.ts \
 	src/runtime.d1.ts \
@@ -44,8 +45,8 @@ generate: build/plugin.wasm examples/sqlc.dev.yaml
 .PHONY: test-generator
 test-generator: node_modules
 	npx tsc -p test/tsconfig.json --noEmit
-	node test/build.mjs test/generator/diagnostics.test.ts test/generator/validation.test.ts test/generator/emission-plan.test.ts test/generator/source.test.ts test/verification-contracts.test.ts
-	node --test test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs test/dist/generator-emission-plan.test.cjs test/dist/generator-source.test.cjs test/dist/verification-contracts.test.cjs
+	node test/build.mjs test/generator/diagnostics.test.ts test/generator/validation.test.ts test/generator/sqlite-types.test.ts test/generator/emission-plan.test.ts test/generator/source.test.ts test/verification-contracts.test.ts
+	node --test test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs test/dist/generator-source.test.cjs test/dist/verification-contracts.test.cjs
 
 .PHONY: test-candidate
 test-candidate: node_modules
