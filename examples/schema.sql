@@ -56,7 +56,7 @@ create table samples
     num_value  DECIMAL(10, 2)                    not null,
     num_null   REAL,
     text_value VARCHAR(255)                      not null,
-    text_null  TEXT,
+    text_null  DATETIME,
     bool_value BOOLEAN                           not null,
     bool_null  BOOLEAN,
     blob_value BLOB                              not null,
