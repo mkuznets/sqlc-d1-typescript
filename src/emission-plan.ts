@@ -4,27 +4,35 @@ import {
   quoteDiagnosticValue,
   type Diagnostic,
 } from "./diagnostics";
+import { valueKindForColumn, type ValueKind } from "./sqlite-types";
 import type { ValidatedGeneration } from "./validation";
+
+export type { ValueKind };
 
 export const QUERY_NAME_PATTERN = /^[A-Z][A-Za-z0-9]*$/;
 export const FIELD_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$/;
 
-export type RuntimeTypeImport = "QueryDescriptor";
-export const RUNTIME_TYPE_IMPORT_ORDER: readonly RuntimeTypeImport[] = ["QueryDescriptor"];
+export type RuntimeTypeImport = "QueryDescriptor" | "D1NonNullValue" | "D1Value" | "JsonValue";
+export const RUNTIME_TYPE_IMPORT_ORDER: readonly RuntimeTypeImport[] = ["QueryDescriptor", "D1NonNullValue", "D1Value", "JsonValue"];
 
 export interface PlannedPropertyAccess {
   readonly publicName: string;
   readonly publicNameLiteral: string;
 }
 
-export interface ArgumentFieldPlan extends PlannedPropertyAccess {
+export interface ValueFieldPlan {
+  readonly valueKind: ValueKind;
+  readonly nullable: boolean;
+}
+
+export interface ArgumentFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
   readonly firstParameterIndex: number;
   readonly bindNumber: number;
   readonly sourceName: string;
   readonly column: Column;
 }
 
-export interface RowFieldPlan extends PlannedPropertyAccess {
+export interface RowFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
   readonly columnIndex: number;
   readonly sourceName: string;
   readonly physicalKey: string;
@@ -37,6 +45,7 @@ export interface QueryPlan {
   readonly command: ":one" | ":many" | ":exec";
   readonly insert: boolean;
   readonly kindLiteral: string;
+  readonly queryNameLiteral: string;
   readonly factoryReturnType: string;
   readonly sqlLiteral: string;
   readonly factoryName: string;
@@ -45,16 +54,22 @@ export interface QueryPlan {
   readonly rowTypeName?: string;
   readonly parserName?: string;
   readonly argumentFields: readonly ArgumentFieldPlan[];
-  readonly bindAccesses: readonly PlannedPropertyAccess[];
+  readonly bindAccesses: readonly ArgumentFieldPlan[];
   readonly rowFields: readonly RowFieldPlan[];
   readonly physicalKeyNamespace: PhysicalKeyNamespace;
 }
+
+export type RuntimeValueImport = "generatedInternals";
+export const RUNTIME_VALUE_ALIAS = "d1_values";
+export const RESULT_CONTEXT_ALIAS = "d1_Context";
 
 export interface QueryModulePlan {
   readonly sourceFilename: string;
   readonly outputPath: string;
   readonly runtimeSpecifierLiteral: string;
   readonly runtimeTypeImports: readonly RuntimeTypeImport[];
+  readonly runtimeValueImports: readonly RuntimeValueImport[];
+  readonly emitsResultContext: boolean;
   readonly queries: readonly QueryPlan[];
 }
 
@@ -234,15 +249,28 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
     for (const { query, index } of queryEntries) {
       const plannedQuery = planQuery(query, index, diagnostics);
       importSet.add("QueryDescriptor");
+      for (const field of plannedQuery.argumentFields) {
+        const required = argumentTypeImport(field);
+        if (required) importSet.add(required);
+      }
       plannedQueries.push(plannedQuery);
     }
     const imports = RUNTIME_TYPE_IMPORT_ORDER.filter((name) => importSet.has(name));
-    validateModuleSymbols(sourceFilename, queryEntries, plannedQueries, imports, diagnostics);
+    const usesCodecs = plannedQueries.some((query) => query.argumentFields.length > 0 || query.rowFields.length > 0);
+    const valueImports: readonly RuntimeValueImport[] = usesCodecs ? ["generatedInternals"] : [];
+    const emitsResultContext = plannedQueries.some((query) => query.rowFields.length > 0);
+    const helperBindings = [
+      ...(usesCodecs ? [RUNTIME_VALUE_ALIAS] : []),
+      ...(emitsResultContext ? [RESULT_CONTEXT_ALIAS] : []),
+    ];
+    validateModuleSymbols(sourceFilename, queryEntries, plannedQueries, imports, helperBindings, diagnostics);
     if (outputPath) modules.push({
       sourceFilename,
       outputPath,
       runtimeSpecifierLiteral: quoteTypeScriptString(runtimeImportSpecifier(outputPath)),
       runtimeTypeImports: imports,
+      runtimeValueImports: valueImports,
+      emitsResultContext,
       queries: plannedQueries,
     });
   }
@@ -250,6 +278,12 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
   if (diagnostics.length > 0) throw new GenerationDiagnosticError([...validated.warnings, ...diagnostics]);
   modules.sort((left, right) => compareText(left.outputPath, right.outputPath));
   return { runtime: { outputPath: "runtime.ts" }, queryModules: modules };
+}
+
+function argumentTypeImport(field: ValueFieldPlan): RuntimeTypeImport | undefined {
+  if (field.valueKind === "json") return "JsonValue";
+  if (field.valueKind === "unknown") return field.nullable ? "D1Value" : "D1NonNullValue";
+  return undefined;
 }
 
 function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]): QueryPlan {
@@ -261,7 +295,7 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
   const argumentFields: ArgumentFieldPlan[] = [];
   const byBind = new Map<number, ArgumentFieldPlan>();
   const argumentCounts = new Map<string, number>();
-  const bindAccesses: PlannedPropertyAccess[] = [];
+  const bindAccesses: ArgumentFieldPlan[] = [];
   query.params.forEach((parameter, parameterIndex) => {
     const existing = byBind.get(parameter.number);
     if (existing) {
@@ -274,7 +308,7 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
       diagnostics.push(emissionError("INVALID_FIELD_NAME", `argument name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}`, context({ fieldPath: `params[${parameterIndex}].column.name`, fieldIndex: parameterIndex })));
     }
     const publicName = allocatePublicName(sourceName, parameterIndex, argumentCounts);
-    const field = { firstParameterIndex: parameterIndex, bindNumber: parameter.number, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), column };
+    const field = { firstParameterIndex: parameterIndex, bindNumber: parameter.number, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
     argumentFields.push(field);
     byBind.set(parameter.number, field);
     bindAccesses.push(field);
@@ -287,7 +321,7 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
       diagnostics.push(emissionError("INVALID_FIELD_NAME", `result name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; add a safe ASCII SQL alias`, context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex })));
     }
     const publicName = allocatePublicName(sourceName, columnIndex, rowCounts);
-    return { columnIndex, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), physicalKey: column.name, physicalKeyLiteral: quoteTypeScriptString(column.name), column };
+    return { columnIndex, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), physicalKey: column.name, physicalKeyLiteral: quoteTypeScriptString(column.name), column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
   });
 
   const command = query.cmd as QueryPlan["command"];
@@ -302,6 +336,7 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
     command,
     insert,
     kindLiteral: quoteTypeScriptString(kind),
+    queryNameLiteral: quoteTypeScriptString(query.name),
     factoryReturnType: `QueryDescriptor<${resultType}>`,
     sqlLiteral: quoteTypeScriptString(query.text),
     factoryName,
@@ -321,9 +356,13 @@ function validateModuleSymbols(
   queryEntries: readonly { query: Query; index: number }[],
   plans: readonly QueryPlan[],
   imports: readonly RuntimeTypeImport[],
+  helperBindings: readonly string[],
   diagnostics: Diagnostic[],
 ): void {
-  const owners: SymbolOwner[] = imports.map((identifier) => ({ identifier, role: "runtime import" }));
+  const owners: SymbolOwner[] = [
+    ...imports.map((identifier) => ({ identifier, role: "runtime import" })),
+    ...helperBindings.map((identifier) => ({ identifier, role: "runtime helper" })),
+  ];
   plans.forEach((plan, planIndex) => {
     const { query, index } = queryEntries[planIndex];
     const declarations: Array<[string | undefined, string]> = [

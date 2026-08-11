@@ -5,6 +5,8 @@ import {
   FIELD_NAME_PATTERN,
   PhysicalKeyNamespace,
   QUERY_NAME_PATTERN,
+  RESULT_CONTEXT_ALIAS,
+  RUNTIME_VALUE_ALIAS,
   allocatePublicNames,
   planEmission,
   planOutputPath,
@@ -13,11 +15,13 @@ import {
   toPublicFieldCamelCase,
   toQueryFactoryCamelCase,
 } from "../../src/emission-plan";
-import { Column, GenerateRequest, Identifier, Query, Settings } from "../../src/gen/plugin/codegen_pb";
+import { Column, GenerateRequest, Identifier, Parameter, Query, Settings } from "../../src/gen/plugin/codegen_pb";
 import { validateGenerateRequest } from "../../src/validation";
 
 const identifier = (name: string) => new Identifier({ name });
 const column = (name: string) => new Column({ name, type: identifier("text"), notNull: true });
+const typedColumn = (name: string, typeName: string, notNull = true) =>
+  new Column({ name, type: identifier(typeName), notNull });
 const request = (queries: Query[]) => new GenerateRequest({ settings: new Settings({ engine: "sqlite" }), sqlcVersion: "v1.31.1", queries });
 
 test("ordinary TypeScript literals round-trip hostile UTF-16 text", () => {
@@ -81,6 +85,89 @@ test("all current commands plan one opaque descriptor import and complete result
     "QueryDescriptor<ListManyRow[]>",
     "QueryDescriptor<void>",
   ]);
+});
+
+test("arguments and result columns plan a value kind and executable nullability", () => {
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({
+      filename: "queries.sql",
+      name: "Mixed",
+      cmd: ":one",
+      text: "SELECT",
+      params: [
+        new Parameter({ number: 1, column: typedColumn("count", "INTEGER") }),
+        new Parameter({ number: 2, column: typedColumn("ratio", "DECIMAL(10,2)", false) }),
+        new Parameter({ number: 3, column: typedColumn("label", "VARCHAR(255)") }),
+        new Parameter({ number: 4, column: typedColumn("active", "BOOLEAN", false) }),
+        new Parameter({ number: 5, column: typedColumn("payload", "BLOB") }),
+        new Parameter({ number: 6, column: typedColumn("settings", "JSON") }),
+        new Parameter({ number: 7, column: typedColumn("token", "ULID") }),
+      ],
+      columns: [typedColumn("id", "INTEGER"), typedColumn("meta", "JSONB", false), typedColumn("opaque", "any")],
+    }),
+  ])));
+  const query = plan.queryModules[0].queries[0];
+  assert.equal(query.queryNameLiteral, '"Mixed"');
+  assert.deepEqual(query.argumentFields.map((field) => [field.publicName, field.valueKind, field.nullable]), [
+    ["count", "integer", false],
+    ["ratio", "number", true],
+    ["label", "text", false],
+    ["active", "boolean", true],
+    ["payload", "blob", false],
+    ["settings", "json", false],
+    ["token", "unknown", false],
+  ]);
+  assert.deepEqual(query.rowFields.map((field) => [field.publicName, field.valueKind, field.nullable]), [
+    ["id", "integer", false],
+    ["meta", "json", true],
+    ["opaque", "unknown", false],
+  ]);
+  assert.deepEqual(plan.queryModules[0].runtimeTypeImports, ["QueryDescriptor", "D1NonNullValue", "JsonValue"]);
+});
+
+test("modules select the runtime value import and the result-context alias only when used", () => {
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({ filename: "plain.sql", name: "ClearOne", cmd: ":exec", text: "DELETE FROM one;" }),
+    new Query({ filename: "plain.sql", name: "ClearTwo", cmd: ":exec", text: "DELETE FROM two;" }),
+    new Query({ filename: "args.sql", name: "Touch", cmd: ":exec", text: "UPDATE one SET a = ?;", params: [new Parameter({ number: 1, column: typedColumn("a", "TEXT") })] }),
+    new Query({ filename: "rows.sql", name: "GetOne", cmd: ":one", text: "SELECT", columns: [typedColumn("id", "INTEGER")] }),
+  ])));
+  const byPath = new Map(plan.queryModules.map((module) => [module.outputPath, module]));
+  assert.deepEqual(byPath.get("plain_sql.ts")!.runtimeValueImports, []);
+  assert.equal(byPath.get("plain_sql.ts")!.emitsResultContext, false);
+  assert.deepEqual(byPath.get("args_sql.ts")!.runtimeValueImports, ["generatedInternals"]);
+  assert.equal(byPath.get("args_sql.ts")!.emitsResultContext, false);
+  assert.deepEqual(byPath.get("rows_sql.ts")!.runtimeValueImports, ["generatedInternals"]);
+  assert.equal(byPath.get("rows_sql.ts")!.emitsResultContext, true);
+});
+
+test("emitted helper bindings are collision-proof against every query-derived symbol", () => {
+  // The helper bindings are registered with the collision checker as defense in depth,
+  // but they are underscore-bearing while every query-derived binding is alphanumeric.
+  for (const identifier of [RUNTIME_VALUE_ALIAS, RESULT_CONTEXT_ALIAS]) {
+    assert.match(identifier, /_/, identifier);
+  }
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({ filename: "queries.sql", name: "GetURL2", cmd: ":one", text: "SELECT", params: [new Parameter({ number: 1, column: typedColumn("id", "INTEGER") })], columns: [typedColumn("id", "INTEGER")] }),
+  ])));
+  const query = plan.queryModules[0].queries[0];
+  for (const identifier of [query.factoryName, query.sqlConstantName, query.argsTypeName!, query.rowTypeName!, query.parserName!]) {
+    assert.match(identifier, /^[A-Za-z0-9]+$/, identifier);
+  }
+});
+
+test("runtime type imports contain exactly the names the module uses", () => {
+  const planFor = (params: Parameter[]) => planEmission(validateGenerateRequest(request([
+    new Query({ filename: "queries.sql", name: "Run", cmd: ":exec", text: "DELETE", params }),
+  ]))).queryModules[0].runtimeTypeImports;
+  assert.deepEqual(planFor([]), ["QueryDescriptor"]);
+  assert.deepEqual(planFor([new Parameter({ number: 1, column: typedColumn("id", "INTEGER") })]), ["QueryDescriptor"]);
+  assert.deepEqual(planFor([new Parameter({ number: 1, column: typedColumn("token", "ULID", false) })]), ["QueryDescriptor", "D1Value"]);
+  assert.deepEqual(planFor([
+    new Parameter({ number: 1, column: typedColumn("token", "ULID") }),
+    new Parameter({ number: 2, column: typedColumn("other", "ULID", false) }),
+    new Parameter({ number: 3, column: typedColumn("settings", "JSON") }),
+  ]), ["QueryDescriptor", "D1NonNullValue", "D1Value", "JsonValue"]);
 });
 
 test("valid planning preserves request order within sorted modules and exact SQL", () => {

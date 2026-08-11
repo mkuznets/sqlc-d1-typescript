@@ -15,6 +15,8 @@
     { "id": "generator/emission-determinism", "layer": "generator" },
     { "id": "generator/typescript-floor", "layer": "generator" },
     { "id": "generator/no-query-runtime", "layer": "generator" },
+    { "id": "generator/checked-values", "layer": "generator" },
+    { "id": "generator/runtime-values", "layer": "generator" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
     { "id": "verification/coverage-manifest", "layer": "verification" },
@@ -55,6 +57,11 @@
       "id": "typescript-floor",
       "primary": "generator/typescript-floor",
       "smoke": ["generator/safe-emission"]
+    },
+    {
+      "id": "checked-runtime-values",
+      "primary": "generator/runtime-values",
+      "smoke": ["generator/checked-values", "generator/current-commands"]
     },
     {
       "id": "exact-candidate-execution",
