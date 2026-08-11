@@ -1,61 +1,58 @@
-import { Column } from "./gen/plugin/codegen_pb";
-import type { QueryPlan, RowFieldPlan } from "./emission-plan";
+import { RESULT_CONTEXT_ALIAS, RUNTIME_VALUE_ALIAS, type QueryPlan, type RowFieldPlan, type ValueFieldPlan } from "./emission-plan";
 import { RUNTIME } from "./runtime";
+import type { ValueKind } from "./sqlite-types";
+
+type ScalarValueKind = Exclude<ValueKind, "json" | "unknown">;
+
+const SCALAR_TYPES: Readonly<Record<ScalarValueKind, string>> = {
+  integer: "number",
+  number: "number",
+  text: "string",
+  boolean: "boolean",
+  blob: "Uint8Array",
+};
+
+const CODEC_SUFFIXES: Readonly<Record<ValueKind, string>> = {
+  integer: "Integer",
+  number: "Number",
+  text: "Text",
+  boolean: "Boolean",
+  blob: "Blob",
+  json: "Json",
+  unknown: "Unknown",
+};
+
+function codecCall(prefix: "arg" | "row", field: ValueFieldPlan): string {
+  return `${RUNTIME_VALUE_ALIAS}.${prefix}${CODEC_SUFFIXES[field.valueKind]}${field.nullable ? "OrNull" : ""}`;
+}
 
 export class Driver {
   runtimeCode(): string {
     return RUNTIME;
   }
 
-  columnType(column?: Column): string {
-    if (column === undefined || column.type === undefined) return "any";
+  // Structurally identical to the runtime's private ResultContext; both sides must change together.
+  resultContextDecl(): string {
+    return `type ${RESULT_CONTEXT_ALIAS} = { readonly operation: "execute" | "batch"; readonly queryName: string; readonly batchIndex?: number | undefined; readonly rowIndex?: number | undefined };`;
+  }
 
-    let typ = "any";
-    switch (column.type.name) {
-      case "int":
-      case "integer":
-      case "tinyint":
-      case "smallint":
-      case "mediumint":
-      case "bigint":
-      case "unsignedbigint":
-      case "int2":
-      case "int8":
-      case "real":
-      case "double":
-      case "doubleprecision":
-      case "float":
-      case "numeric":
-      case "decimal":
-        typ = "number";
-        break;
-      case "blob":
-        typ = "ArrayBuffer";
-        break;
-      case "boolean":
-      case "bool":
-        typ = "boolean";
-        break;
-      case "text":
-      case "varchar":
-      case "character":
-      case "nchar":
-      case "nvarchar":
-      case "clob":
-      case "date":
-      case "datetime":
-      case "timestamp":
-        typ = "string";
-        break;
-    }
-    return column.notNull ? typ : `${typ} | null`;
+  argumentType(field: ValueFieldPlan): string {
+    if (field.valueKind === "unknown") return field.nullable ? "D1Value" : "D1NonNullValue";
+    const base = field.valueKind === "json" ? "JsonValue" : SCALAR_TYPES[field.valueKind];
+    return field.nullable ? `${base} | null` : base;
+  }
+
+  rowType(field: ValueFieldPlan): string {
+    if (field.valueKind === "unknown" || field.valueKind === "json") return "unknown";
+    const base = SCALAR_TYPES[field.valueKind];
+    return field.nullable ? `${base} | null` : base;
   }
 
   parseFnDecl(funcName: string, returnIface: string, fields: readonly RowFieldPlan[]): string {
     const properties = fields.map((field) =>
-      `        ${field.publicNameLiteral}: row[${field.physicalKeyLiteral}] as ${this.columnType(field.column)}`,
+      `        ${field.publicNameLiteral}: ${codecCall("row", field)}(row, ${field.physicalKeyLiteral}, ${field.publicNameLiteral}, ctx)`,
     ).join(",\n");
-    return `function ${funcName}(row: Record<string, unknown>): ${returnIface} {
+    return `function ${funcName}(row: Record<string, unknown>, ctx: ${RESULT_CONTEXT_ALIAS}): ${returnIface} {
     return {
 ${properties}
     };
@@ -64,15 +61,19 @@ ${properties}
 
   factoryDecl(plan: QueryPlan): string {
     const fnParams = plan.argsTypeName ? `args: ${plan.argsTypeName}` : "";
-    const params = plan.bindAccesses.map((field) => `args[${field.publicNameLiteral}]`).join(", ");
+    const params = plan.bindAccesses.map((field) =>
+      `${codecCall("arg", field)}(args[${field.publicNameLiteral}], ${plan.queryNameLiteral}, ${field.publicNameLiteral})`,
+    ).join(", ");
     const properties = [
       `        kind: ${plan.kindLiteral}`,
+      `        name: ${plan.queryNameLiteral}`,
       `        sql: ${plan.sqlConstantName}`,
       `        params: Object.freeze([${params}])`,
     ];
     if (plan.parserName) properties.push(`        parse: ${plan.parserName}`);
+    const guard = plan.argsTypeName ? `    ${RUNTIME_VALUE_ALIAS}.requireArgs(args, ${plan.queryNameLiteral});\n` : "";
     return `export function ${plan.factoryName}(${fnParams}): ${plan.factoryReturnType} {
-    return Object.freeze({
+${guard}    return Object.freeze({
 ${properties.join(",\n")}
     }) as unknown as ${plan.factoryReturnType};
 }`;
