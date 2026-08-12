@@ -841,3 +841,165 @@ export function createQuirk(args: CreateQuirkArgs): QueryDescriptor<CreateQuirkR
         parse: parseCreateQuirkRow
     }) as unknown as QueryDescriptor<CreateQuirkRow | null>;
 }
+
+const deleteFeedsByUserQuery = "DELETE\nFROM feeds\nWHERE user_id = ?";
+
+export interface DeleteFeedsByUserArgs {
+    "userId": string;
+}
+
+export function deleteFeedsByUser(args: DeleteFeedsByUserArgs): QueryDescriptor<number> {
+    d1_values.requireArgs(args, "DeleteFeedsByUser");
+    return Object.freeze({
+        kind: "exec-rows",
+        name: "DeleteFeedsByUser",
+        sql: deleteFeedsByUserQuery,
+        params: Object.freeze([d1_values.argText(args["userId"], "DeleteFeedsByUser", "userId")])
+    }) as unknown as QueryDescriptor<number>;
+}
+
+const insertSampleIdQuery = "INSERT INTO samples\n(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,\n json_value, json_null, any_value, any_null)\nVALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+export interface InsertSampleIdArgs {
+    "intValue": number;
+    "intNull": number | null;
+    "numValue": number;
+    "numNull": number | null;
+    "textValue": string;
+    "textNull": string | null;
+    "boolValue": boolean;
+    "boolNull": boolean | null;
+    "blobValue": Uint8Array;
+    "blobNull": Uint8Array | null;
+    "jsonValue": JsonValue;
+    "jsonNull": JsonValue | null;
+    "anyValue": D1NonNullValue;
+    "anyNull": D1Value;
+}
+
+export function insertSampleId(args: InsertSampleIdArgs): QueryDescriptor<number> {
+    d1_values.requireArgs(args, "InsertSampleId");
+    return Object.freeze({
+        kind: "exec-lastid",
+        name: "InsertSampleId",
+        sql: insertSampleIdQuery,
+        params: Object.freeze([d1_values.argInteger(args["intValue"], "InsertSampleId", "intValue"), d1_values.argIntegerOrNull(args["intNull"], "InsertSampleId", "intNull"), d1_values.argNumber(args["numValue"], "InsertSampleId", "numValue"), d1_values.argNumberOrNull(args["numNull"], "InsertSampleId", "numNull"), d1_values.argText(args["textValue"], "InsertSampleId", "textValue"), d1_values.argTextOrNull(args["textNull"], "InsertSampleId", "textNull"), d1_values.argBoolean(args["boolValue"], "InsertSampleId", "boolValue"), d1_values.argBooleanOrNull(args["boolNull"], "InsertSampleId", "boolNull"), d1_values.argBlob(args["blobValue"], "InsertSampleId", "blobValue"), d1_values.argBlobOrNull(args["blobNull"], "InsertSampleId", "blobNull"), d1_values.argJson(args["jsonValue"], "InsertSampleId", "jsonValue"), d1_values.argJsonOrNull(args["jsonNull"], "InsertSampleId", "jsonNull"), d1_values.argUnknown(args["anyValue"], "InsertSampleId", "anyValue"), d1_values.argUnknownOrNull(args["anyNull"], "InsertSampleId", "anyNull")])
+    }) as unknown as QueryDescriptor<number>;
+}
+
+const deleteSamplesResultQuery = "DELETE\nFROM samples\nWHERE text_value = ?\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+
+export interface DeleteSamplesResultArgs {
+    "textValue": string;
+}
+
+export function deleteSamplesResult(args: DeleteSamplesResultArgs): QueryDescriptor<D1Result<Record<string, unknown>>> {
+    d1_values.requireArgs(args, "DeleteSamplesResult");
+    return Object.freeze({
+        kind: "exec-result",
+        name: "DeleteSamplesResult",
+        sql: deleteSamplesResultQuery,
+        params: Object.freeze([d1_values.argText(args["textValue"], "DeleteSamplesResult", "textValue")])
+    }) as unknown as QueryDescriptor<D1Result<Record<string, unknown>>>;
+}
+
+const renameFeedsReturningQuery = "UPDATE feeds\nSET title = ?\nWHERE user_id = ?\n  AND deleted_at IS NULL\nRETURNING id, user_id, type, title, link, authors, description, created_at, updated_at, deleted_at";
+
+export interface RenameFeedsReturningArgs {
+    "title": string;
+    "userId": string;
+}
+
+export interface RenameFeedsReturningRow {
+    "id": string;
+    "userId": string;
+    "type": string;
+    "title": string;
+    "link": string;
+    "authors": string;
+    "description": string;
+    "createdAt": number;
+    "updatedAt": number;
+    "deletedAt": number | null;
+}
+
+function parseRenameFeedsReturningRow(row: Record<string, unknown>, ctx: d1_Context): RenameFeedsReturningRow {
+    return {
+        "id": d1_values.rowText(row, "id", "id", ctx),
+        "userId": d1_values.rowText(row, "user_id", "userId", ctx),
+        "type": d1_values.rowText(row, "type", "type", ctx),
+        "title": d1_values.rowText(row, "title", "title", ctx),
+        "link": d1_values.rowText(row, "link", "link", ctx),
+        "authors": d1_values.rowText(row, "authors", "authors", ctx),
+        "description": d1_values.rowText(row, "description", "description", ctx),
+        "createdAt": d1_values.rowInteger(row, "created_at", "createdAt", ctx),
+        "updatedAt": d1_values.rowInteger(row, "updated_at", "updatedAt", ctx),
+        "deletedAt": d1_values.rowIntegerOrNull(row, "deleted_at", "deletedAt", ctx)
+    };
+}
+
+export function renameFeedsReturning(args: RenameFeedsReturningArgs): QueryDescriptor<RenameFeedsReturningRow | null> {
+    d1_values.requireArgs(args, "RenameFeedsReturning");
+    return Object.freeze({
+        kind: "one",
+        name: "RenameFeedsReturning",
+        sql: renameFeedsReturningQuery,
+        params: Object.freeze([d1_values.argText(args["title"], "RenameFeedsReturning", "title"), d1_values.argText(args["userId"], "RenameFeedsReturning", "userId")]),
+        parse: parseRenameFeedsReturningRow
+    }) as unknown as QueryDescriptor<RenameFeedsReturningRow | null>;
+}
+
+const deleteSamplesReturningQuery = "DELETE\nFROM samples\nWHERE text_value = ?\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+
+export interface DeleteSamplesReturningArgs {
+    "textValue": string;
+}
+
+export interface DeleteSamplesReturningRow {
+    "id": number;
+    "intValue": number;
+    "intNull": number | null;
+    "numValue": number;
+    "numNull": number | null;
+    "textValue": string;
+    "textNull": string | null;
+    "boolValue": boolean;
+    "boolNull": boolean | null;
+    "blobValue": Uint8Array;
+    "blobNull": Uint8Array | null;
+    "jsonValue": unknown;
+    "jsonNull": unknown;
+    "anyValue": unknown;
+    "anyNull": unknown;
+}
+
+function parseDeleteSamplesReturningRow(row: Record<string, unknown>, ctx: d1_Context): DeleteSamplesReturningRow {
+    return {
+        "id": d1_values.rowInteger(row, "id", "id", ctx),
+        "intValue": d1_values.rowInteger(row, "int_value", "intValue", ctx),
+        "intNull": d1_values.rowIntegerOrNull(row, "int_null", "intNull", ctx),
+        "numValue": d1_values.rowNumber(row, "num_value", "numValue", ctx),
+        "numNull": d1_values.rowNumberOrNull(row, "num_null", "numNull", ctx),
+        "textValue": d1_values.rowText(row, "text_value", "textValue", ctx),
+        "textNull": d1_values.rowTextOrNull(row, "text_null", "textNull", ctx),
+        "boolValue": d1_values.rowBoolean(row, "bool_value", "boolValue", ctx),
+        "boolNull": d1_values.rowBooleanOrNull(row, "bool_null", "boolNull", ctx),
+        "blobValue": d1_values.rowBlob(row, "blob_value", "blobValue", ctx),
+        "blobNull": d1_values.rowBlobOrNull(row, "blob_null", "blobNull", ctx),
+        "jsonValue": d1_values.rowJson(row, "json_value", "jsonValue", ctx),
+        "jsonNull": d1_values.rowJsonOrNull(row, "json_null", "jsonNull", ctx),
+        "anyValue": d1_values.rowUnknown(row, "any_value", "anyValue", ctx),
+        "anyNull": d1_values.rowUnknownOrNull(row, "any_null", "anyNull", ctx)
+    };
+}
+
+export function deleteSamplesReturning(args: DeleteSamplesReturningArgs): QueryDescriptor<DeleteSamplesReturningRow[]> {
+    d1_values.requireArgs(args, "DeleteSamplesReturning");
+    return Object.freeze({
+        kind: "many",
+        name: "DeleteSamplesReturning",
+        sql: deleteSamplesReturningQuery,
+        params: Object.freeze([d1_values.argText(args["textValue"], "DeleteSamplesReturning", "textValue")]),
+        parse: parseDeleteSamplesReturningRow
+    }) as unknown as QueryDescriptor<DeleteSamplesReturningRow[]>;
+}

@@ -17,6 +17,10 @@
     { "id": "generator/no-query-runtime", "layer": "generator" },
     { "id": "generator/checked-values", "layer": "generator" },
     { "id": "generator/runtime-values", "layer": "generator" },
+    { "id": "generator/command-semantics", "layer": "generator" },
+    { "id": "generator/command-results", "layer": "generator" },
+    { "id": "generator/unsupported-commands", "layer": "generator" },
+    { "id": "worker/command-semantics", "layer": "worker" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
     { "id": "verification/coverage-manifest", "layer": "verification" },
@@ -62,6 +66,51 @@
       "id": "checked-runtime-values",
       "primary": "generator/runtime-values",
       "smoke": ["generator/checked-values", "generator/current-commands"]
+    },
+    {
+      "id": "command-one",
+      "primary": "generator/command-results",
+      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+    },
+    {
+      "id": "command-many",
+      "primary": "generator/command-results",
+      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+    },
+    {
+      "id": "command-exec",
+      "primary": "generator/command-results",
+      "smoke": ["generator/current-commands", "worker/command-semantics"]
+    },
+    {
+      "id": "command-execrows",
+      "primary": "generator/command-results",
+      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+    },
+    {
+      "id": "command-execlastid",
+      "primary": "generator/command-results",
+      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+    },
+    {
+      "id": "command-execresult",
+      "primary": "generator/command-results",
+      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+    },
+    {
+      "id": "command-public-types",
+      "primary": "generator/command-semantics",
+      "smoke": ["generator/current-commands"]
+    },
+    {
+      "id": "native-command-metadata",
+      "primary": "worker/command-semantics",
+      "smoke": ["generator/command-results"]
+    },
+    {
+      "id": "unsupported-command-rejection",
+      "primary": "generator/unsupported-commands",
+      "smoke": ["generator/query-boundary", "generator/emission-readiness"]
     },
     {
       "id": "exact-candidate-execution",

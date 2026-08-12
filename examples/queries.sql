@@ -147,3 +147,33 @@ ORDER BY id;
 INSERT INTO quirks (id)
 VALUES (?)
 RETURNING *;
+
+-- name: DeleteFeedsByUser :execrows
+DELETE
+FROM feeds
+WHERE user_id = ?;
+
+-- name: InsertSampleId :execlastid
+INSERT INTO samples
+(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,
+ json_value, json_null, any_value, any_null)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: DeleteSamplesResult :execresult
+DELETE
+FROM samples
+WHERE text_value = ?
+RETURNING *;
+
+-- name: RenameFeedsReturning :one
+UPDATE feeds
+SET title = ?
+WHERE user_id = ?
+  AND deleted_at IS NULL
+RETURNING *;
+
+-- name: DeleteSamplesReturning :many
+DELETE
+FROM samples
+WHERE text_value = ?
+RETURNING *;

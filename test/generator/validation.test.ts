@@ -132,9 +132,10 @@ test("slice validation suppresses SQL-dependent cascades and identifies duplicat
 });
 
 test("emission readiness is suppressed only by its own invalid metadata", () => {
+  const validSlice = new Column({ name: "ids", type: identifier("integer"), isSqlcSlice: true });
   assert.deepEqual(
-    reasons(request({ queries: [validQuery({ filename: "", cmd: ":execrows", columns: [] })] })),
-    ["QUERY/MISSING_FILENAME", "EMISSION/UNIMPLEMENTED_COMMAND"],
+    reasons(request({ queries: [validQuery({ filename: "", cmd: ":exec", columns: [], text: "DELETE WHERE id IN (/*SLICE:ids*/?)", params: [new Parameter({ number: 1, column: validSlice })] })] })),
+    ["QUERY/MISSING_FILENAME", "EMISSION/UNIMPLEMENTED_SLICE"],
   );
 
   const validEmbed = new Column({ name: "user", embedTable: identifier("users") });
@@ -159,8 +160,18 @@ test("query metadata validates repeated binds, slices, embeds, result columns, a
   assert.ok(reasons(request({ queries: [validQuery({ columns: [new Column({ embedTable: identifier("") })] })] })).includes("QUERY/INVALID_EMBED_METADATA"));
 
   assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [] })] })), ["QUERY/MISSING_RESULT_COLUMNS"]);
-  assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [id, column()] })] })), ["QUERY/DUPLICATE_PHYSICAL_COLUMN"]);
   for (const cmd of [":execrows", ":execlastid", ":execresult"]) {
-    assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: [] })] })), ["EMISSION/UNIMPLEMENTED_COMMAND"]);
+    assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: [] })] })), []);
+  }
+});
+
+test("duplicate physical result keys are rejected only where rows are mapped", () => {
+  const repeated = [column(), column()];
+  for (const cmd of [":one", ":many"]) {
+    assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: repeated })] })), ["QUERY/DUPLICATE_PHYSICAL_COLUMN"]);
+  }
+  // The exec family never reads a result column, so colliding physical keys are not its problem.
+  for (const cmd of [":exec", ":execrows", ":execlastid", ":execresult"]) {
+    assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: repeated })] })), []);
   }
 });

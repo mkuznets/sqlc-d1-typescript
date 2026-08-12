@@ -12,7 +12,7 @@ import {
 } from "../../src/gen/plugin/codegen_pb";
 import { GeneratorHarness, GeneratorOutcome } from "./harness";
 import { compileGeneratedResponse } from "./compile";
-import { FakeExecutor, loadGeneratedModules } from "./evaluate";
+import { DEFAULT_FAKE_META, FakeExecutor, loadGeneratedModules } from "./evaluate";
 
 export type GeneratorScenarioInput =
   | { kind: "request"; request: GenerateRequest }
@@ -206,6 +206,144 @@ const currentCommands: GeneratorScenario = {
   },
 };
 
+// All six ordinary commands in one module. The exec-family queries deliberately carry
+// arguments and result columns, including a repeated physical key, because none of that
+// may reach the emitted module.
+export function createCommandsRequest(): GenerateRequest {
+  const id = column("id", "integer");
+  const title = column("title", "text");
+  const userId = column("user_id", "text");
+  const feeds = new Identifier({ name: "feeds" });
+  return validRequest({
+    queries: [
+      new Query({ filename: "queries.sql", name: "GetFeed", cmd: ":one", text: "SELECT id, title FROM feeds WHERE id = ?;", params: [parameter(1, id)], columns: [id, title] }),
+      new Query({ filename: "queries.sql", name: "CreateFeed", cmd: ":one", text: "INSERT INTO feeds (title) VALUES (?) RETURNING id, title;", params: [parameter(1, title)], columns: [id, title], insertIntoTable: feeds }),
+      new Query({ filename: "queries.sql", name: "ListFeeds", cmd: ":many", text: "SELECT id, title FROM feeds;", columns: [id, title] }),
+      new Query({ filename: "queries.sql", name: "TouchFeed", cmd: ":exec", text: "UPDATE feeds SET title = ? WHERE id = ?;", params: [parameter(1, title), parameter(2, id)] }),
+      new Query({ filename: "queries.sql", name: "DeleteFeedsByUser", cmd: ":execrows", text: "DELETE FROM feeds WHERE user_id = ? RETURNING id, id;", params: [parameter(1, userId)], columns: [id, id] }),
+      // An INSERT target never turns a metadata command into a row command.
+      new Query({ filename: "queries.sql", name: "InsertFeedId", cmd: ":execlastid", text: "INSERT INTO feeds (title) VALUES (?);", params: [parameter(1, title)], insertIntoTable: feeds }),
+      new Query({ filename: "queries.sql", name: "PurgeFeeds", cmd: ":execresult", text: "DELETE FROM feeds WHERE user_id = ? RETURNING *;", params: [parameter(1, userId)], columns: [id, id, title] }),
+      new Query({ filename: "bare.sql", name: "PurgeAll", cmd: ":execresult", text: "DELETE FROM feeds;", columns: [id] }),
+      new Query({ filename: "bare.sql", name: "CountAll", cmd: ":execrows", text: "DELETE FROM audit;" }),
+    ],
+  });
+}
+
+const commandsConsumer = `import { DB } from "./runtime";
+import {
+  getFeed,
+  createFeed,
+  listFeeds,
+  touchFeed,
+  deleteFeedsByUser,
+  insertFeedId,
+  purgeFeeds,
+  type GetFeedRow,
+  type CreateFeedRow,
+  type ListFeedsRow,
+} from "./queries_sql";
+import { purgeAll, countAll } from "./bare_sql";
+// @ts-expect-error the exec family maps no rows, so it declares no row type
+import type { DeleteFeedsByUserRow } from "./queries_sql";
+// @ts-expect-error the exec family maps no rows, so it declares no row type
+import type { PurgeFeedsRow } from "./queries_sql";
+
+declare const binding: D1Database;
+const db = new DB(binding);
+const one: Promise<GetFeedRow | null> = db.execute(getFeed({ id: 1 }));
+const inserted: Promise<CreateFeedRow | null> = db.execute(createFeed({ title: "Feed" }));
+const many: Promise<ListFeedsRow[]> = db.execute(listFeeds());
+const nothing: Promise<void> = db.execute(touchFeed({ title: "Feed", id: 1 }));
+const changed: Promise<number> = db.execute(deleteFeedsByUser({ userId: "user_1" }));
+const lastId: Promise<number> = db.execute(insertFeedId({ title: "Feed" }));
+const native: Promise<D1Result<Record<string, unknown>>> = db.execute(purgeFeeds({ userId: "user_1" }));
+const bareNative: Promise<D1Result<Record<string, unknown>>> = db.execute(purgeAll());
+const bareChanged: Promise<number> = db.execute(countAll());
+void [one, inserted, many, nothing, changed, lastId, native, bareNative, bareChanged];
+
+const tuple: Promise<[
+  GetFeedRow | null,
+  CreateFeedRow | null,
+  ListFeedsRow[],
+  void,
+  number,
+  number,
+  D1Result<Record<string, unknown>>,
+]> = db.batch(
+  getFeed({ id: 1 }),
+  createFeed({ title: "Feed" }),
+  listFeeds(),
+  touchFeed({ title: "Feed", id: 1 }),
+  deleteFeedsByUser({ userId: "user_1" }),
+  insertFeedId({ title: "Feed" }),
+  purgeFeeds({ userId: "user_1" }),
+);
+void tuple;
+
+async function readsNativeResult(): Promise<void> {
+  const result = await db.execute(purgeFeeds({ userId: "user_1" }));
+  const rows: Record<string, unknown>[] = result.results;
+  const success: boolean = result.success;
+  const changes: number = result.meta.changes;
+  const lastRowId: number = result.meta.last_row_id;
+  void [rows, success, changes, lastRowId];
+  // @ts-expect-error the native result is not a row count
+  const asNumber: number = await db.execute(purgeFeeds({ userId: "user_1" }));
+  // @ts-expect-error a row count is not the native result
+  const asResult: D1Result<Record<string, unknown>> = await db.execute(deleteFeedsByUser({ userId: "user_1" }));
+  void [asNumber, asResult];
+}
+void readsNativeResult;
+`;
+
+const commandSemantics: GeneratorScenario = {
+  id: "generator/command-semantics",
+  createInput: () => queryInput(createCommandsRequest()),
+  assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.equal(outcome.diagnostics, "");
+    assert.ok(outcome.response);
+    const response = outcome.response;
+    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "bare_sql.ts", "queries_sql.ts"]);
+    const sources = new Map(response.files.map((file) => [file.name, new TextDecoder().decode(file.contents)]));
+    const queries = sources.get("queries_sql.ts")!;
+    const bare = sources.get("bare_sql.ts")!;
+
+    const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/commands-output.ts.txt"), "utf8");
+    assert.equal(queries, expected);
+
+    for (const [factory, kind, result] of [
+      ["deleteFeedsByUser", "exec-rows", "number"],
+      ["insertFeedId", "exec-lastid", "number"],
+      ["purgeFeeds", "exec-result", "D1Result<Record<string, unknown>>"],
+    ] as const) {
+      assert.match(queries, new RegExp(`export function ${factory}\\(args: \\w+\\): QueryDescriptor<${escapeRegExp(result)}> \\{`), factory);
+      assert.match(queries, new RegExp(`kind: "${kind}"`), kind);
+    }
+    // No dead row artifacts survive for the exec family, even though it carries columns.
+    for (const name of ["DeleteFeedsByUser", "InsertFeedId", "PurgeFeeds", "TouchFeed", "PurgeAll", "CountAll"]) {
+      for (const source of [queries, bare]) {
+        assert.doesNotMatch(source, new RegExp(`interface ${name}Row\\b`), name);
+        assert.doesNotMatch(source, new RegExp(`parse${name}Row\\b`), name);
+      }
+    }
+    // Only row commands attach a parser to their descriptor.
+    assert.equal((queries.match(/parse: parse\w+Row/g) ?? []).length, 3);
+
+    // The row commands in this module still need the codec import and the context alias;
+    // an exec-family-only module needs neither.
+    assert.match(queries, /^import \{ generatedInternals as d1_values \} from "\.\/runtime";$/m);
+    assert.match(queries, /^type d1_Context = /m);
+    assert.doesNotMatch(bare, /generatedInternals|d1_values|d1_Context/);
+    assert.match(bare, /^import type \{ QueryDescriptor \} from "\.\/runtime";$/m);
+
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": commandsConsumer } });
+    }
+  },
+};
+
 const fileGrouping: GeneratorScenario = {
   id: "generator/file-grouping",
   createInput: () => queryInput(validRequest({ queries: [
@@ -286,15 +424,65 @@ const queryBoundary: GeneratorScenario = {
   },
 };
 
+// The features that are still unimplemented must keep failing closed, loudly and
+// without being mistaken for an unsupported command.
 const emissionReadiness: GeneratorScenario = {
   id: "generator/emission-readiness",
   createInput: () => queryInput(validRequest({ queries: [
-    new Query({ filename: "queries.sql", name: "DeleteUsers", cmd: ":execrows", text: "DELETE FROM users", columns: [column("id", "integer")] }),
+    new Query({
+      filename: "queries.sql",
+      name: "DeleteUsers",
+      cmd: ":exec",
+      text: "DELETE FROM users WHERE id IN (/*SLICE:ids*/?)",
+      params: [parameter(1, new Column({ name: "ids", type: type("integer"), isSqlcSlice: true }))],
+    }),
+    new Query({
+      filename: "queries.sql",
+      name: "GetUserWithProfile",
+      cmd: ":one",
+      text: "SELECT users.*, profiles.* FROM users JOIN profiles ON profiles.user_id = users.id",
+      columns: [new Column({ name: "profile", embedTable: new Identifier({ name: "profiles" }) })],
+    }),
   ] })),
   assert(outcome) {
     assertFailure(outcome);
-    assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_COMMAND\]/);
+    assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_SLICE\]/);
+    assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_EMBED\]/);
     assert.doesNotMatch(outcome.diagnostics, /\[QUERY\/UNSUPPORTED_COMMAND\]/);
+    assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_COMMAND/);
+    assert.doesNotMatch(outcome.diagnostics, /DELETE FROM users|SELECT users/);
+  },
+};
+
+// The allow-list is exhaustive: the four other sqlc commands and anything a future sqlc
+// invents must fail with actionable context rather than be approximated.
+const UNSUPPORTED_COMMAND_CASES: readonly (readonly [string, string, string])[] = [
+  ["copyfrom.sql", "ImportUsers", ":copyfrom"],
+  ["batchexec.sql", "BulkTouch", ":batchexec"],
+  ["batchmany.sql", "BulkList", ":batchmany"],
+  ["batchone.sql", "BulkGet", ":batchone"],
+  ["future.sql", "FutureThing", ":bulkexec"],
+];
+
+const unsupportedCommands: GeneratorScenario = {
+  id: "generator/unsupported-commands",
+  createInput: () => queryInput(validRequest({
+    queries: UNSUPPORTED_COMMAND_CASES.map(([filename, name, cmd]) =>
+      new Query({ filename, name, cmd, text: `SELECT secret_${name} FROM classified;` })),
+  })),
+  assert(outcome) {
+    assertFailure(outcome);
+    assert.match(outcome.diagnostics, /generation failed with 5 errors\n/);
+    assert.equal((outcome.diagnostics.match(/\[QUERY\/UNSUPPORTED_COMMAND\]/g) ?? []).length, 5);
+    for (const [filename, name, cmd] of UNSUPPORTED_COMMAND_CASES) {
+      assert.match(
+        outcome.diagnostics,
+        new RegExp(`\\[QUERY/UNSUPPORTED_COMMAND\\] file "${filename}", query "${name}", field "cmd":\\ncommand "${cmd}" is unsupported; supported commands: ${escapeRegExp('":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"')}\\n`),
+        cmd,
+      );
+    }
+    assert.doesNotMatch(outcome.diagnostics, /secret_|classified/);
+    assertNoStack(outcome.diagnostics);
   },
 };
 
@@ -1062,16 +1250,309 @@ const runtimeValues: GeneratorScenario = {
   },
 };
 
+// Descriptors are opaque to consumers, so exercising a runtime kind before any factory
+// can produce it means hand-building the private descriptor shape.
+function handBuiltDescriptor(kind: string, name: string, extra: Record<string, unknown> = {}): unknown {
+  return Object.freeze({ kind, name, sql: `SELECT 1 -- ${name}`, params: Object.freeze([]), ...extra });
+}
+
+// `meta` itself is unusable: the failure names the whole object.
+const META_OBJECT_FAILURES: readonly (readonly [unknown, string])[] = [
+  [undefined, "undefined"],
+  [null, "null"],
+  ["meta", "string"],
+  [7, "number"],
+];
+
+// `meta` is an object but the field the command promises is not a safe integer.
+const META_FIELD_FAILURES: readonly (readonly [(key: string) => Record<string, unknown>, string])[] = [
+  [() => ({}), "missing field"],
+  [(key) => ({ [key]: null }), "null"],
+  [(key) => ({ [key]: "7" }), "string"],
+  [(key) => ({ [key]: 1.5 }), "non-integer number"],
+  [(key) => ({ [key]: 2 ** 53 }), "unsafe integer"],
+  [(key) => ({ [key]: Number.NaN }), "non-finite number"],
+];
+
+const METADATA_COMMANDS: readonly (readonly [string, string])[] = [
+  ["exec-rows", "changes"],
+  ["exec-lastid", "last_row_id"],
+];
+
+const commandResults: GeneratorScenario = {
+  id: "generator/command-results",
+  createInput: () => queryInput(createCommandsRequest()),
+  async assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.ok(outcome.response);
+    const load = loadGeneratedModules(outcome.response);
+    const runtime = load("runtime");
+    const queries = load("queries_sql");
+    const DB = runtime.DB as new (executor: unknown) => {
+      execute(query: unknown): Promise<unknown>;
+      batch(...queries: unknown[]): Promise<unknown[]>;
+    };
+    const QueryResultError = runtime.QueryResultError as new (...args: never[]) => Error;
+    const QueryUsageError = runtime.QueryUsageError as new (...args: never[]) => Error;
+
+    const executeWithMeta = async (meta: unknown, query: unknown): Promise<{ executor: FakeExecutor; result: unknown }> => {
+      const executor = new FakeExecutor();
+      executor.meta = meta;
+      const result = await new DB(executor).execute(query);
+      return { executor, result };
+    };
+
+    // Metadata commands resolve the validated field D1 reports, zero included.
+    for (const [changes, lastRowId] of [[3, 42], [0, 0]] as const) {
+      const meta = { changes, last_row_id: lastRowId, duration: 0.5, served_by: "miniflare.db" };
+      assert.equal((await executeWithMeta(meta, handBuiltDescriptor("exec-rows", "Changed"))).result, changes);
+      assert.equal((await executeWithMeta(meta, handBuiltDescriptor("exec-lastid", "Inserted"))).result, lastRowId);
+    }
+
+    // :execresult hands back D1's own object: same identity, unfrozen, uncopied.
+    const passthrough = await executeWithMeta({ changes: 1, last_row_id: 9 }, handBuiltDescriptor("exec-result", "Native"));
+    assert.equal(passthrough.result, passthrough.executor.produced[0]);
+    assert.equal(Object.isFrozen(passthrough.result), false);
+    const native = passthrough.result as { results: unknown[]; success: boolean; meta: Record<string, unknown> };
+    assert.deepEqual(native.results, []);
+    assert.equal(native.success, true);
+    assert.equal(native.meta.changes, 1);
+    assert.equal(native.meta.last_row_id, 9);
+
+    // :exec still discards everything D1 reported.
+    assert.equal((await executeWithMeta({ changes: 5, last_row_id: 5 }, handBuiltDescriptor("exec", "Touch"))).result, undefined);
+
+    const rejectsMeta = async (
+      kind: string,
+      meta: unknown,
+      expectations: { path: string; expected: string; received: string },
+    ): Promise<void> => {
+      const label = `${kind} with ${expectations.path} ${expectations.received}`;
+      let caught: unknown;
+      try {
+        await executeWithMeta(meta, handBuiltDescriptor(kind, "Metadata"));
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryResultError, label);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.name, "QueryResultError", label);
+      assert.equal(checked.operation, "execute", label);
+      assert.equal(checked.queryName, "Metadata", label);
+      assert.equal(checked.batchIndex, undefined, label);
+      assert.equal(checked.rowIndex, undefined, label);
+      assert.equal(checked.path, expectations.path, label);
+      assert.equal(checked.expected, expectations.expected, label);
+      assert.equal(checked.received, expectations.received, label);
+    };
+
+    for (const [kind, key] of METADATA_COMMANDS) {
+      for (const [meta, received] of META_OBJECT_FAILURES) {
+        await rejectsMeta(kind, meta, { path: "meta", expected: "an execution metadata object", received });
+      }
+      for (const [buildMeta, received] of META_FIELD_FAILURES) {
+        await rejectsMeta(kind, buildMeta(key), { path: `meta.${key}`, expected: "a safe integer", received });
+      }
+    }
+
+    // A heterogeneous batch resolves every kind positionally from its own element.
+    const batchExecutor = new FakeExecutor();
+    batchExecutor.batchRows = [[{ id: 1 }], [{ id: 2 }, { id: 3 }], [], [], [], []];
+    batchExecutor.batchMetas = [
+      { changes: 0, last_row_id: 0 },
+      { changes: 0, last_row_id: 0 },
+      { changes: 1, last_row_id: 0 },
+      { changes: 4, last_row_id: 0 },
+      { changes: 1, last_row_id: 77 },
+      { changes: 2, last_row_id: 78 },
+    ];
+    const identity = (row: Record<string, unknown>): unknown => row;
+    const batched = await new DB(batchExecutor).batch(
+      handBuiltDescriptor("one", "One", { parse: identity }),
+      handBuiltDescriptor("many", "Many", { parse: identity }),
+      handBuiltDescriptor("exec", "Exec"),
+      handBuiltDescriptor("exec-rows", "Rows"),
+      handBuiltDescriptor("exec-lastid", "LastId"),
+      handBuiltDescriptor("exec-result", "Result"),
+    );
+    assert.deepEqual(batched.slice(0, 5), [{ id: 1 }, [{ id: 2 }, { id: 3 }], undefined, 4, 77]);
+    assert.equal(batched[5], batchExecutor.produced[5]);
+
+    // An empty result set is an empty array, never null or undefined.
+    const emptyExecutor = new FakeExecutor();
+    emptyExecutor.batchRows = [[]];
+    assert.deepEqual(await new DB(emptyExecutor).batch(handBuiltDescriptor("many", "Many", { parse: identity })), [[]]);
+
+    // Metadata failures inside a batch carry the operation and the failing index.
+    for (const [batchIndex, kind, key] of [[1, "exec-rows", "changes"], [2, "exec-lastid", "last_row_id"]] as const) {
+      const executor = new FakeExecutor();
+      executor.batchMetas = [{ changes: 1, last_row_id: 1 }, { changes: 1, last_row_id: 1 }, { changes: 1, last_row_id: 1 }];
+      executor.batchMetas[batchIndex] = { [key]: "not a number" };
+      let caught: unknown;
+      try {
+        await new DB(executor).batch(
+          handBuiltDescriptor("exec", "First"),
+          handBuiltDescriptor("exec-rows", "Second"),
+          handBuiltDescriptor("exec-lastid", "Third"),
+        );
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryResultError, kind);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.operation, "batch");
+      assert.equal(checked.batchIndex, batchIndex);
+      assert.equal(checked.rowIndex, undefined);
+      assert.equal(checked.path, `meta.${key}`);
+      assert.equal(checked.received, "string");
+    }
+
+    // Value-result descriptors need no parser; row descriptors still do, and an
+    // unknown kind stays a usage failure before any statement is prepared.
+    for (const kind of ["exec", "exec-rows", "exec-lastid", "exec-result"]) {
+      const executor = new FakeExecutor();
+      await new DB(executor).execute(handBuiltDescriptor(kind, "NoParser"));
+      assert.equal(executor.bound.length, 1);
+    }
+    for (const forged of [
+      handBuiltDescriptor("exec-changes", "Unknown"),
+      handBuiltDescriptor("many", "NoParser"),
+      handBuiltDescriptor("execrows", "Unhyphenated"),
+    ]) {
+      const executor = new FakeExecutor();
+      let caught: unknown;
+      try {
+        await new DB(executor).execute(forged);
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryUsageError, JSON.stringify(forged));
+      assert.equal(executor.bound.length, 0);
+    }
+
+    // The same semantics through the real generated factories.
+    const getFeed = queries.getFeed as (args: Record<string, unknown>) => unknown;
+    const createFeed = queries.createFeed as (args: Record<string, unknown>) => unknown;
+    const listFeeds = queries.listFeeds as () => unknown;
+    const touchFeed = queries.touchFeed as (args: Record<string, unknown>) => unknown;
+    const deleteFeedsByUser = queries.deleteFeedsByUser as (args: Record<string, unknown>) => unknown;
+    const insertFeedId = queries.insertFeedId as (args: Record<string, unknown>) => unknown;
+    const purgeFeeds = queries.purgeFeeds as (args: Record<string, unknown>) => unknown;
+    const feedRow = (id: number): Record<string, unknown> => ({ id, title: `Feed ${id}` });
+
+    const executeWithRows = async (rows: unknown[], query: unknown): Promise<unknown> => {
+      const executor = new FakeExecutor();
+      executor.rows = rows;
+      executor.meta = { changes: 6, last_row_id: 91 };
+      return new DB(executor).execute(query);
+    };
+
+    // :one takes the first row of a multi-row result and never issues a second query.
+    assert.deepEqual(await executeWithRows([feedRow(1), feedRow(2)], getFeed({ id: 1 })), feedRow(1));
+    assert.equal(await executeWithRows([], getFeed({ id: 1 })), null);
+    assert.deepEqual(await executeWithRows([feedRow(3), feedRow(4)], createFeed({ title: "Feed 3" })), feedRow(3));
+    assert.equal(await executeWithRows([], createFeed({ title: "Feed 3" })), null);
+    assert.deepEqual(await executeWithRows([feedRow(1), feedRow(2)], listFeeds()), [feedRow(1), feedRow(2)]);
+    assert.deepEqual(await executeWithRows([], listFeeds()), []);
+    assert.equal(await executeWithRows([], touchFeed({ title: "Feed", id: 1 })), undefined);
+    assert.equal(await executeWithRows([], deleteFeedsByUser({ userId: "user_1" })), 6);
+    assert.equal(await executeWithRows([], insertFeedId({ title: "Feed" })), 91);
+
+    const generatedNative = new FakeExecutor();
+    generatedNative.rows = [feedRow(1)];
+    const nativeResult = await new DB(generatedNative).execute(purgeFeeds({ userId: "user_1" }));
+    assert.equal(nativeResult, generatedNative.produced[0]);
+    assert.deepEqual((nativeResult as { results: unknown[] }).results, [feedRow(1)]);
+
+    // One heterogeneous batch of generated descriptors, resolved positionally.
+    const generatedBatch = new FakeExecutor();
+    generatedBatch.batchRows = [[feedRow(1)], [feedRow(2)], [feedRow(3), feedRow(4)], [], [], [], [feedRow(5)]];
+    generatedBatch.batchMetas = [
+      DEFAULT_FAKE_META, DEFAULT_FAKE_META, DEFAULT_FAKE_META, { changes: 1, last_row_id: 0 },
+      { changes: 2, last_row_id: 0 }, { changes: 1, last_row_id: 55 }, { changes: 3, last_row_id: 56 },
+    ];
+    const generatedResults = await new DB(generatedBatch).batch(
+      getFeed({ id: 1 }),
+      createFeed({ title: "Feed 2" }),
+      listFeeds(),
+      touchFeed({ title: "Feed", id: 1 }),
+      deleteFeedsByUser({ userId: "user_1" }),
+      insertFeedId({ title: "Feed" }),
+      purgeFeeds({ userId: "user_1" }),
+    );
+    assert.deepEqual(generatedResults.slice(0, 6), [
+      feedRow(1), feedRow(2), [feedRow(3), feedRow(4)], undefined, 2, 55,
+    ]);
+    assert.equal(generatedResults[6], generatedBatch.produced[6]);
+    assert.equal(generatedBatch.bound.length, 7);
+
+    // A generated metadata failure carries the same context as a hand-built one.
+    const generatedFailure = new FakeExecutor();
+    generatedFailure.meta = { changes: 1.5, last_row_id: 1 };
+    let generatedCaught: unknown;
+    try {
+      await new DB(generatedFailure).execute(deleteFeedsByUser({ userId: "user_1" }));
+    } catch (error) {
+      generatedCaught = error;
+    }
+    assert.ok(generatedCaught instanceof QueryResultError);
+    assert.deepEqual(
+      (({ operation, queryName, path, expected, received, rowIndex }: CheckedError) =>
+        ({ operation, queryName, path, expected, received, rowIndex }))(generatedCaught as unknown as CheckedError),
+      {
+        operation: "execute",
+        queryName: "DeleteFeedsByUser",
+        path: "meta.changes",
+        expected: "a safe integer",
+        received: "non-integer number",
+        rowIndex: undefined,
+      },
+    );
+
+    // A native D1 rejection on a metadata command is still D1's own error.
+    const nativeFailure = Object.assign(new Error("D1_ERROR: no such table: feeds"), { code: "D1_ERROR" });
+    const nativeStack = nativeFailure.stack;
+    const nativeExecutor = new FakeExecutor();
+    nativeExecutor.failure = nativeFailure;
+    let nativeCaught: unknown;
+    try {
+      await new DB(nativeExecutor).execute(deleteFeedsByUser({ userId: "user_1" }));
+    } catch (error) {
+      nativeCaught = error;
+    }
+    assert.equal(nativeCaught, nativeFailure);
+    assert.equal((nativeCaught as Error).message, "D1_ERROR: no such table: feeds");
+    assert.equal((nativeCaught as Error).stack, nativeStack);
+    assert.equal((nativeCaught as { code?: string }).code, "D1_ERROR");
+    assert.equal(nativeCaught instanceof (runtime.SqlcD1Error as new (...args: never[]) => Error), false);
+
+    // Metadata failures leak no value, SQL text, or parameter.
+    let leaked: unknown;
+    try {
+      await executeWithMeta({ changes: "s3cr3t-value" }, handBuiltDescriptor("exec-rows", "Leaky"));
+    } catch (error) {
+      leaked = error;
+    }
+    const candidate = leaked as Error;
+    const serialized = `${candidate.message}|${JSON.stringify(candidate, Object.getOwnPropertyNames(candidate))}`;
+    assert.equal(serialized.includes("s3cr3t-value"), false, serialized);
+    assert.equal(serialized.includes("SELECT 1"), false, serialized);
+  },
+};
+
 export const generatorScenarios = [
   currentCommands,
+  commandSemantics,
   checkedValues,
   runtimeValues,
+  commandResults,
   fileGrouping,
   optionsBoundary,
   protocolBoundary,
   unknownProtobufField,
   compatibility,
   queryBoundary,
+  unsupportedCommands,
   emissionReadiness,
   diagnosticAggregation,
   safeEmission,
@@ -1091,6 +1572,10 @@ function assertFailure(outcome: GeneratorOutcome): void {
   assert.notEqual(outcome.exitCode, 0);
   assert.equal(outcome.response, undefined);
   assert.equal(outcome.stdout.length, 0);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function assertNoStack(diagnostics: string): void {
