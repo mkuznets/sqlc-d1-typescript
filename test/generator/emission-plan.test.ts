@@ -69,22 +69,49 @@ test("complete planning aggregates naming, declaration, and path errors", () => 
   });
 });
 
-test("all current commands plan one opaque descriptor import and complete result types", () => {
+test("all six ordinary commands plan one opaque descriptor import and complete result types", () => {
   const id = column("id");
   const plan = planEmission(validateGenerateRequest(request([
     new Query({ filename: "queries.sql", name: "GetOne", cmd: ":one", text: "SELECT", columns: [id] }),
     new Query({ filename: "queries.sql", name: "InsertOne", cmd: ":one", text: "INSERT RETURNING", columns: [id], insertIntoTable: identifier("items") }),
     new Query({ filename: "queries.sql", name: "ListMany", cmd: ":many", text: "SELECT", columns: [id] }),
     new Query({ filename: "queries.sql", name: "RunExec", cmd: ":exec", text: "DELETE" }),
+    new Query({ filename: "queries.sql", name: "CountExec", cmd: ":execrows", text: "DELETE RETURNING", columns: [id] }),
+    // An INSERT target is not command semantics: only ":one" splits on it.
+    new Query({ filename: "queries.sql", name: "InsertId", cmd: ":execlastid", text: "INSERT", insertIntoTable: identifier("items") }),
+    new Query({ filename: "queries.sql", name: "NativeResult", cmd: ":execresult", text: "DELETE RETURNING", columns: [id, id] }),
   ])));
   const module = plan.queryModules[0];
   assert.deepEqual(module.runtimeTypeImports, ["QueryDescriptor"]);
+  assert.deepEqual(module.queries.map((query) => query.kindLiteral), [
+    '"one"', '"one-insert"', '"many"', '"exec"', '"exec-rows"', '"exec-lastid"', '"exec-result"',
+  ]);
   assert.deepEqual(module.queries.map((query) => query.factoryReturnType), [
     "QueryDescriptor<GetOneRow | null>",
     "QueryDescriptor<InsertOneRow | null>",
     "QueryDescriptor<ListManyRow[]>",
     "QueryDescriptor<void>",
+    "QueryDescriptor<number>",
+    "QueryDescriptor<number>",
+    "QueryDescriptor<D1Result<Record<string, unknown>>>",
   ]);
+  // Result columns are planned only for row commands; the exec family emits no dead artifacts.
+  for (const query of module.queries.slice(3)) {
+    assert.deepEqual(query.rowFields, [], query.queryNameLiteral);
+    assert.equal(query.rowTypeName, undefined, query.queryNameLiteral);
+    assert.equal(query.parserName, undefined, query.queryNameLiteral);
+  }
+  assert.equal(module.emitsResultContext, true);
+});
+
+test("an exec-family module derives no row artifacts, codec import, or result-context alias", () => {
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({ filename: "exec.sql", name: "CountExec", cmd: ":execrows", text: "DELETE RETURNING", columns: [column("id")] }),
+    new Query({ filename: "exec.sql", name: "NativeResult", cmd: ":execresult", text: "DELETE RETURNING", columns: [column("id")] }),
+  ])));
+  const module = plan.queryModules[0];
+  assert.deepEqual(module.runtimeValueImports, []);
+  assert.equal(module.emitsResultContext, false);
 });
 
 test("arguments and result columns plan a value kind and executable nullability", () => {

@@ -56,29 +56,46 @@ export class FakeStatement {
     return this.executor.rows.length === 0 ? null : this.executor.rows[0];
   }
 
-  async run(): Promise<{ results: unknown[]; success: boolean; meta: Record<string, unknown> }> {
+  async run(): Promise<Record<string, unknown>> {
     this.executor.throwFailure();
-    return { results: [...this.executor.rows], success: true, meta: {} };
+    return this.executor.produce([...this.executor.rows], this.executor.meta);
   }
 
-  async all(): Promise<{ results: unknown[]; success: boolean; meta: Record<string, unknown> }> {
+  async all(): Promise<Record<string, unknown>> {
     return this.run();
   }
 }
 
+export const DEFAULT_FAKE_META: Readonly<Record<string, unknown>> = Object.freeze({ changes: 0, last_row_id: 0 });
+
 export class FakeExecutor {
   readonly bound: BoundStatement[] = [];
+  // Every result object handed back to the runtime, so identity passthrough is assertable.
+  readonly produced: Record<string, unknown>[] = [];
   rows: unknown[] = [];
   batchRows: unknown[][] | undefined;
+  // `undefined` omits the meta key entirely; any other value is served verbatim.
+  meta: unknown = DEFAULT_FAKE_META;
+  batchMetas: unknown[] | undefined;
   failure: unknown;
 
   prepare(sql: string): FakeStatement {
     return new FakeStatement(this, sql);
   }
 
-  async batch(statements: FakeStatement[]): Promise<{ results: unknown[] }[]> {
+  async batch(statements: FakeStatement[]): Promise<Record<string, unknown>[]> {
     this.throwFailure();
-    return statements.map((_, index) => ({ results: [...(this.batchRows?.[index] ?? this.rows)] }));
+    return statements.map((_, index) => this.produce(
+      [...(this.batchRows?.[index] ?? this.rows)],
+      this.batchMetas === undefined ? this.meta : this.batchMetas[index],
+    ));
+  }
+
+  produce(results: unknown[], meta: unknown): Record<string, unknown> {
+    const result: Record<string, unknown> = { results, success: true };
+    if (meta !== undefined) result.meta = meta;
+    this.produced.push(result);
+    return result;
   }
 
   throwFailure(): void {

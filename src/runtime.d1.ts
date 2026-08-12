@@ -357,6 +357,19 @@ function rowUnknownOrNull(row: Record<string, unknown>, key: string, path: strin
     return requireField(row, key, path, "a present value", ctx)
 }
 
+// Execution metadata crosses the host boundary like any row field, so the commands
+// built on it validate defensively rather than trusting the D1 type declarations.
+function metaSafeInteger(result: unknown, key: string, ctx: ResultContext): number {
+    const meta = (result as { meta?: unknown } | null | undefined)?.meta
+    if (typeof meta !== "object" || meta === null) {
+        throw resultFailure(ctx, "meta", "an execution metadata object", describeValue(meta))
+    }
+    const path = `meta.${key}`
+    const value = requireField(meta as Record<string, unknown>, key, path, "a safe integer", ctx)
+    if (typeof value === "number" && Number.isSafeInteger(value)) return value
+    throw resultFailure(ctx, path, "a safe integer", describeValue(value))
+}
+
 /**
  * Internal implementation detail shared with generated query modules.
  * Not a supported API: its shape may change in any release.
@@ -415,7 +428,7 @@ type InternalQuery =
         readonly parse: (row: Record<string, unknown>, ctx: ResultContext) => unknown
     }
     | {
-        readonly kind: "exec"
+        readonly kind: "exec" | "exec-rows" | "exec-lastid" | "exec-result"
         readonly name: string
         readonly sql: string
         readonly params: readonly unknown[]
@@ -435,10 +448,13 @@ function asInternalQuery(query: unknown, operation: "execute" | "batch", batchIn
         throw usageFailure("a generated query descriptor")
     }
     const kind = candidate.kind
-    if (kind !== "one" && kind !== "one-insert" && kind !== "many" && kind !== "exec") {
+    if (kind !== "one" && kind !== "one-insert" && kind !== "many" && kind !== "exec"
+        && kind !== "exec-rows" && kind !== "exec-lastid" && kind !== "exec-result") {
         throw usageFailure("a known query descriptor kind")
     }
-    if (kind !== "exec" && typeof candidate.parse !== "function") throw usageFailure("a query descriptor with a row parser")
+    if ((kind === "one" || kind === "one-insert" || kind === "many") && typeof candidate.parse !== "function") {
+        throw usageFailure("a query descriptor with a row parser")
+    }
     return query as InternalQuery
 }
 
@@ -476,6 +492,17 @@ export abstract class QueryExecutor {
                 await stmt.run()
                 return undefined as Result
             }
+            case "exec-rows": {
+                const result = await stmt.run()
+                return metaSafeInteger(result, "changes", { operation: "execute", queryName }) as Result
+            }
+            case "exec-lastid": {
+                const result = await stmt.run()
+                return metaSafeInteger(result, "last_row_id", { operation: "execute", queryName }) as Result
+            }
+            case "exec-result": {
+                return await stmt.run() as Result
+            }
         }
     }
 
@@ -501,6 +528,12 @@ export abstract class QueryExecutor {
                 }
                 case "exec":
                     return undefined
+                case "exec-rows":
+                    return metaSafeInteger(result, "changes", { operation: "batch", queryName, batchIndex })
+                case "exec-lastid":
+                    return metaSafeInteger(result, "last_row_id", { operation: "batch", queryName, batchIndex })
+                case "exec-result":
+                    return result
             }
         }) as BatchResults<Q>
     }

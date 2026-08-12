@@ -5,9 +5,27 @@ import {
   type Diagnostic,
 } from "./diagnostics";
 import { valueKindForColumn, type ValueKind } from "./sqlite-types";
-import type { ValidatedGeneration } from "./validation";
+import { ROW_COMMANDS, type SupportedCommand, type ValidatedGeneration } from "./validation";
 
 export type { ValueKind };
+
+// Descriptor kind per command. ":one" splits further on an INSERT target; see planQuery.
+const COMMAND_KINDS: Readonly<Record<SupportedCommand, string>> = {
+  ":one": "one",
+  ":many": "many",
+  ":exec": "exec",
+  ":execrows": "exec-rows",
+  ":execlastid": "exec-lastid",
+  ":execresult": "exec-result",
+};
+
+// Public result type per command. Row commands derive theirs from the planned row type instead.
+const COMMAND_RESULTS: Readonly<Record<Exclude<SupportedCommand, ":one" | ":many">, string>> = {
+  ":exec": "void",
+  ":execrows": "number",
+  ":execlastid": "number",
+  ":execresult": "D1Result<Record<string, unknown>>",
+};
 
 export const QUERY_NAME_PATTERN = /^[A-Z][A-Za-z0-9]*$/;
 export const FIELD_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$/;
@@ -42,7 +60,7 @@ export interface RowFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
 
 export interface QueryPlan {
   readonly queryIndex: number;
-  readonly command: ":one" | ":many" | ":exec";
+  readonly command: SupportedCommand;
   readonly insert: boolean;
   readonly kindLiteral: string;
   readonly queryNameLiteral: string;
@@ -314,8 +332,13 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
     bindAccesses.push(field);
   });
 
+  const command = query.cmd as SupportedCommand;
+  const insert = Boolean(query.insertIntoTable);
+  const kind = command === ":one" && insert ? "one-insert" : COMMAND_KINDS[command];
+
+  // Only row commands read result columns; the exec family plans no row artifacts at all.
   const rowCounts = new Map<string, number>();
-  const rowFields = query.columns.map((column, columnIndex): RowFieldPlan => {
+  const rowFields = !ROW_COMMANDS.has(command) ? [] : query.columns.map((column, columnIndex): RowFieldPlan => {
     const sourceName = column.name;
     if (sourceName && !FIELD_NAME_PATTERN.test(sourceName)) {
       diagnostics.push(emissionError("INVALID_FIELD_NAME", `result name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; add a safe ASCII SQL alias`, context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex })));
@@ -324,13 +347,10 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
     return { columnIndex, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), physicalKey: column.name, physicalKeyLiteral: quoteTypeScriptString(column.name), column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
   });
 
-  const command = query.cmd as QueryPlan["command"];
-  const insert = Boolean(query.insertIntoTable);
-  const kind = command === ":exec" ? "exec" : command === ":many" ? "many" : insert ? "one-insert" : "one";
   const rowTypeName = rowFields.length > 0 ? `${query.name}Row` : undefined;
-  const resultType = command === ":exec" ? "void"
+  const resultType = command === ":one" ? `${rowTypeName} | null`
     : command === ":many" ? `${rowTypeName}[]`
-    : `${rowTypeName} | null`;
+    : COMMAND_RESULTS[command];
   return {
     queryIndex,
     command,

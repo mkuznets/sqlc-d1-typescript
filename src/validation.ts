@@ -8,6 +8,10 @@ import {
 export const MINIMUM_SQLC_VERSION = "1.18.0";
 export const TESTED_SQLC_VERSION = "1.31.1";
 export const SUPPORTED_COMMANDS = [":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"] as const;
+export type SupportedCommand = (typeof SUPPORTED_COMMANDS)[number];
+
+/** The commands whose result is built by row mapping. Everything else ignores `Query.columns`. */
+export const ROW_COMMANDS: ReadonlySet<string> = new Set([":one", ":many"]);
 
 export interface ValidatedGeneration {
   request: GenerateRequest;
@@ -187,7 +191,7 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     diagnostics.push(error(
       "QUERY",
       "UNSUPPORTED_COMMAND",
-      `command ${quoteDiagnosticValue(query.cmd)} is unsupported; supported commands: ${SUPPORTED_COMMANDS.join(", ")}`,
+      `command ${quoteDiagnosticValue(query.cmd)} is unsupported; supported commands: ${SUPPORTED_COMMANDS.map(quoteDiagnosticValue).join(", ")}`,
       context({ fieldPath: "cmd" }),
     ));
   }
@@ -221,28 +225,28 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
   validateEmbeds(query, queryIndex, diagnostics);
   const embedMetadataValid = diagnostics.length === embedValidationStart;
 
-  if ((query.cmd === ":one" || query.cmd === ":many") && query.columns.length === 0) {
+  if (ROW_COMMANDS.has(query.cmd) && query.columns.length === 0) {
     diagnostics.push(error("QUERY", "MISSING_RESULT_COLUMNS", `command ${quoteDiagnosticValue(query.cmd)} requires at least one result column`, context({ fieldPath: "columns" })));
   }
-  const physicalColumns = new Map<string, number>();
-  query.columns.forEach((column, columnIndex) => {
-    if (!column.name) return;
-    const prior = physicalColumns.get(column.name);
-    if (prior !== undefined) {
-      diagnostics.push(error(
-        "QUERY",
-        "DUPLICATE_PHYSICAL_COLUMN",
-        `physical result key ${quoteDiagnosticValue(column.name)} is repeated at column positions ${prior + 1} and ${columnIndex + 1}; add a unique SQL alias`,
-        context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex }),
-      ));
-    } else {
-      physicalColumns.set(column.name, columnIndex);
-    }
-  });
-
-  if ([":execrows", ":execlastid", ":execresult"].includes(query.cmd)) {
-    diagnostics.push(error("EMISSION", "UNIMPLEMENTED_COMMAND", `command ${quoteDiagnosticValue(query.cmd)} is recognized but not yet renderable`, context({ fieldPath: "cmd" })));
+  // Physical keys only have to be distinguishable where a row parser reads them.
+  if (ROW_COMMANDS.has(query.cmd)) {
+    const physicalColumns = new Map<string, number>();
+    query.columns.forEach((column, columnIndex) => {
+      if (!column.name) return;
+      const prior = physicalColumns.get(column.name);
+      if (prior !== undefined) {
+        diagnostics.push(error(
+          "QUERY",
+          "DUPLICATE_PHYSICAL_COLUMN",
+          `physical result key ${quoteDiagnosticValue(column.name)} is repeated at column positions ${prior + 1} and ${columnIndex + 1}; add a unique SQL alias`,
+          context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex }),
+        ));
+      } else {
+        physicalColumns.set(column.name, columnIndex);
+      }
+    });
   }
+
   if (sliceMetadataValid && query.params.some((parameter) => parameter.column?.isSqlcSlice)) {
     diagnostics.push(error("EMISSION", "UNIMPLEMENTED_SLICE", "sqlc slice parameters are recognized but not yet renderable", context({ fieldPath: "params" })));
   }
