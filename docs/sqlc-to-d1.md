@@ -6,7 +6,7 @@ sqlc remains responsible for parsing SQL, resolving schema types, and defining a
 
 | sqlc command | Generated descriptor result | D1 operation |
 |---|---|---|
-| `:one` | `Row | null` | first row, including write-returning rows |
+| `:one` | `Row \| null` | first row, including write-returning rows |
 | `:many` | `Row[]` | all rows |
 | `:exec` | `void` | execute and discard native result |
 | `:execrows` | safe-integer `number` | validate `meta.changes` |

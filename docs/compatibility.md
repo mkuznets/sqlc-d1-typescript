@@ -44,7 +44,7 @@ Generated public API and documentation excerpts compile against both versions fo
 | compatibility date | 2026-02-05 |
 | compatibility flags | none (`[]`) |
 
-These versions describe the repository's exact local verification environment. They are **not** minimum consumer dependencies and do not require consumers to copy the repository lockfiles. The separate Wrangler `4.120.0` bundle observation in the [README](../README.md#known-rough-edges) is historical field feedback, not this compatibility baseline.
+These versions describe the repository's exact local verification environment. They are **not** minimum consumer dependencies and do not require consumers to copy the repository lockfiles.
 
 The exact build/evidence tools are Node 24.12.0, npm 11.6.2, Bun 1.3.10, Buf 1.65.0, and Javy 8.0.0. These likewise bind release evidence; they are not runtime installation requirements.
 

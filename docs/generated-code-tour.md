@@ -52,7 +52,7 @@ const user: GetUserRow | null = await db.execute(getUser({ id: 1 }));
 
 | sqlc command | Result from the query executor |
 |---|---|
-| `:one` | `Row | null` |
+| `:one` | `Row \| null` |
 | `:many` | `Row[]` |
 | `:exec` | `void` |
 | `:execrows` | safe-integer `number` from `meta.changes` |
