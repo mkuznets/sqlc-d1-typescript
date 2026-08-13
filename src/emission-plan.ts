@@ -1,9 +1,17 @@
-import { Column, Query } from "./gen/plugin/codegen_pb";
+import { Column, Identifier, Query } from "./gen/plugin/codegen_pb";
 import {
   GenerationDiagnosticError,
   quoteDiagnosticValue,
   type Diagnostic,
 } from "./diagnostics";
+import {
+  CatalogIndex,
+  EMBED_ALIAS_PREFIX,
+  findEmbedExpansions,
+  rewriteProjection,
+  type AliasedItem,
+  type ExpansionSpan,
+} from "./embeds";
 import {
   RUNTIME_TYPE_IMPORT_ORDER,
   VALUE_KINDS,
@@ -56,13 +64,29 @@ export interface ArgumentFieldPlan extends PlannedPropertyAccess, ValueFieldPlan
   readonly slice?: SlicePlan;
 }
 
-export interface RowFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
-  readonly columnIndex: number;
+/** One mapped value: an ordinary result column, or one leaf field of an embed object. */
+export interface RowValueFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
   readonly sourceName: string;
   readonly physicalKey: string;
   readonly physicalKeyLiteral: string;
+  // The public path runtime failures name: "id" for a scalar, "users.id" inside an embed.
+  readonly pathLiteral: string;
   readonly column: Column;
 }
+
+export interface RowScalarFieldPlan extends RowValueFieldPlan {
+  readonly kind: "scalar";
+  readonly columnIndex: number;
+}
+
+export interface RowEmbedFieldPlan extends PlannedPropertyAccess {
+  readonly kind: "embed";
+  readonly columnIndex: number;
+  readonly sourceName: string;
+  readonly fields: readonly RowValueFieldPlan[];
+}
+
+export type RowFieldPlan = RowScalarFieldPlan | RowEmbedFieldPlan;
 
 export interface QueryPlan {
   readonly queryIndex: number;
@@ -237,6 +261,8 @@ interface SymbolOwner {
 
 export function planEmission(validated: ValidatedGeneration): EmissionPlan {
   const diagnostics: Diagnostic[] = [];
+  // The only source of embedded-field metadata, built once per request.
+  const catalog = new CatalogIndex(validated.request.catalog);
   const groups = new Map<string, Array<{ query: Query; index: number }>>();
   validated.request.queries.forEach((query, index) => {
     const group = groups.get(query.filename) ?? [];
@@ -273,7 +299,7 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
     const plannedQueries: QueryPlan[] = [];
     const importSet = new Set<RuntimeTypeImport>();
     for (const { query, index } of queryEntries) {
-      const plannedQuery = planQuery(query, index, diagnostics);
+      const plannedQuery = planQuery(query, index, catalog, diagnostics);
       importSet.add("QueryDescriptor");
       for (const field of plannedQuery.argumentFields) {
         const required = argumentTypeImport(field);
@@ -311,7 +337,7 @@ function argumentTypeImport(field: ValueFieldPlan): RuntimeTypeImport | undefine
   return field.nullable ? spelling.nullableArgumentImport : spelling.argumentImport;
 }
 
-function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]): QueryPlan {
+function planQuery(query: Query, queryIndex: number, catalog: CatalogIndex, diagnostics: Diagnostic[]): QueryPlan {
   const context = (extra: Partial<Diagnostic> = {}): Partial<Diagnostic> => ({ filename: query.filename, queryName: query.name, queryIndex, ...extra });
   if (!QUERY_NAME_PATTERN.test(query.name)) {
     diagnostics.push(emissionError("INVALID_QUERY_NAME", `query name ${quoteDiagnosticValue(query.name)} must match ${quoteDiagnosticValue(QUERY_NAME_PATTERN.source)}`, context({ fieldPath: "name" })));
@@ -346,15 +372,43 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
   const kind = command === ":one" && insert ? "one-insert" : COMMAND_KINDS[command];
 
   // Only row commands read result columns; the exec family plans no row artifacts at all.
+  // An embed's own property shares the row's allocator, so an ordinary column named
+  // "users" and an embed of "users" become "users" and "users_2".
   const rowCounts = new Map<string, number>();
+  const pendingEmbeds: PendingEmbed[] = [];
   const rowFields = !ROW_COMMANDS.has(command) ? [] : query.columns.map((column, columnIndex): RowFieldPlan => {
     const sourceName = column.name;
+    if (column.embedTable) {
+      if (sourceName && !FIELD_NAME_PATTERN.test(sourceName)) {
+        diagnostics.push(emissionError("INVALID_FIELD_NAME", `embedded table name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; rename the table or project its columns explicitly instead of embedding it`, context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex })));
+      }
+      const publicName = allocatePublicName(sourceName, columnIndex, rowCounts);
+      const embed: RowEmbedFieldPlan = { kind: "embed", columnIndex, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), fields: [] };
+      pendingEmbeds.push({ columnIndex, publicName, embedTable: column.embedTable });
+      return embed;
+    }
     if (sourceName && !FIELD_NAME_PATTERN.test(sourceName)) {
       diagnostics.push(emissionError("INVALID_FIELD_NAME", `result name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; add a safe ASCII SQL alias`, context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex })));
     }
     const publicName = allocatePublicName(sourceName, columnIndex, rowCounts);
-    return { columnIndex, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), physicalKey: column.name, physicalKeyLiteral: quoteTypeScriptString(column.name), column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
+    const publicNameLiteral = quoteTypeScriptString(publicName);
+    return { kind: "scalar", columnIndex, sourceName, publicName, publicNameLiteral, physicalKey: column.name, physicalKeyLiteral: quoteTypeScriptString(column.name), pathLiteral: publicNameLiteral, column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
   });
+
+  // Private aliases are collision-safe against every physical key the same query reads.
+  const physicalKeyNamespace = new PhysicalKeyNamespace(
+    rowFields.filter((field): field is RowScalarFieldPlan => field.kind === "scalar").map((field) => field.physicalKey),
+  );
+  let sqlText = query.text;
+  if (pendingEmbeds.length > 0) {
+    const planned = planEmbeds(query, pendingEmbeds, catalog, physicalKeyNamespace, context, diagnostics);
+    sqlText = planned.text;
+    for (let index = 0; index < rowFields.length; index++) {
+      const field = rowFields[index];
+      const fields = field.kind === "embed" ? planned.fields.get(field.columnIndex) : undefined;
+      if (fields) rowFields[index] = { ...field, fields } as RowEmbedFieldPlan;
+    }
+  }
 
   const rowTypeName = rowFields.length > 0 ? `${query.name}Row` : undefined;
   const resultType = command === ":one" ? `${rowTypeName} | null`
@@ -367,7 +421,7 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
     kindLiteral: quoteTypeScriptString(kind),
     queryNameLiteral: quoteTypeScriptString(query.name),
     factoryReturnType: `QueryDescriptor<${resultType}>`,
-    sqlLiteral: quoteTypeScriptString(query.text),
+    sqlLiteral: quoteTypeScriptString(sqlText),
     factoryName,
     sqlConstantName: `${factoryName}Query`,
     argsTypeName: argumentFields.length > 0 ? `${query.name}Args` : undefined,
@@ -375,8 +429,144 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
     parserName: rowFields.length > 0 ? `parse${query.name}Row` : undefined,
     argumentFields,
     rowFields,
-    physicalKeyNamespace: new PhysicalKeyNamespace(rowFields.map((field) => field.physicalKey)),
+    physicalKeyNamespace,
   };
+}
+
+interface PendingEmbed {
+  readonly columnIndex: number;
+  readonly publicName: string;
+  readonly embedTable: Identifier;
+}
+
+interface ResolvedEmbed extends PendingEmbed {
+  readonly columns: readonly Column[];
+}
+
+interface PlannedEmbeds {
+  readonly fields: ReadonlyMap<number, readonly RowValueFieldPlan[]>;
+  readonly text: string;
+}
+
+const NO_EMBED_FIELDS: PlannedEmbeds["fields"] = new Map();
+
+function describeEmbedTable(embedTable: Identifier): string {
+  return quoteDiagnosticValue(embedTable.name);
+}
+
+/**
+ * Resolves each embed against the catalog, locates the projection sqlc already expanded,
+ * and gives every embedded column a private alias so colliding physical result names stay
+ * distinguishable. Anything inconclusive fails generation instead of guessing.
+ */
+function planEmbeds(
+  query: Query,
+  pending: readonly PendingEmbed[],
+  catalog: CatalogIndex,
+  namespace: PhysicalKeyNamespace,
+  context: (extra?: Partial<Diagnostic>) => Partial<Diagnostic>,
+  diagnostics: Diagnostic[],
+): PlannedEmbeds {
+  const before = diagnostics.length;
+  const resolved: ResolvedEmbed[] = [];
+  for (const embed of pending) {
+    const at = context({ fieldPath: `columns[${embed.columnIndex}].embedTable`, fieldIndex: embed.columnIndex });
+    const described = describeEmbedTable(embed.embedTable);
+    const columns = catalog.resolve(embed.embedTable);
+    if (!columns) {
+      diagnostics.push(emissionError("UNKNOWN_EMBED_TABLE", `embedded table ${described} is not in the request catalog; embed a schema table instead`, at));
+      continue;
+    }
+    if (columns.length === 0) {
+      diagnostics.push(emissionError("EMPTY_EMBED_TABLE", `embedded table ${described} has no columns`, at));
+      continue;
+    }
+    const seen = new Set<string>();
+    let valid = true;
+    for (const column of columns) {
+      if (seen.has(column.name)) {
+        diagnostics.push(emissionError("DUPLICATE_EMBED_COLUMN", `embedded table ${described} repeats column name ${quoteDiagnosticValue(column.name)}, so its embedded fields cannot be told apart`, at));
+        valid = false;
+        break;
+      }
+      seen.add(column.name);
+    }
+    if (valid) for (const column of columns) {
+      if (FIELD_NAME_PATTERN.test(column.name)) continue;
+      // Unlike an ordinary result column, a schema column cannot be fixed with a SQL alias.
+      diagnostics.push(emissionError("INVALID_FIELD_NAME", `embedded column ${quoteDiagnosticValue(column.name)} of table ${described} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; rename the column or project it explicitly instead of embedding it`, at));
+      valid = false;
+    }
+    if (valid) resolved.push({ ...embed, columns });
+  }
+  // One metadata failure is the whole story for this query: without a resolved column list
+  // there is nothing to locate, and a cascade of location failures would only obscure it.
+  if (diagnostics.length !== before) return { fields: NO_EMBED_FIELDS, text: query.text };
+
+  const ambiguous = (embed: ResolvedEmbed, message: string): void => {
+    diagnostics.push(emissionError("AMBIGUOUS_EMBED_PROJECTION", message, context({
+      fieldPath: `columns[${embed.columnIndex}].embedTable`,
+      fieldIndex: embed.columnIndex,
+    })));
+  };
+
+  // Every embed of one table expands identically, so a table's spans are counted together
+  // and then handed out in text order, which is the order sqlc projected them in.
+  const groups = new Map<string, ResolvedEmbed[]>();
+  for (const embed of resolved) {
+    const key = `${embed.embedTable.catalog} ${embed.embedTable.schema} ${embed.embedTable.name}`;
+    const group = groups.get(key) ?? [];
+    group.push(embed);
+    groups.set(key, group);
+  }
+  const spans = new Map<number, ExpansionSpan>();
+  for (const group of groups.values()) {
+    const located = findEmbedExpansions(query.text, group[0].columns.map((column) => column.name));
+    if (located.length !== group.length) {
+      for (const embed of group) {
+        ambiguous(embed, `the expanded projection of embedded table ${describeEmbedTable(embed.embedTable)} was found ${located.length} ${located.length === 1 ? "time" : "times"} but is embedded ${group.length} ${group.length === 1 ? "time" : "times"}; give the other projected columns explicit SQL aliases so the embedded columns can be identified`);
+      }
+      continue;
+    }
+    group.forEach((embed, index) => spans.set(embed.columnIndex, located[index]));
+  }
+  if (spans.size !== resolved.length) return { fields: NO_EMBED_FIELDS, text: query.text };
+
+  let previousEnd = 0;
+  for (const embed of resolved) {
+    const span = spans.get(embed.columnIndex)!;
+    if (span.start < previousEnd) {
+      ambiguous(embed, `the expanded projection of embedded table ${describeEmbedTable(embed.embedTable)} overlaps or precedes the projection of an earlier embedded table; give the other projected columns explicit SQL aliases so the embedded columns can be identified`);
+      return { fields: NO_EMBED_FIELDS, text: query.text };
+    }
+    previousEnd = span.end;
+  }
+
+  const fields = new Map<number, readonly RowValueFieldPlan[]>();
+  const aliased: AliasedItem[] = [];
+  resolved.forEach((embed, embedOrdinal) => {
+    const span = spans.get(embed.columnIndex)!;
+    // Each embed object allocates its field names from its own counter, so a collision
+    // inside one table cannot disturb the row's other properties.
+    const counts = new Map<string, number>();
+    fields.set(embed.columnIndex, embed.columns.map((column, columnOrdinal): RowValueFieldPlan => {
+      const alias = namespace.allocatePrivatePhysicalAlias(`${EMBED_ALIAS_PREFIX}${embedOrdinal}_${columnOrdinal}`);
+      aliased.push({ item: span.items[columnOrdinal], alias });
+      const publicName = allocatePublicName(column.name, columnOrdinal, counts);
+      return {
+        sourceName: column.name,
+        publicName,
+        publicNameLiteral: quoteTypeScriptString(publicName),
+        physicalKey: alias,
+        physicalKeyLiteral: quoteTypeScriptString(alias),
+        pathLiteral: quoteTypeScriptString(`${embed.publicName}.${publicName}`),
+        column,
+        valueKind: valueKindForColumn(column),
+        nullable: !column.notNull,
+      };
+    }));
+  });
+  return { fields, text: rewriteProjection(query.text, aliased) };
 }
 
 function validateModuleSymbols(

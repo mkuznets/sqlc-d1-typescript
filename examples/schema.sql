@@ -74,3 +74,12 @@ create table quirks
     id   integer primary key autoincrement not null,
     flag BOOLEAN                           not null default 2
 );
+
+-- Every column nullable, so a LEFT JOIN embed of a row that does not exist maps to an
+-- object whose fields are all null rather than failing row mapping.
+create table item_notes
+(
+    item_id text,
+    note    text,
+    rating  integer
+) strict;

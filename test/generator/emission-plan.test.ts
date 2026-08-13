@@ -16,7 +16,7 @@ import {
   toPublicFieldCamelCase,
   toQueryFactoryCamelCase,
 } from "../../src/emission-plan";
-import { Column, GenerateRequest, Identifier, Parameter, Query, Settings } from "../../src/gen/plugin/codegen_pb";
+import { Catalog, Column, GenerateRequest, Identifier, Parameter, Query, Schema, Settings, Table } from "../../src/gen/plugin/codegen_pb";
 import { validateGenerateRequest } from "../../src/validation";
 
 const identifier = (name: string) => new Identifier({ name });
@@ -24,6 +24,25 @@ const column = (name: string) => new Column({ name, type: identifier("text"), no
 const typedColumn = (name: string, typeName: string, notNull = true) =>
   new Column({ name, type: identifier(typeName), notNull });
 const request = (queries: Query[]) => new GenerateRequest({ settings: new Settings({ engine: "sqlite" }), sqlcVersion: "v1.31.1", queries });
+
+const embedColumn = (tableName: string) => new Column({ name: tableName, embedTable: identifier(tableName) });
+const catalogTable = (name: string, columns: Column[]) => new Table({ rel: identifier(name), columns });
+
+// Embed planning happens after validation, so these requests are planned directly.
+const planEmbedded = (catalog: Catalog, queries: Query[]) =>
+  planEmission({ request: new GenerateRequest({ settings: new Settings({ engine: "sqlite" }), sqlcVersion: "v1.31.1", catalog, queries }), options: { interface: "workers" }, warnings: [] });
+
+const embedCatalog = new Catalog({
+  defaultSchema: "main",
+  schemas: [new Schema({
+    name: "main",
+    tables: [
+      catalogTable("users", [typedColumn("id", "INTEGER"), typedColumn("name", "TEXT")]),
+      catalogTable("posts", [typedColumn("id", "INTEGER"), typedColumn("user_id", "INTEGER"), typedColumn("title", "TEXT", false)]),
+      catalogTable("odd", [typedColumn("foo_bar", "TEXT"), typedColumn("fooBar", "TEXT")]),
+    ],
+  })],
+});
 
 test("ordinary TypeScript literals round-trip hostile UTF-16 text", () => {
   const values = ['"\\` ${injection}\n\r\t\0\u2028\u2029 café', "\ud800"];
@@ -145,11 +164,19 @@ test("arguments and result columns plan a value kind and executable nullability"
     ["settings", "json", false],
     ["token", "unknown", false],
   ]);
-  assert.deepEqual(query.rowFields.map((field) => [field.publicName, field.valueKind, field.nullable]), [
+  assert.deepEqual(query.rowFields.map((field) => [field.publicName, field.kind === "scalar" ? field.valueKind : "embed", field.kind === "scalar" && field.nullable]), [
     ["id", "integer", false],
     ["meta", "json", true],
     ["opaque", "unknown", false],
   ]);
+  // An ordinary result column maps one physical key to one public property, and names
+  // itself in runtime failures.
+  for (const field of query.rowFields) {
+    assert.equal(field.kind, "scalar");
+    if (field.kind !== "scalar") continue;
+    assert.equal(field.pathLiteral, field.publicNameLiteral);
+    assert.equal(field.physicalKey, field.column.name);
+  }
   assert.deepEqual(plan.queryModules[0].runtimeTypeImports, ["QueryDescriptor", "D1NonNullValue", "JsonValue"]);
 });
 
@@ -247,6 +274,114 @@ test("runtime type imports contain exactly the names the module uses", () => {
     new Parameter({ number: 2, column: typedColumn("other", "ULID", false) }),
     new Parameter({ number: 3, column: typedColumn("settings", "JSON") }),
   ]), ["QueryDescriptor", "D1NonNullValue", "D1Value", "JsonValue"]);
+});
+
+test("embeds plan nested fields, private aliases, and a rewritten projection", () => {
+  const text = "SELECT users.id, users.name, posts.id, posts.user_id, posts.title FROM users JOIN posts ON posts.user_id = users.id";
+  const plan = planEmbedded(embedCatalog, [
+    new Query({ filename: "queries.sql", name: "UserAndPost", cmd: ":one", text, columns: [embedColumn("users"), embedColumn("posts")] }),
+  ]);
+  const query = plan.queryModules[0].queries[0];
+
+  // One embed is one row field, so a module of embeds still needs the codec import.
+  assert.equal(query.rowFields.length, 2);
+  assert.deepEqual(query.rowFields.map((field) => [field.kind, field.publicName]), [["embed", "users"], ["embed", "posts"]]);
+  assert.equal(plan.queryModules[0].emitsResultContext, true);
+  assert.deepEqual(plan.queryModules[0].runtimeValueImports, ["generatedInternals"]);
+
+  const [users, posts] = query.rowFields;
+  assert.equal(users.kind, "embed");
+  assert.equal(posts.kind, "embed");
+  if (users.kind !== "embed" || posts.kind !== "embed") return;
+  assert.deepEqual(users.fields.map((field) => [field.publicName, field.physicalKey, field.pathLiteral, field.valueKind, field.nullable]), [
+    ["id", "d1_embed_0_0", '"users.id"', "integer", false],
+    ["name", "d1_embed_0_1", '"users.name"', "text", false],
+  ]);
+  assert.deepEqual(posts.fields.map((field) => [field.publicName, field.physicalKey, field.pathLiteral, field.valueKind, field.nullable]), [
+    ["id", "d1_embed_1_0", '"posts.id"', "integer", false],
+    ["userId", "d1_embed_1_1", '"posts.userId"', "integer", false],
+    // Embedded fields take their nullability from the catalog, exactly like ordinary ones.
+    ["title", "d1_embed_1_2", '"posts.title"', "text", true],
+  ]);
+
+  // The descriptor's SQL is sqlc's own text plus one alias per embedded column.
+  const sql = JSON.parse(query.sqlLiteral) as string;
+  assert.equal(sql, 'SELECT users.id AS "d1_embed_0_0", users.name AS "d1_embed_0_1", posts.id AS "d1_embed_1_0", posts.user_id AS "d1_embed_1_1", posts.title AS "d1_embed_1_2" FROM users JOIN posts ON posts.user_id = users.id');
+  assert.equal(sql.replace(/ AS "[^"]*"/g, ""), text);
+});
+
+test("nested public names share the row allocator and allocate their own fields", () => {
+  const plan = planEmbedded(embedCatalog, [
+    // An ordinary column named "users" and an embed of "users" are two properties.
+    new Query({
+      filename: "queries.sql", name: "Collide", cmd: ":one",
+      text: "SELECT users.name AS users, users.id, users.name FROM users",
+      columns: [column("users"), embedColumn("users")],
+    }),
+    // Two catalog columns that normalize to one public name are suffixed inside the embed.
+    new Query({
+      filename: "queries.sql", name: "Nested", cmd: ":one",
+      text: "SELECT odd.foo_bar, odd.fooBar FROM odd",
+      columns: [embedColumn("odd")],
+    }),
+    // A projected column literally named like an alias pushes allocation one step on.
+    new Query({
+      filename: "queries.sql", name: "AliasCollision", cmd: ":one",
+      text: "SELECT x.d1_embed_0_0, users.id, users.name FROM x JOIN users ON x.id = users.id",
+      columns: [column("d1_embed_0_0"), embedColumn("users")],
+    }),
+  ]);
+  const [collide, nested, aliasCollision] = plan.queryModules[0].queries;
+  assert.deepEqual(collide.rowFields.map((field) => field.publicName), ["users", "users_2"]);
+  const embedFields = (query: typeof collide, index: number) => {
+    const field = query.rowFields[index];
+    assert.equal(field.kind, "embed");
+    return field.kind === "embed" ? field.fields : [];
+  };
+  assert.deepEqual(embedFields(nested, 0).map((field) => [field.publicName, field.physicalKey]), [
+    ["fooBar", "d1_embed_0_0"],
+    ["fooBar_2", "d1_embed_0_1"],
+  ]);
+  assert.deepEqual(embedFields(aliasCollision, 1).map((field) => field.physicalKey), ["d1_embed_0_0_2", "d1_embed_0_1"]);
+  assert.equal(
+    JSON.parse(aliasCollision.sqlLiteral),
+    'SELECT x.d1_embed_0_0, users.id AS "d1_embed_0_0_2", users.name AS "d1_embed_0_1" FROM x JOIN users ON x.id = users.id',
+  );
+});
+
+test("embed metadata that cannot be planned fails generation instead of guessing", () => {
+  const fails = (query: Query, catalog = embedCatalog): string[] => {
+    try {
+      planEmbedded(catalog, [query]);
+      return [];
+    } catch (error) {
+      assert.ok(error instanceof GenerationDiagnosticError);
+      return error.diagnostics.map(({ reason }) => reason);
+    }
+  };
+  const embedQuery = (data: Partial<Query>) =>
+    new Query({ filename: "queries.sql", name: "Embedded", cmd: ":one", text: "SELECT users.id, users.name FROM users", columns: [embedColumn("users")], ...data });
+
+  assert.deepEqual(fails(embedQuery({ columns: [embedColumn("absent")] })), ["UNKNOWN_EMBED_TABLE"]);
+  assert.deepEqual(fails(embedQuery({}), new Catalog()), ["UNKNOWN_EMBED_TABLE"]);
+  assert.deepEqual(
+    fails(embedQuery({}), new Catalog({ defaultSchema: "main", schemas: [new Schema({ name: "main", tables: [catalogTable("users", [])] })] })),
+    ["EMPTY_EMBED_TABLE"],
+  );
+  assert.deepEqual(
+    fails(embedQuery({}), new Catalog({ defaultSchema: "main", schemas: [new Schema({ name: "main", tables: [catalogTable("users", [column("id"), column("id")])] })] })),
+    ["DUPLICATE_EMBED_COLUMN"],
+  );
+  assert.deepEqual(
+    fails(embedQuery({}), new Catalog({ defaultSchema: "main", schemas: [new Schema({ name: "main", tables: [catalogTable("users", [column("my col")])] })] })),
+    ["INVALID_FIELD_NAME"],
+  );
+  // The same expansion twice cannot be told apart, so it is refused rather than aliased.
+  assert.deepEqual(fails(embedQuery({ text: "SELECT users.id, users.name, users.id, users.name FROM users" })), ["AMBIGUOUS_EMBED_PROJECTION"]);
+  // Text that does not contain the expansion at all is the same kind of disagreement.
+  assert.deepEqual(fails(embedQuery({ text: "SELECT * FROM users" })), ["AMBIGUOUS_EMBED_PROJECTION"]);
+  // A metadata failure suppresses the location attempt that depends on it.
+  assert.deepEqual(fails(embedQuery({ text: "SELECT * FROM absent", columns: [embedColumn("absent")] })), ["UNKNOWN_EMBED_TABLE"]);
 });
 
 test("valid planning preserves request order within sorted modules and exact SQL", () => {

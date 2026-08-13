@@ -3,12 +3,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
 import {
+  Catalog,
   Column,
   GenerateRequest,
   Identifier,
   Parameter,
   Query,
+  Schema,
   Settings,
+  Table,
 } from "../../src/gen/plugin/codegen_pb";
 import { GeneratorHarness, GeneratorOutcome } from "./harness";
 import { compileGeneratedResponse } from "./compile";
@@ -424,8 +427,9 @@ const queryBoundary: GeneratorScenario = {
   },
 };
 
-// The one feature that is still unimplemented must keep failing closed, loudly and
-// without being mistaken for an unsupported command.
+// No feature of the compatibility surface is unimplemented any more, so emission
+// readiness now proves that insufficient metadata still fails closed, loudly, and without
+// being mistaken for an unsupported command.
 const emissionReadiness: GeneratorScenario = {
   id: "generator/emission-readiness",
   createInput: () => queryInput(validRequest({ queries: [
@@ -439,11 +443,11 @@ const emissionReadiness: GeneratorScenario = {
   ] })),
   assert(outcome) {
     assertFailure(outcome);
-    assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_EMBED\]/);
-    assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_SLICE/);
+    assert.match(outcome.diagnostics, /\[EMISSION\/UNKNOWN_EMBED_TABLE\] file "queries\.sql", query "GetUserWithProfile", field "columns\[0\]\.embedTable", position 1:\n/);
+    assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_/);
     assert.doesNotMatch(outcome.diagnostics, /\[QUERY\/UNSUPPORTED_COMMAND\]/);
-    assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_COMMAND/);
     assert.doesNotMatch(outcome.diagnostics, /SELECT users/);
+    assertNoStack(outcome.diagnostics);
   },
 };
 
@@ -2109,6 +2113,495 @@ const commandResults: GeneratorScenario = {
   },
 };
 
+// An embed column is a marker: it carries a table name and nothing else, so every
+// embedded field is planned from the catalog the same request ships.
+const embedColumn = (tableName: string) => new Column({ name: tableName, embedTable: type(tableName) });
+const catalogTable = (name: string, columns: Column[]) => new Table({ rel: type(name), columns });
+const projection = (scope: string, columnNames: readonly string[]) =>
+  columnNames.map((columnName) => `${scope}.${columnName}`).join(", ");
+
+const USERS_COLUMNS = ["id", "name"] as const;
+const SAMPLE_COLUMNS = VALUE_COLUMNS.map(([name]) => name);
+
+const embedCatalog = new Catalog({
+  defaultSchema: "main",
+  schemas: [new Schema({
+    name: "main",
+    tables: [
+      catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
+      catalogTable("posts", [column("id", "INTEGER"), column("user_id", "INTEGER"), column("title", "TEXT")]),
+      // Every column nullable, so an absent outer row maps to an all-null object.
+      catalogTable("profiles", [column("user_id", "INTEGER", false), column("bio", "TEXT", false)]),
+      catalogTable("odd", [column("foo_bar", "TEXT"), column("fooBar", "TEXT")]),
+      catalogTable("samples", valueColumns()),
+    ],
+  })],
+});
+
+// The whole embed surface in one module: colliding physical names, interleaved ordinary
+// columns, an outer join, a self-join, an alias collision, nested name allocation, every
+// value kind, and composition with sqlc.slice.
+export function createEmbedsRequest(): GenerateRequest {
+  return validRequest({
+    catalog: embedCatalog,
+    queries: [
+      // Both embedded tables have an "id"; without private aliases one of them is lost.
+      new Query({
+        filename: "queries.sql", name: "UserAndPost", cmd: ":one",
+        text: `SELECT ${projection("users", USERS_COLUMNS)}, ${projection("posts", ["id", "user_id", "title"])} FROM users JOIN posts ON posts.user_id = users.id WHERE posts.id = ?`,
+        params: [parameter(1, column("id", "integer"))],
+        columns: [embedColumn("users"), embedColumn("posts")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "MixedEmbed", cmd: ":many",
+        text: `SELECT posts.id AS post_id, ${projection("users", USERS_COLUMNS)}, posts.title AS post_title FROM posts JOIN users ON posts.user_id = users.id`,
+        columns: [column("post_id", "integer"), embedColumn("users"), column("post_title", "text")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "UserWithProfile", cmd: ":one",
+        text: `SELECT ${projection("users", USERS_COLUMNS)}, ${projection("profiles", ["user_id", "bio"])} FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.id = ?`,
+        params: [parameter(1, column("id", "integer"))],
+        columns: [embedColumn("users"), embedColumn("profiles")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "SelfJoin", cmd: ":many",
+        text: `SELECT ${projection("a", USERS_COLUMNS)}, ${projection("b", USERS_COLUMNS)} FROM users a JOIN users b ON b.id = a.id`,
+        columns: [embedColumn("users"), embedColumn("users")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "AliasCollision", cmd: ":many",
+        text: `SELECT logs.d1_embed_0_0, ${projection("users", USERS_COLUMNS)} FROM logs JOIN users ON logs.user_id = users.id`,
+        columns: [column("d1_embed_0_0", "text"), embedColumn("users")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "NestedNames", cmd: ":one",
+        text: `SELECT ${projection("odd", ["foo_bar", "fooBar"])}, users.name AS users, ${projection("users", USERS_COLUMNS)} FROM odd JOIN users ON odd.foo_bar = users.name`,
+        columns: [embedColumn("odd"), column("users", "text"), embedColumn("users")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "EmbedValues", cmd: ":one",
+        text: `SELECT ${projection("samples", SAMPLE_COLUMNS)} FROM samples WHERE samples.int_value = ?`,
+        params: [parameter(1, column("int_value", "INTEGER"))],
+        columns: [embedColumn("samples")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "EmbedWithSlice", cmd: ":many",
+        text: `SELECT ${projection("users", USERS_COLUMNS)} FROM users WHERE users.id IN (/*SLICE:ids*/?) ORDER BY users.id`,
+        params: [parameter(1, sliceColumn("ids", "integer"))],
+        columns: [embedColumn("users")],
+      }),
+    ],
+  });
+}
+
+const embedsConsumer = `import { DB } from "./runtime";
+import {
+  userAndPost,
+  mixedEmbed,
+  userWithProfile,
+  selfJoin,
+  embedValues,
+  embedWithSlice,
+  nestedNames,
+  type UserAndPostRow,
+  type MixedEmbedRow,
+  type UserWithProfileRow,
+  type SelfJoinRow,
+  type NestedNamesRow,
+  type EmbedValuesRow,
+} from "./queries_sql";
+
+declare const binding: D1Database;
+const db = new DB(binding);
+const one: Promise<UserAndPostRow | null> = db.execute(userAndPost({ id: 1 }));
+const many: Promise<MixedEmbedRow[]> = db.execute(mixedEmbed());
+void [one, many, db.execute(selfJoin()), db.execute(embedValues({ intValue: 1 })), db.execute(embedWithSlice({ ids: [1] }))];
+
+// A nested object is an ordinary property whose type is spelled inline.
+declare const row: UserAndPostRow;
+const nestedText: string = row.users.name;
+const nestedInteger: number = row.posts.userId;
+const ordinary: number = (undefined as unknown as MixedEmbedRow).postId;
+void [nestedText, nestedInteger, ordinary];
+
+// The nested type is nameable through the row type that owns it.
+type Users = UserAndPostRow["users"];
+const users: Users = { id: 1, name: "Ada" };
+const extracted: string = users.name;
+void extracted;
+
+// An outer-join embed is always an object; only its fields may be null.
+declare const profile: UserWithProfileRow;
+const bio: string | null = profile.profiles.bio;
+void bio;
+
+// Two embeds of one table are two independent properties.
+declare const self: SelfJoinRow;
+void [self.users.id, self.users_2.name];
+
+// Colliding public names inside one embed are suffixed, and every value kind keeps its
+// ordinary spelling.
+declare const nested: NestedNamesRow;
+void [nested.odd.fooBar, nested.odd.fooBar_2, nested.users, nested.users_2.id];
+declare const values: EmbedValuesRow;
+const blob: Uint8Array = values.samples.blobValue;
+const nullableBlob: Uint8Array | null = values.samples.blobNull;
+const json: unknown = values.samples.jsonValue;
+const flag: boolean = values.samples.boolValue;
+void [blob, nullableBlob, json, flag];
+
+// @ts-expect-error a nested object exposes only its embedded columns
+void row.users.nickname;
+// @ts-expect-error a nullable embedded field does not widen to its base type
+const notNull: string = profile.profiles.bio;
+void notNull;
+// @ts-expect-error an embed object is never null, so it is not comparable to null
+const missing: null = profile.profiles;
+void missing;
+// @ts-expect-error private physical aliases are not part of the public row
+void row.users.d1_embed_0_0;
+// @ts-expect-error an embed is a nested object, not a flat prefixed property
+void row.usersId;
+`;
+
+const embedModel: GeneratorScenario = {
+  id: "generator/embed-model",
+  createInput: () => queryInput(createEmbedsRequest()),
+  assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.equal(outcome.diagnostics, "");
+    assert.ok(outcome.response);
+    const response = outcome.response;
+    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "queries_sql.ts"]);
+    const source = new TextDecoder().decode(response.files[1].contents);
+
+    const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/embeds-output.ts.txt"), "utf8");
+    assert.equal(source, expected);
+
+    // Every SQL constant is sqlc's own text plus exactly one alias per embedded column.
+    const embeddedColumnCounts: Readonly<Record<string, number>> = {
+      UserAndPost: 5, MixedEmbed: 2, UserWithProfile: 4, SelfJoin: 4,
+      AliasCollision: 2, NestedNames: 4, EmbedValues: VALUE_COLUMNS.length, EmbedWithSlice: 2,
+    };
+    for (const query of createEmbedsRequest().queries) {
+      const factory = query.name.charAt(0).toLowerCase() + query.name.slice(1);
+      const literal = new RegExp(`^const ${factory}Query = (.*);$`, "m").exec(source)![1];
+      const sql = JSON.parse(literal) as string;
+      assert.equal((sql.match(/ AS "d1_embed_[0-9_]+"/g) ?? []).length, embeddedColumnCounts[query.name], query.name);
+      assert.equal(sql.replace(/ AS "d1_embed_[0-9_]+"/g, ""), query.text, query.name);
+    }
+
+    // A private alias is a physical key and nothing else: never a type, never a public
+    // property, never the path a runtime failure reports.
+    for (const declaration of source.match(/export interface \w+ \{[\s\S]*?\n\}/g) ?? []) {
+      assert.doesNotMatch(declaration, /d1_embed_/, declaration);
+    }
+    const codecCalls = [...source.matchAll(/\(row, ("[^"]*"), ("[^"]*"), ctx\)/g)];
+    assert.equal(codecCalls.length > 0, true);
+    for (const [, physicalKey, path] of codecCalls) {
+      assert.doesNotMatch(path, /d1_embed_/, path);
+      // Every nested public path reads a private alias, never a name sqlc chose.
+      if (path.includes(".")) assert.match(physicalKey, /^"d1_embed_[0-9_]+"$/, path);
+    }
+    // The alias the ordinary column already occupies is stepped over, not reused.
+    assert.match(source, /d1_values\.rowText\(row, "d1_embed_0_0", "d1Embed00", ctx\)/);
+    assert.match(source, /d1_values\.rowInteger\(row, "d1_embed_0_0_2", "users\.id", ctx\)/);
+
+    // Nested types are inline objects, and one embed is one row property.
+    assert.match(source, /^export interface UserAndPostRow \{\n {4}"users": \{\n {8}"id": number;\n {8}"name": string;\n {4}\};\n {4}"posts": \{\n {8}"id": number;\n {8}"userId": number;\n {8}"title": string;\n {4}\};\n\}$/m);
+    assert.doesNotMatch(source, /interface \w+UsersRow|interface \w+PostsRow/);
+    assert.match(source, /^ {8}"users": \{\n {12}"id": d1_values\.rowInteger\(row, "d1_embed_0_0", "users\.id", ctx\),\n {12}"name": d1_values\.rowText\(row, "d1_embed_0_1", "users\.name", ctx\)\n {8}\},$/m);
+
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": embedsConsumer } });
+    }
+  },
+};
+
+const embedValuesScenario: GeneratorScenario = {
+  id: "generator/embed-values",
+  createInput: () => queryInput(createEmbedsRequest()),
+  async assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.ok(outcome.response);
+    const load = loadGeneratedModules(outcome.response);
+    const runtime = load("runtime");
+    const queries = load("queries_sql");
+    const DB = runtime.DB as new (executor: unknown) => {
+      execute(query: unknown): Promise<unknown>;
+      batch(...queries: unknown[]): Promise<unknown[]>;
+    };
+    const QueryResultError = runtime.QueryResultError as new (...args: never[]) => Error;
+    type Descriptor = { sql: string; params: readonly unknown[] };
+    const factory = (name: string) => queries[name] as (args?: Record<string, unknown>) => Descriptor;
+    const userAndPost = factory("userAndPost");
+    const mixedEmbed = factory("mixedEmbed");
+    const userWithProfile = factory("userWithProfile");
+    const selfJoin = factory("selfJoin");
+    const embedValues = factory("embedValues");
+    const embedWithSlice = factory("embedWithSlice");
+    const aliasCollision = factory("aliasCollision");
+
+    const executeWithRows = async (rows: unknown[], query: unknown): Promise<{ executor: FakeExecutor; result: unknown }> => {
+      const executor = new FakeExecutor();
+      executor.rows = rows;
+      const result = await new DB(executor).execute(query);
+      return { executor, result };
+    };
+
+    // The regression this feature exists for: two physical "id" columns, each in the
+    // object that projected it.
+    const userAndPostRow = {
+      d1_embed_0_0: 1, d1_embed_0_1: "Ada",
+      d1_embed_1_0: 7, d1_embed_1_1: 1, d1_embed_1_2: "Post title",
+      id: "an ignored physical key",
+    };
+    const nested = (await executeWithRows([userAndPostRow], userAndPost({ id: 1 }))).result as Record<string, Record<string, unknown>>;
+    assert.deepEqual(nested, {
+      users: { id: 1, name: "Ada" },
+      posts: { id: 7, userId: 1, title: "Post title" },
+    });
+    assert.deepEqual(Object.keys(nested), ["users", "posts"]);
+    assert.deepEqual(Object.keys(nested.users), ["id", "name"]);
+    // Extra physical keys are ignored, exactly as for a flat row.
+    assert.equal(Object.prototype.hasOwnProperty.call(nested.users, "d1_embed_0_0"), false);
+
+    // Ordinary fields sit beside nested ones, in projection order.
+    const mixed = (await executeWithRows([
+      { post_id: 3, d1_embed_0_0: 1, d1_embed_0_1: "Ada", post_title: "Title" },
+      { post_id: 4, d1_embed_0_0: 2, d1_embed_0_1: "Grace", post_title: "Other" },
+    ], mixedEmbed())).result as Record<string, unknown>[];
+    assert.deepEqual(mixed, [
+      { postId: 3, users: { id: 1, name: "Ada" }, postTitle: "Title" },
+      { postId: 4, users: { id: 2, name: "Grace" }, postTitle: "Other" },
+    ]);
+    // Every row gets its own nested objects.
+    assert.notEqual(mixed[0].users, mixed[1].users);
+
+    // An absent outer row is an object of nulls, never a null object and never absent.
+    const outer = (await executeWithRows([
+      { d1_embed_0_0: 1, d1_embed_0_1: "Ada", d1_embed_1_0: null, d1_embed_1_1: null },
+    ], userWithProfile({ id: 1 }))).result as Record<string, Record<string, unknown> | null>;
+    assert.notEqual(outer.profiles, null);
+    assert.deepEqual(outer.profiles, { userId: null, bio: null });
+    assert.deepEqual(outer.users, { id: 1, name: "Ada" });
+
+    // Two embeds of one table are two independent objects.
+    const self = (await executeWithRows([
+      { d1_embed_0_0: 1, d1_embed_0_1: "Ada", d1_embed_1_0: 2, d1_embed_1_1: "Grace" },
+    ], selfJoin())).result as Record<string, unknown>[];
+    assert.deepEqual(self, [{ users: { id: 1, name: "Ada" }, users_2: { id: 2, name: "Grace" } }]);
+
+    // The stepped-over alias is what the parser actually reads.
+    const collision = (await executeWithRows([
+      { d1_embed_0_0: "occupied", d1_embed_0_0_2: 5, d1_embed_0_1: "Ada" },
+    ], aliasCollision())).result as Record<string, unknown>[];
+    assert.deepEqual(collision, [{ d1Embed00: "occupied", users: { id: 5, name: "Ada" } }]);
+
+    // Every value kind inside an embed behaves exactly as its flat counterpart.
+    const backingBuffer = new Uint8Array([6, 7]).buffer;
+    const samplesRow = (): Record<string, unknown> => ({
+      d1_embed_0_0: 1, d1_embed_0_1: null, d1_embed_0_2: 1.5, d1_embed_0_3: null,
+      d1_embed_0_4: "text", d1_embed_0_5: null, d1_embed_0_6: 1, d1_embed_0_7: 0,
+      d1_embed_0_8: [1, 2, 3], d1_embed_0_9: null, d1_embed_0_10: '{"a":1}', d1_embed_0_11: null,
+      d1_embed_0_12: "opaque", d1_embed_0_13: null,
+    });
+    const values = (await executeWithRows([samplesRow()], embedValues({ intValue: 1 }))).result as Record<string, Record<string, unknown>>;
+    assert.deepEqual(Object.keys(values.samples), [
+      "intValue", "intNull", "numValue", "numNull", "textValue", "textNull",
+      "boolValue", "boolNull", "blobValue", "blobNull", "jsonValue", "jsonNull", "anyValue", "anyNull",
+    ]);
+    assert.equal(values.samples.boolValue, true);
+    assert.equal(values.samples.boolNull, false);
+    assert.equal(values.samples.blobValue instanceof Uint8Array, true);
+    assert.deepEqual(values.samples.blobValue, new Uint8Array([1, 2, 3]));
+    assert.deepEqual(values.samples.jsonValue, { a: 1 });
+    assert.equal(values.samples.anyValue, "opaque");
+    assert.equal(values.samples.anyNull, null);
+    const bufferRow = samplesRow();
+    bufferRow.d1_embed_0_8 = backingBuffer;
+    const fromBuffer = (await executeWithRows([bufferRow], embedValues({ intValue: 1 }))).result as Record<string, Record<string, unknown>>;
+    new Uint8Array(backingBuffer)[0] = 99;
+    assert.deepEqual(fromBuffer.samples.blobValue, new Uint8Array([6, 7]));
+
+    // A failure inside an embed names the public nested path, never the private alias.
+    const rejectsRow = async (
+      mutate: (row: Record<string, unknown>) => void,
+      expectations: { path: string; expected: string; received: string },
+    ): Promise<CheckedError> => {
+      const row = { ...userAndPostRow };
+      mutate(row as unknown as Record<string, unknown>);
+      let caught: unknown;
+      try {
+        await executeWithRows([row], userAndPost({ id: 1 }));
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryResultError, `expected QueryResultError for ${expectations.path}`);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.operation, "execute");
+      assert.equal(checked.queryName, "UserAndPost");
+      assert.equal(checked.rowIndex, 0);
+      assert.equal(checked.path, expectations.path);
+      assert.equal(checked.expected, expectations.expected);
+      assert.equal(checked.received, expectations.received);
+      return checked;
+    };
+    await rejectsRow((row) => { delete row.d1_embed_0_0; }, { path: "users.id", expected: "a safe integer", received: "missing field" });
+    await rejectsRow((row) => { row.d1_embed_0_1 = null; }, { path: "users.name", expected: "a string", received: "null" });
+    await rejectsRow((row) => { row.d1_embed_1_2 = 7; }, { path: "posts.title", expected: "a string", received: "number" });
+    await rejectsRow((row) => { row.d1_embed_1_0 = 2 ** 53; }, { path: "posts.id", expected: "a safe integer", received: "unsafe integer" });
+
+    // Embeds compose with slices: the marker survives the projection rewrite.
+    const sliced = embedWithSlice({ ids: [1, 2, 3] });
+    assert.deepEqual(sliced.params, [1, 2, 3]);
+    assert.equal(sliced.sql.includes("/*SLICE:ids*/?"), false);
+    assert.match(sliced.sql, /IN \(\?,\?,\?\)/);
+    assert.match(sliced.sql, /users\.id AS "d1_embed_0_0", users\.name AS "d1_embed_0_1"/);
+    // The descriptor's SQL is the rewritten text; its bind values are untouched.
+    assert.equal(userAndPost({ id: 4 }).sql.includes('AS "d1_embed_1_2"'), true);
+    assert.deepEqual(userAndPost({ id: 4 }).params, [4]);
+
+    // Batched execution builds the same nested objects, and reports where it failed.
+    const batchExecutor = new FakeExecutor();
+    batchExecutor.batchRows = [
+      [userAndPostRow],
+      [{ post_id: 3, d1_embed_0_0: 1, d1_embed_0_1: "Ada", post_title: "Title" }],
+      [],
+    ];
+    batchExecutor.batchMetas = [DEFAULT_FAKE_META, DEFAULT_FAKE_META, { changes: 2, last_row_id: 0 }];
+    const batched = await new DB(batchExecutor).batch(userAndPost({ id: 1 }), mixedEmbed(), embedWithSlice({ ids: [1] }));
+    assert.deepEqual(batched, [
+      { users: { id: 1, name: "Ada" }, posts: { id: 7, userId: 1, title: "Post title" } },
+      [{ postId: 3, users: { id: 1, name: "Ada" }, postTitle: "Title" }],
+      [],
+    ]);
+
+    const failingBatch = new FakeExecutor();
+    const badRow = { post_id: 4, d1_embed_0_0: 2, d1_embed_0_1: 7, post_title: "Other" };
+    failingBatch.batchRows = [[], [{ post_id: 3, d1_embed_0_0: 1, d1_embed_0_1: "Ada", post_title: "Title" }, badRow]];
+    let batchFailure: unknown;
+    try {
+      await new DB(failingBatch).batch(embedWithSlice({ ids: [1] }), mixedEmbed());
+    } catch (error) {
+      batchFailure = error;
+    }
+    assert.ok(batchFailure instanceof QueryResultError);
+    const batchChecked = batchFailure as unknown as CheckedError;
+    assert.equal(batchChecked.operation, "batch");
+    assert.equal(batchChecked.batchIndex, 1);
+    assert.equal(batchChecked.rowIndex, 1);
+    assert.equal(batchChecked.queryName, "MixedEmbed");
+    assert.equal(batchChecked.path, "users.name");
+
+    // A nested failure leaks no value and no SQL text.
+    const secret = "s3cr3t-value";
+    let leaked: unknown;
+    try {
+      await executeWithRows([{ ...userAndPostRow, d1_embed_0_1: secret, d1_embed_1_2: 7 }], userAndPost({ id: 1 }));
+    } catch (error) {
+      leaked = error;
+    }
+    const candidate = leaked as Error;
+    const serialized = `${candidate.message}|${JSON.stringify(candidate, Object.getOwnPropertyNames(candidate))}`;
+    assert.equal(serialized.includes(secret), false, serialized);
+    assert.equal(serialized.includes("SELECT users"), false, serialized);
+    assert.equal(serialized.includes("d1_embed_"), false, serialized);
+  },
+};
+
+// Embed metadata the Plugin cannot plan from, one violation per query, each in its own
+// file so no diagnostic can mask another. A malformed embed shape (QUERY/INVALID_EMBED_
+// METADATA) is a validation finding, so it fails the request before planning and is
+// covered by the validator's own tests instead.
+export function createEmbedBoundaryRequest(): GenerateRequest {
+  const usersProjection = `SELECT ${projection("users", USERS_COLUMNS)} FROM users`;
+  return validRequest({
+    catalog: new Catalog({
+      defaultSchema: "main",
+      schemas: [new Schema({
+        name: "main",
+        tables: [
+          catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
+          catalogTable("empty", []),
+          catalogTable("repeated", [column("id", "INTEGER"), column("id", "TEXT")]),
+          catalogTable("weird", [column("my col", "TEXT"), column("ok_col", "TEXT")]),
+        ],
+      })],
+    }),
+    queries: [
+      // The text cannot be located either, but an unresolved table suppresses that check:
+      // one violation is one diagnostic.
+      new Query({
+        filename: "unknown.sql", name: "UnknownTable", cmd: ":one",
+        text: "SELECT * FROM absent",
+        columns: [embedColumn("absent")],
+      }),
+      new Query({
+        filename: "empty.sql", name: "EmptyTable", cmd: ":one",
+        text: "SELECT empty.id FROM empty",
+        columns: [embedColumn("empty")],
+      }),
+      new Query({
+        filename: "repeated.sql", name: "RepeatedColumn", cmd: ":one",
+        text: "SELECT repeated.id, repeated.id FROM repeated",
+        columns: [embedColumn("repeated")],
+      }),
+      new Query({
+        filename: "unsafe.sql", name: "UnsafeColumn", cmd: ":one",
+        text: "SELECT weird.my col, weird.ok_col FROM weird",
+        columns: [embedColumn("weird")],
+      }),
+      // sqlc.embed(users) beside users.* expands twice, indistinguishably.
+      new Query({
+        filename: "ambiguous.sql", name: "AmbiguousProjection", cmd: ":one",
+        text: `SELECT ${projection("users", USERS_COLUMNS)}, ${projection("users", USERS_COLUMNS)} FROM users`,
+        columns: [embedColumn("users")],
+      }),
+      // Metadata and text that disagree are the same kind of failure.
+      new Query({
+        filename: "absent.sql", name: "AbsentProjection", cmd: ":one",
+        text: "SELECT * FROM users",
+        columns: [embedColumn("users")],
+      }),
+      // One valid embed in the same request contributes no diagnostic.
+      new Query({
+        filename: "valid.sql", name: "ValidEmbed", cmd: ":one",
+        text: usersProjection,
+        columns: [embedColumn("users")],
+      }),
+    ],
+  });
+}
+
+const embedBoundary: GeneratorScenario = {
+  id: "generator/embed-boundary",
+  createInput: () => queryInput(createEmbedBoundaryRequest()),
+  assert(outcome) {
+    assertFailure(outcome);
+    for (const expected of [
+      /\[EMISSION\/UNKNOWN_EMBED_TABLE\] file "unknown\.sql", query "UnknownTable", field "columns\[0\]\.embedTable", position 1:\nembedded table "absent" is not in the request catalog; embed a schema table instead\n/,
+      /\[EMISSION\/EMPTY_EMBED_TABLE\] file "empty\.sql", query "EmptyTable", field "columns\[0\]\.embedTable", position 1:\nembedded table "empty" has no columns\n/,
+      /\[EMISSION\/DUPLICATE_EMBED_COLUMN\] file "repeated\.sql", query "RepeatedColumn", field "columns\[0\]\.embedTable", position 1:\nembedded table "repeated" repeats column name "id"/,
+      /\[EMISSION\/INVALID_FIELD_NAME\] file "unsafe\.sql", query "UnsafeColumn", field "columns\[0\]\.embedTable", position 1:\nembedded column "my col" of table "weird" must match "\^\[A-Za-z\]\[A-Za-z0-9\]\*\(\?:_\[A-Za-z0-9\]\+\)\*\$"; rename the column or project it explicitly instead of embedding it\n/,
+      /\[EMISSION\/AMBIGUOUS_EMBED_PROJECTION\] file "ambiguous\.sql", query "AmbiguousProjection", field "columns\[0\]\.embedTable", position 1:\nthe expanded projection of embedded table "users" was found 2 times but is embedded 1 time; give the other projected columns explicit SQL aliases so the embedded columns can be identified\n/,
+      /\[EMISSION\/AMBIGUOUS_EMBED_PROJECTION\] file "absent\.sql", query "AbsentProjection", field "columns\[0\]\.embedTable", position 1:\nthe expanded projection of embedded table "users" was found 0 times but is embedded 1 time/,
+    ]) {
+      assert.match(outcome.diagnostics, expected, expected.source);
+    }
+    assert.match(outcome.diagnostics, /generation failed with 6 errors\n/);
+    // The whole request fails atomically, and one violation raises exactly one diagnostic.
+    for (const reason of ["UNKNOWN_EMBED_TABLE", "EMPTY_EMBED_TABLE", "DUPLICATE_EMBED_COLUMN", "INVALID_FIELD_NAME"]) {
+      assert.equal((outcome.diagnostics.match(new RegExp(`/${reason}\\]`, "g")) ?? []).length, 1, reason);
+    }
+    assert.equal((outcome.diagnostics.match(/\/AMBIGUOUS_EMBED_PROJECTION\]/g) ?? []).length, 2);
+    assert.doesNotMatch(outcome.diagnostics, /valid\.sql|ValidEmbed/);
+    // No SQL fragment, no private alias, and no stack trace reaches the operator.
+    assert.doesNotMatch(outcome.diagnostics, /SELECT |FROM |d1_embed_/);
+    assertNoStack(outcome.diagnostics);
+  },
+};
+
 export const generatorScenarios = [
   currentCommands,
   commandSemantics,
@@ -2126,6 +2619,9 @@ export const generatorScenarios = [
   argumentModel,
   argumentValues,
   argumentBoundary,
+  embedModel,
+  embedValuesScenario,
+  embedBoundary,
   diagnosticAggregation,
   safeEmission,
   typescriptFloor,
