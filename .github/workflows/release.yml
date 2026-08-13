@@ -1,0 +1,302 @@
+name: release-spine
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Unprefixed strict SemVer identity for a non-publishing dry run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.repository }}-release
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_ARTIFACT: publication-candidate-${{ github.run_id }}
+  MANIFEST_ARTIFACT: release-evidence-${{ github.run_id }}
+
+jobs:
+  intent:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.export.outputs.version }}
+      tag: ${{ steps.export.outputs.tag }}
+      source-commit: ${{ steps.export.outputs.source-commit }}
+      dry-run: ${{ steps.export.outputs.dry-run }}
+      workflow-url: ${{ steps.export.outputs.workflow-url }}
+      node: ${{ steps.export.outputs.node }}
+      npm: ${{ steps.export.outputs.npm }}
+      bun: ${{ steps.export.outputs.bun }}
+      sqlc-matrix: ${{ steps.export.outputs.sqlc-matrix }}
+      sqlc-ceiling-install: ${{ steps.export.outputs.sqlc-ceiling-install }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+      - name: Fetch default branch for ancestry proof
+        run: git fetch --no-tags origin "+refs/heads/${{ github.event.repository.default_branch }}:refs/remotes/origin/${{ github.event.repository.default_branch }}"
+      - id: intent
+        name: Validate release intent before installing or building
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/release-contract.mjs intent \
+            --event "$EVENT_NAME" --ref-type "$REF_TYPE" --ref-name "$REF_NAME" \
+            --version "$MANUAL_VERSION" --sha "${{ github.sha }}" \
+            --default-branch "${{ github.event.repository.default_branch }}" \
+            --run-id "${{ github.run_id }}" --server-url "${{ github.server_url }}" \
+            --repository "${{ github.repository }}" --output intent.json
+      - id: export
+        name: Export validated intent and authoritative matrix
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const intent = JSON.parse(fs.readFileSync('intent.json'));
+          const config = JSON.parse(fs.readFileSync('verification/compatibility.json'));
+          const lines = {
+            version: intent.version, tag: intent.tag ?? '', 'source-commit': intent.sourceCommit,
+            'dry-run': String(intent.dryRun), 'workflow-url': intent.workflowUrl,
+            node: config.tools.node, npm: config.tools.npm, bun: config.tools.bun,
+            'sqlc-matrix': JSON.stringify(config.sqlc.samples.map(({ version }) => ({ version, install: version.replace(/^v/, '') }))),
+            'sqlc-ceiling-install': config.sqlc.testedCeiling.replace(/^v/, ''),
+          };
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(lines).map(([k,v]) => `${k}=${v}\n`).join(''));
+          NODE
+
+  candidate:
+    needs: intent
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.outputs.outputs.artifact-id }}
+      artifact-name: ${{ env.CANDIDATE_ARTIFACT }}
+      sha256: ${{ steps.outputs.outputs.sha256 }}
+      wasm-filename: ${{ steps.outputs.outputs.wasm-filename }}
+      candidate-reused: ${{ steps.lookup.outputs.mode == 'reuse' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Reconstruct validated intent
+        env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
+        run: node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
+      - id: lookup
+        name: Select exact same-run candidate
+        env:
+          GITHUB_TOKEN: "${{ github.token }}"
+          ALLOW_CREATE: "${{ github.run_attempt == 1 }}"
+        run: node scripts/github-run-artifacts.mjs --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --name "$CANDIDATE_ARTIFACT" --allow-create "$ALLOW_CREATE" --output selection.json --github-output "$GITHUB_OUTPUT"
+      - if: steps.lookup.outputs.mode == 'reuse'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ steps.lookup.outputs.artifact-id }}", path: retained }
+      - if: steps.lookup.outputs.mode == 'reuse'
+        run: node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json --output candidate.json
+      - if: steps.lookup.outputs.mode == 'create'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
+      - if: steps.lookup.outputs.mode == 'create'
+        run: npm install --global npm@${{ needs.intent.outputs.npm }} && node --version && npm --version && npm ci && node scripts/check-compatibility.mjs
+      - if: steps.lookup.outputs.mode == 'create'
+        name: Clean and build the publication candidate once
+        run: |
+          rm -f build/out.js build/plugin.wasm
+          make build
+          node_version="$(node --version | sed 's/^v//')"
+          npm_version="$(npm --version)"
+          javy_output="$(./bin/javy --version)"
+          javy_version="$(printf '%s\n' "$javy_output" | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+          printf 'node=%s\nnpm=%s\njavy=%s\n' "$node_version" "$npm_version" "$javy_output"
+          test "$node_version" = "${{ needs.intent.outputs.node }}"
+          test "$npm_version" = "${{ needs.intent.outputs.npm }}"
+          test "$javy_version" = "$(node -p "require('./verification/compatibility.json').tools.javy")"
+          node scripts/release-contract.mjs stage-candidate --wasm build/plugin.wasm --intent intent.json --output candidate
+          cp candidate/candidate.json candidate.json
+      - id: upload
+        if: steps.lookup.outputs.mode == 'create'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: "${{ env.CANDIDATE_ARTIFACT }}", path: candidate, retention-days: 30, if-no-files-found: error }
+      - id: outputs
+        name: Reconstruct candidate outputs
+        env:
+          CREATED_ID: ${{ steps.upload.outputs.artifact-id }}
+          REUSED_ID: ${{ steps.lookup.outputs.artifact-id }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs'); const c = JSON.parse(fs.readFileSync('candidate.json'));
+          const id = process.env.REUSED_ID || process.env.CREATED_ID;
+          if (!/^\d+$/.test(id || '')) throw new Error('numeric artifact ID was not produced');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `artifact-id=${id}\nsha256=${c.sha256}\nwasm-filename=${c.filename}\n`);
+          NODE
+
+  local-verification:
+    needs: [intent, candidate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "${{ needs.intent.outputs.bun }}" }
+      - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+        with: { sqlc-version: "${{ needs.intent.outputs.sqlc-ceiling-install }}" }
+      - run: npm install --global npm@${{ needs.intent.outputs.npm }} && node --version && npm --version && bun --version && sqlc version && npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ needs.candidate.outputs.artifact-id }}", path: retained }
+      - name: Validate and verify exact retained candidate
+        env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
+        run: |
+          node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
+          node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+          make verify-candidate CANDIDATE_WASM="$PWD/retained/${{ needs.candidate.outputs.wasm-filename }}" CANDIDATE_SHA256="${{ needs.candidate.outputs.sha256 }}"
+
+  sqlc-compatibility:
+    needs: [intent, candidate]
+    runs-on: ubuntu-latest
+    outputs:
+      evidence-artifact-id: ${{ steps.outputs.outputs.artifact-id }}
+    strategy:
+      fail-fast: false
+      matrix:
+        sqlc: ${{ fromJSON(needs.intent.outputs.sqlc-matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
+      - run: npm install --global npm@${{ needs.intent.outputs.npm }} && npm ci
+      - name: Reconstruct validated intent
+        env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
+        run: node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
+      - id: lookup
+        env: { GITHUB_TOKEN: "${{ github.token }}" }
+        run: node scripts/github-run-artifacts.mjs --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --name "compatibility-evidence-${{ github.run_id }}-${{ matrix.sqlc.version }}" --output selection.json --github-output "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ needs.candidate.outputs.artifact-id }}", path: retained }
+      - name: Validate exact retained candidate identity
+        run: node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+      - if: steps.lookup.outputs.mode == 'reuse'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ steps.lookup.outputs.artifact-id }}", path: evidence }
+      - if: steps.lookup.outputs.mode == 'reuse'
+        run: node scripts/release-contract.mjs validate-evidence --path evidence/compatibility-evidence.json --sha256 "${{ needs.candidate.outputs.sha256 }}" --sqlc "${{ matrix.sqlc.version }}"
+      - if: steps.lookup.outputs.mode == 'create'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "${{ needs.intent.outputs.bun }}" }
+      - if: steps.lookup.outputs.mode == 'create'
+        uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+        with: { sqlc-version: "${{ matrix.sqlc.install }}" }
+      - if: steps.lookup.outputs.mode == 'create'
+        name: Verify exact candidate and write cell evidence
+        run: |
+          node scripts/verify-sqlc-compatibility.mjs --candidate "$PWD/retained/${{ needs.candidate.outputs.wasm-filename }}" --sha256 "${{ needs.candidate.outputs.sha256 }}" --sqlc-version "${{ matrix.sqlc.version }}" --sqlc "$(command -v sqlc)" --output matrix-result.json
+          node scripts/write-compatibility-evidence.mjs result=matrix-result.json output=compatibility-evidence.json node="$(node --version | sed 's/^v//')" npm="$(npm --version)" bun="$(bun --version)"
+      - id: upload
+        if: steps.lookup.outputs.mode == 'create'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: "compatibility-evidence-${{ github.run_id }}-${{ matrix.sqlc.version }}", path: compatibility-evidence.json, retention-days: 30, if-no-files-found: error }
+      - id: outputs
+        env: { CREATED_ID: "${{ steps.upload.outputs.artifact-id }}", REUSED_ID: "${{ steps.lookup.outputs.artifact-id }}" }
+        run: |
+          id="${REUSED_ID:-$CREATED_ID}"
+          [[ "$id" =~ ^[0-9]+$ ]] || { echo "numeric evidence artifact ID was not produced" >&2; exit 1; }
+          echo "artifact-id=$id" >> "$GITHUB_OUTPUT"
+
+  uncredentialed-gates:
+    needs: [intent, candidate, local-verification, sqlc-compatibility]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
+      - run: npm install --global npm@${{ needs.intent.outputs.npm }} && npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ needs.candidate.outputs.artifact-id }}", path: retained }
+      - name: Download every same-run compatibility evidence artifact by exact ID
+        run: |
+          mkdir evidence
+          node - <<'NODE'
+          const fs = require('node:fs'); const { execFileSync } = require('node:child_process');
+          const paths = [];
+          for (const { version } of JSON.parse(process.env.MATRIX)) {
+            const name = `compatibility-evidence-${process.env.RUN_ID}-${version}`;
+            const selected = JSON.parse(execFileSync('node', ['scripts/github-run-artifacts.mjs','--repository',process.env.REPOSITORY,'--run-id',process.env.RUN_ID,'--name',name], { env: process.env }));
+            if (selected.mode !== 'reuse') throw new Error(`missing same-run evidence ${name}`);
+            execFileSync('gh', ['api',`repos/${process.env.REPOSITORY}/actions/artifacts/${selected.artifactId}/zip`], { env: process.env, stdio: ['ignore', fs.openSync(`evidence/${version}.zip`,'w'), 'inherit'] });
+            execFileSync('unzip', ['-q',`evidence/${version}.zip`,'-d',`evidence/${version}`]); paths.push(`${process.cwd()}/evidence/${version}/compatibility-evidence.json`);
+          }
+          fs.writeFileSync('evidence-paths.json', `${JSON.stringify(paths)}\n`);
+          NODE
+        env: { GITHUB_TOKEN: "${{ github.token }}", GH_TOKEN: "${{ github.token }}", MATRIX: "${{ needs.intent.outputs.sqlc-matrix }}", RUN_ID: "${{ github.run_id }}", REPOSITORY: "${{ github.repository }}" }
+      - name: Validate complete uncredentialed evidence against the exact candidate
+        run: |
+          node -e 'const fs=require("fs"); const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
+          node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+          node scripts/release-contract.mjs manifest --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --evidence evidence-paths.json --output "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
+          rm "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
+        env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
+
+  # Issue #40 inserts managed-D1 after uncredentialed-gates. Issues #41/#44 add
+  # documentation readiness and publication; this workflow deliberately cannot publish.
+  release-spine-complete:
+    needs: [intent, candidate, uncredentialed-gates]
+    runs-on: ubuntu-latest
+    outputs:
+      candidate-artifact-id: ${{ needs.candidate.outputs.artifact-id }}
+      candidate-sha256: ${{ needs.candidate.outputs.sha256 }}
+      manifest-artifact-id: ${{ steps.outputs.outputs.manifest-artifact-id }}
+      manifest-filename: ${{ steps.outputs.outputs.manifest-filename }}
+      dry-run: ${{ needs.intent.outputs.dry-run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
+      - run: npm install --global npm@${{ needs.intent.outputs.npm }} && npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ needs.candidate.outputs.artifact-id }}", path: retained }
+      - name: Reconstruct validated intent
+        env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
+        run: node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
+      - name: Validate exact retained candidate identity
+        run: node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+      - id: lookup
+        env: { GITHUB_TOKEN: "${{ github.token }}" }
+        run: node scripts/github-run-artifacts.mjs --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --name "$MANIFEST_ARTIFACT" --output selection.json --github-output "$GITHUB_OUTPUT"
+      - if: steps.lookup.outputs.mode == 'reuse'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ steps.lookup.outputs.artifact-id }}", path: manifest }
+      - if: steps.lookup.outputs.mode == 'reuse'
+        run: node scripts/release-contract.mjs validate-manifest --manifest "manifest/sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json" --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}"
+      - if: steps.lookup.outputs.mode == 'create'
+        name: Download same-run evidence for first manifest creation
+        run: |
+          mkdir evidence
+          node - <<'NODE'
+          const fs = require('node:fs'); const { execFileSync } = require('node:child_process'); const paths = [];
+          for (const { version } of JSON.parse(process.env.MATRIX)) {
+            const name = `compatibility-evidence-${process.env.RUN_ID}-${version}`;
+            const selected = JSON.parse(execFileSync('node', ['scripts/github-run-artifacts.mjs','--repository',process.env.REPOSITORY,'--run-id',process.env.RUN_ID,'--name',name], { env: process.env }));
+            if (selected.mode !== 'reuse') throw new Error(`missing same-run evidence ${name}`);
+            execFileSync('gh', ['api',`repos/${process.env.REPOSITORY}/actions/artifacts/${selected.artifactId}/zip`], { env: process.env, stdio: ['ignore', fs.openSync(`evidence/${version}.zip`,'w'), 'inherit'] });
+            execFileSync('unzip', ['-q',`evidence/${version}.zip`,'-d',`evidence/${version}`]); paths.push(`${process.cwd()}/evidence/${version}/compatibility-evidence.json`);
+          }
+          fs.writeFileSync('evidence-paths.json', `${JSON.stringify(paths)}\n`);
+          NODE
+        env: { GITHUB_TOKEN: "${{ github.token }}", GH_TOKEN: "${{ github.token }}", MATRIX: "${{ needs.intent.outputs.sqlc-matrix }}", RUN_ID: "${{ github.run_id }}", REPOSITORY: "${{ github.repository }}" }
+      - if: steps.lookup.outputs.mode == 'create'
+        run: node scripts/release-contract.mjs manifest --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --evidence evidence-paths.json --output "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
+      - id: upload
+        if: steps.lookup.outputs.mode == 'create'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: "${{ env.MANIFEST_ARTIFACT }}", path: "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json", retention-days: 30, if-no-files-found: error }
+      - id: outputs
+        env: { CREATED_ID: "${{ steps.upload.outputs.artifact-id }}", REUSED_ID: "${{ steps.lookup.outputs.artifact-id }}" }
+        run: |
+          id="${REUSED_ID:-$CREATED_ID}"
+          [[ "$id" =~ ^[0-9]+$ ]] || { echo "numeric manifest artifact ID was not produced" >&2; exit 1; }
+          echo "manifest-artifact-id=$id" >> "$GITHUB_OUTPUT"
+          echo "manifest-filename=sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json" >> "$GITHUB_OUTPUT"
