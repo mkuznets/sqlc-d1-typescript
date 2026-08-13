@@ -134,6 +134,21 @@ jobs:
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
       - run: make test-generated-drift-worktree CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
+  documentation-readiness:
+    needs: [config, baseline-and-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
+      - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+        with: { sqlc-version: "${{ needs.config.outputs.sqlc-ceiling-install }}" }
+      - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && sqlc version && npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { name: publication-candidate, path: candidate }
+      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
+      - run: make test-documentation CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)" SQLC_BIN="$(command -v sqlc)"
+
   sqlc-compatibility:
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
