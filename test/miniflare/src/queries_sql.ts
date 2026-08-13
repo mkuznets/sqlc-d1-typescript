@@ -640,7 +640,7 @@ export function updateItemById(args: UpdateItemByIdArgs): QueryDescriptor<void> 
     }) as unknown as QueryDescriptor<void>;
 }
 
-const createSampleQuery = "INSERT INTO samples\n(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,\n json_value, json_null, any_value, any_null)\nVALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+const createSampleQuery = "INSERT INTO samples\n(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,\n json_value, json_null, any_value, any_null)\nVALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,\n          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null";
 
 export interface CreateSampleArgs {
     "intValue": number;
@@ -708,7 +708,7 @@ export function createSample(args: CreateSampleArgs): QueryDescriptor<CreateSamp
     }) as unknown as QueryDescriptor<CreateSampleRow | null>;
 }
 
-const getSampleByIdQuery = "SELECT id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null\nFROM samples\nWHERE id = ?";
+const getSampleByIdQuery = "SELECT id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,\n       blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null\nFROM samples\nWHERE id = ?";
 
 export interface GetSampleByIdArgs {
     "id": number;
@@ -763,7 +763,7 @@ export function getSampleById(args: GetSampleByIdArgs): QueryDescriptor<GetSampl
     }) as unknown as QueryDescriptor<GetSampleByIdRow | null>;
 }
 
-const listSamplesQuery = "SELECT id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null\nFROM samples\nORDER BY id";
+const listSamplesQuery = "SELECT id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,\n       blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null\nFROM samples\nORDER BY id";
 
 export interface ListSamplesRow {
     "id": number;
@@ -887,7 +887,7 @@ export function insertSampleId(args: InsertSampleIdArgs): QueryDescriptor<number
     }) as unknown as QueryDescriptor<number>;
 }
 
-const deleteSamplesResultQuery = "DELETE\nFROM samples\nWHERE text_value = ?\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+const deleteSamplesResultQuery = "DELETE\nFROM samples\nWHERE text_value = ?\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,\n          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null";
 
 export interface DeleteSamplesResultArgs {
     "textValue": string;
@@ -949,7 +949,7 @@ export function renameFeedsReturning(args: RenameFeedsReturningArgs): QueryDescr
     }) as unknown as QueryDescriptor<RenameFeedsReturningRow | null>;
 }
 
-const deleteSamplesReturningQuery = "DELETE\nFROM samples\nWHERE text_value = ?\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+const deleteSamplesReturningQuery = "DELETE\nFROM samples\nWHERE text_value = ?\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,\n          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null";
 
 export interface DeleteSamplesReturningArgs {
     "textValue": string;
@@ -1223,7 +1223,7 @@ export function deleteFeedsByIdsForUser(args: DeleteFeedsByIdsForUserArgs): Quer
     }) as unknown as QueryDescriptor<number>;
 }
 
-const deleteSamplesByTextValuesQuery = "DELETE\nFROM samples\nWHERE text_value IN (/*SLICE:values*/?)\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+const deleteSamplesByTextValuesQuery = "DELETE\nFROM samples\nWHERE text_value IN (/*SLICE:values*/?)\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,\n          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null";
 
 export interface DeleteSamplesByTextValuesArgs {
     "values": ReadonlyArray<string>;
