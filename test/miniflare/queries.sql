@@ -131,15 +131,18 @@ INSERT INTO samples
 (int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,
  json_value, json_null, any_value, any_null)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING *;
+RETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,
+          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null;
 
 -- name: GetSampleById :one
-SELECT *
+SELECT id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,
+       blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null
 FROM samples
 WHERE id = ?;
 
 -- name: ListSamples :many
-SELECT *
+SELECT id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,
+       blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null
 FROM samples
 ORDER BY id;
 
@@ -163,7 +166,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 DELETE
 FROM samples
 WHERE text_value = ?
-RETURNING *;
+RETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,
+          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null;
 
 -- name: RenameFeedsReturning :one
 UPDATE feeds
@@ -176,7 +180,8 @@ RETURNING *;
 DELETE
 FROM samples
 WHERE text_value = ?
-RETURNING *;
+RETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,
+          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null;
 
 -- name: GetFeedByIdAndUser :one
 SELECT *
@@ -219,7 +224,8 @@ WHERE user_id = ?
 DELETE
 FROM samples
 WHERE text_value IN (sqlc.slice(values))
-RETURNING *;
+RETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null,
+          blob_value, blob_null, json_value, json_null AS json_null, any_value, any_null;
 
 -- name: CopySampleForTextValues :execlastid
 INSERT INTO samples
