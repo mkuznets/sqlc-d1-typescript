@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DB, QueryResultError, SqlcD1Error, type QueryDescriptor } from "../src/runtime";
 import {
 	createQuirk,
@@ -9,12 +9,7 @@ import {
 	type CreateSampleArgs,
 } from "../src/queries_sql";
 
-beforeAll(async () => {
-	const schemaQueries = JSON.parse(env.TEST_SCHEMA_QUERIES) as string[];
-	for (const query of schemaQueries) {
-		await env.DB.prepare(query).run();
-	}
-});
+
 
 const completeArgs = (overrides: Partial<CreateSampleArgs> = {}): CreateSampleArgs => ({
 	intValue: 42,
@@ -44,7 +39,7 @@ async function caught(run: () => Promise<unknown>): Promise<unknown> {
 }
 
 describe("checked values against real D1", () => {
-	it("round-trips every value kind through insert, one, and many", async () => {
+	it("miniflare/conversion-round-trip - round-trips every value kind through insert, one, and many", async () => {
 		const db = new DB(env.DB);
 		const inserted = await db.execute(createSample(completeArgs()));
 		expect(inserted).not.toBeNull();
@@ -74,7 +69,7 @@ describe("checked values against real D1", () => {
 		expect(listed.every((row) => row.blobValue instanceof Uint8Array)).toBe(true);
 	});
 
-	it("records the physical representations D1 actually returns", async () => {
+	it("miniflare/conversion-physical-values - records the physical representations D1 actually returns", async () => {
 		const db = new DB(env.DB);
 		const inserted = await db.execute(createSample(completeArgs({
 			boolValue: false,
@@ -108,7 +103,7 @@ describe("checked values against real D1", () => {
 		expect(inserted!.jsonNull).toEqual([1, 2]);
 	});
 
-	it("rejects arguments synchronously, before D1 is reached", () => {
+	it("miniflare/error-argument - rejects arguments synchronously, before D1 is reached", () => {
 		expect(() => createSample(completeArgs({ intValue: 1.5 }))).toThrowError(
 			expect.objectContaining({ name: "QueryArgumentError", operation: "construct", path: "intValue" }),
 		);
@@ -117,7 +112,7 @@ describe("checked values against real D1", () => {
 		);
 	});
 
-	it("fails closed when a stored value contradicts the generated type", async () => {
+	it("miniflare/error-result - fails closed when a stored value contradicts the generated type", async () => {
 		const db = new DB(env.DB);
 		const insertContradiction = async (column: string, literal: string): Promise<number> => {
 			const columns = ["int_value", "num_value", "text_value", "bool_value", "blob_value", "json_value", "any_value"];
@@ -165,7 +160,7 @@ describe("checked values against real D1", () => {
 		});
 	});
 
-	it("reports a mapping failure after the write has already committed", async () => {
+	it("miniflare/interaction-post-write-mapping - reports a mapping failure after the write has already committed", async () => {
 		const db = new DB(env.DB);
 		const failure = await caught(() => db.execute(createQuirk({ id: 1 })));
 		expect(failure).toBeInstanceOf(QueryResultError);
@@ -183,7 +178,7 @@ describe("checked values against real D1", () => {
 		expect(survived).toEqual({ flag: 2 });
 	});
 
-	it("carries batchIndex, returns no partial tuple, and leaves batch writes committed", async () => {
+	it("miniflare/error-batch-mapping - carries batchIndex, returns no partial tuple, and leaves batch writes committed", async () => {
 		const db = new DB(env.DB);
 		const failure = await caught(() => db.batch(
 			createSample(completeArgs({ textValue: "batch-survivor" })),
@@ -206,7 +201,7 @@ describe("checked values against real D1", () => {
 		expect(quirk).toEqual({ flag: 2 });
 	});
 
-	it("passes native D1 failures through untouched", async () => {
+	it("miniflare/error-native-identity - passes native D1 failures through untouched", async () => {
 		const db = new DB(env.DB);
 
 		const direct = await caught(() => env.DB.prepare("SELECT * FROM definitely_missing").all());

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DB } from "../src/runtime";
 import {
 	createFeed,
@@ -15,12 +15,7 @@ import {
 	type InsertSampleIdArgs,
 } from "../src/queries_sql";
 
-beforeAll(async () => {
-	const schemaQueries = JSON.parse(env.TEST_SCHEMA_QUERIES) as string[];
-	for (const query of schemaQueries) {
-		await env.DB.prepare(query).run();
-	}
-});
+
 
 const now = 1_760_000_000_000;
 
@@ -55,7 +50,7 @@ const sampleArgs = (textValue: string, intValue = 1): InsertSampleIdArgs => ({
 });
 
 describe("ordinary command semantics against real D1", () => {
-	it(":execrows returns the count D1 actually changed, zero included", async () => {
+	it("miniflare/command-execrows - :execrows returns the count D1 actually changed, zero included", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_rows1", "user_rows")));
 		await db.execute(createFeed(feedArgs("feed_rows2", "user_rows")));
@@ -67,7 +62,7 @@ describe("ordinary command semantics against real D1", () => {
 		expect(await db.execute(deleteFeedsByUser({ userId: "user_absent" }))).toBe(0);
 	});
 
-	it(":execlastid returns a rowid a follow-up read confirms", async () => {
+	it("miniflare/command-execlastid - :execlastid returns a rowid a follow-up read confirms", async () => {
 		const db = new DB(env.DB);
 		const first = await db.execute(insertSampleId(sampleArgs("lastid-a")));
 		const second = await db.execute(insertSampleId(sampleArgs("lastid-b")));
@@ -81,7 +76,7 @@ describe("ordinary command semantics against real D1", () => {
 		expect(stored).toEqual({ text_value: "lastid-b" });
 	});
 
-	it(":execresult hands back the native result untouched", async () => {
+	it("miniflare/command-execresult - :execresult hands back the native result untouched", async () => {
 		const db = new DB(env.DB);
 		await db.execute(insertSampleId(sampleArgs("native-1")));
 		await db.execute(insertSampleId(sampleArgs("native-2")));
@@ -103,7 +98,7 @@ describe("ordinary command semantics against real D1", () => {
 		expect(survivor!.total).toBe(1);
 	});
 
-	it(":one over DML with RETURNING maps the first row and the write persists", async () => {
+	it("miniflare/command-one-returning - :one over DML with RETURNING maps the first row and the write persists", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_ret1", "user_ret")));
 		await db.execute(createFeed(feedArgs("feed_ret2", "user_ret")));
@@ -124,14 +119,14 @@ describe("ordinary command semantics against real D1", () => {
 		expect(renamed!.id).toBe("feed_ret1");
 	});
 
-	it(":one with no matching row is null and :many with none is an empty array", async () => {
+	it("miniflare/command-empty-results - :one with no matching row is null and :many with none is an empty array", async () => {
 		const db = new DB(env.DB);
 		expect(await db.execute(getFeedById({ id: "feed_absent" }))).toBeNull();
 		expect(await db.execute(renameFeedsReturning({ title: "Unused", userId: "user_absent" }))).toBeNull();
 		expect(await db.execute(deleteSamplesReturning({ textValue: "absent" }))).toEqual([]);
 	});
 
-	it(":many over DELETE with RETURNING maps every deleted row", async () => {
+	it("miniflare/command-many-returning - :many over DELETE with RETURNING maps every deleted row", async () => {
 		const db = new DB(env.DB);
 		await db.execute(insertSampleId(sampleArgs("many-delete", 7)));
 		await db.execute(insertSampleId(sampleArgs("many-delete", 8)));
@@ -147,7 +142,7 @@ describe("ordinary command semantics against real D1", () => {
 		expect(remaining!.total).toBe(0);
 	});
 
-	it("resolves all six commands from one native batch, positionally", async () => {
+	it("miniflare/command-all-batch - resolves all six commands from one native batch, positionally", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_batch1", "user_batch")));
 		await db.execute(createFeed(feedArgs("feed_batch2", "user_batch")));

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DB, QueryArgumentError } from "../src/runtime";
 import {
 	copySampleForTextValues,
@@ -16,12 +16,7 @@ import {
 	type InsertSampleIdArgs,
 } from "../src/queries_sql";
 
-beforeAll(async () => {
-	const schemaQueries = JSON.parse(env.TEST_SCHEMA_QUERIES) as string[];
-	for (const query of schemaQueries) {
-		await env.DB.prepare(query).run();
-	}
-});
+
 
 const now = 1_760_000_000_000;
 
@@ -64,7 +59,7 @@ const feedIds = async (userId: string): Promise<string[]> => {
 };
 
 describe("argument model against real D1", () => {
-	it("a repeated sqlc.arg is one property bound once", async () => {
+	it("miniflare/argument-arg - a repeated sqlc.arg is one property bound once", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_rep1", "user_rep")));
 		await db.execute(createFeed(feedArgs("feed_rep2", "user_other")));
@@ -77,7 +72,7 @@ describe("argument model against real D1", () => {
 		expect(await db.execute(getFeedByIdAndUser({ id: "feed_rep2", userId: "user_rep" }))).toBeNull();
 	});
 
-	it("a sqlc.narg argument accepts null and a value, and is never optional", async () => {
+	it("miniflare/argument-narg - a sqlc.narg argument accepts null and a value, and is never optional", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_narg1", "user_narg", "Wanted")));
 		await db.execute(createFeed(feedArgs("feed_narg2", "user_narg", "Other")));
@@ -97,7 +92,7 @@ describe("argument model against real D1", () => {
 		expect(() => listFeedsByOptionalTitle({ title: undefined })).toThrowError(QueryArgumentError);
 	});
 
-	it("a slice binds exactly its elements, for any length", async () => {
+	it("miniflare/argument-slice - a slice binds exactly its elements, for any length", async () => {
 		const db = new DB(env.DB);
 		for (const index of [1, 2, 3, 4]) {
 			await db.execute(createFeed(feedArgs(`feed_slice${index}`, "user_slice")));
@@ -119,7 +114,7 @@ describe("argument model against real D1", () => {
 		expect((await db.execute(descriptor)).map((row) => row.id)).toEqual(["feed_slice1"]);
 	});
 
-	it("binds a positional argument before the slice it precedes in the text", async () => {
+	it("miniflare/argument-bind-order - binds a positional argument before the slice it precedes in the text", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_order1", "user_order")));
 		await db.execute(createFeed(feedArgs("feed_order2", "user_order")));
@@ -135,7 +130,7 @@ describe("argument model against real D1", () => {
 		expect(await feedIds("user_intruder")).toEqual(["feed_order3"]);
 	});
 
-	it("an empty slice is rejected before any statement reaches D1", async () => {
+	it("miniflare/argument-empty-slice - an empty slice is rejected before any statement reaches D1", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_empty1", "user_empty")));
 
@@ -166,7 +161,7 @@ describe("argument model against real D1", () => {
 		expect(await feedIds("user_empty")).toEqual(["feed_empty1"]);
 	});
 
-	it("expands a slice for every ordinary command", async () => {
+	it("miniflare/argument-slice-commands - expands a slice for every ordinary command", async () => {
 		const db = new DB(env.DB);
 		for (const index of [1, 2, 3]) {
 			await db.execute(createFeed(feedArgs(`feed_cmd${index}`, "user_cmd")));
@@ -207,7 +202,7 @@ describe("argument model against real D1", () => {
 			.toBe(3);
 	});
 
-	it("carries slice descriptors of different lengths through one native batch", async () => {
+	it("miniflare/interaction-slice-batch - carries slice descriptors of different lengths through one native batch", async () => {
 		const db = new DB(env.DB);
 		for (const index of [1, 2, 3, 4]) {
 			await db.execute(createFeed(feedArgs(`feed_batch${index}`, "user_argbatch")));
@@ -230,7 +225,7 @@ describe("argument model against real D1", () => {
 		expect(await feedIds("user_argbatch")).toEqual(["feed_batch1", "feed_batch4"]);
 	});
 
-	it("binds slice elements as data, never as SQL text", async () => {
+	it("miniflare/argument-hostile-values - binds slice elements as data, never as SQL text", async () => {
 		const db = new DB(env.DB);
 		const hostile = ["' OR 1=1 --", "?1", "/*SLICE:values*/?", "'); DROP TABLE samples; --"];
 		for (const value of hostile) {

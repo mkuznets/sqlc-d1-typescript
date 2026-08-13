@@ -1,224 +1,1235 @@
 {
-  "schemaVersion": 1,
-  "scenarios": [
-    { "id": "generator/current-commands", "layer": "generator" },
-    { "id": "generator/file-grouping", "layer": "generator" },
-    { "id": "generator/options-boundary", "layer": "generator" },
-    { "id": "generator/protocol-boundary", "layer": "generator" },
-    { "id": "generator/unknown-protobuf-field", "layer": "generator" },
-    { "id": "generator/sqlc-compatibility", "layer": "generator" },
-    { "id": "generator/query-boundary", "layer": "generator" },
-    { "id": "generator/emission-readiness", "layer": "generator" },
-    { "id": "generator/diagnostic-aggregation", "layer": "generator" },
-    { "id": "generator/safe-emission", "layer": "generator" },
-    { "id": "generator/emission-diagnostics", "layer": "generator" },
-    { "id": "generator/emission-determinism", "layer": "generator" },
-    { "id": "generator/typescript-floor", "layer": "generator" },
-    { "id": "generator/no-query-runtime", "layer": "generator" },
-    { "id": "generator/checked-values", "layer": "generator" },
-    { "id": "generator/runtime-values", "layer": "generator" },
-    { "id": "generator/command-semantics", "layer": "generator" },
-    { "id": "generator/command-results", "layer": "generator" },
-    { "id": "generator/unsupported-commands", "layer": "generator" },
-    { "id": "generator/argument-model", "layer": "generator" },
-    { "id": "generator/argument-values", "layer": "generator" },
-    { "id": "generator/argument-boundary", "layer": "generator" },
-    { "id": "generator/embed-model", "layer": "generator" },
-    { "id": "generator/embed-values", "layer": "generator" },
-    { "id": "generator/embed-boundary", "layer": "generator" },
-    { "id": "generator/batch-session-contract", "layer": "generator" },
-    { "id": "worker/command-semantics", "layer": "worker" },
-    { "id": "worker/arguments", "layer": "worker" },
-    { "id": "worker/embeds", "layer": "worker" },
-    { "id": "worker/batch-semantics", "layer": "worker" },
-    { "id": "worker/session-bookmarks", "layer": "worker" },
-    { "id": "managed-d1/batch-rollback", "layer": "managed-d1" },
-    { "id": "managed-d1/bookmark-transfer", "layer": "managed-d1" },
-    { "id": "candidate/digest-validation", "layer": "candidate" },
-    { "id": "candidate/retained-bytes", "layer": "candidate" },
-    { "id": "verification/coverage-manifest", "layer": "verification" },
-    { "id": "verification/evidence-envelope", "layer": "verification" }
+  "schemaVersion": 2,
+  "tests": [
+    {
+      "id": "generator/current-commands",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/current-commands",
+      "availability": "local"
+    },
+    {
+      "id": "generator/command-semantics",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/command-semantics",
+      "availability": "local"
+    },
+    {
+      "id": "generator/file-grouping",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/file-grouping",
+      "availability": "local"
+    },
+    {
+      "id": "generator/options-boundary",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/options-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "generator/protocol-boundary",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/protocol-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "generator/unknown-protobuf-field",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/unknown-protobuf-field",
+      "availability": "local"
+    },
+    {
+      "id": "generator/sqlc-compatibility",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/sqlc-compatibility",
+      "availability": "local"
+    },
+    {
+      "id": "generator/query-boundary",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/query-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "generator/emission-readiness",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/emission-readiness",
+      "availability": "local"
+    },
+    {
+      "id": "generator/argument-model",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/argument-model",
+      "availability": "local"
+    },
+    {
+      "id": "generator/argument-values",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/argument-values",
+      "availability": "local"
+    },
+    {
+      "id": "generator/argument-boundary",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/argument-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "generator/unsupported-commands",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/unsupported-commands",
+      "availability": "local"
+    },
+    {
+      "id": "generator/diagnostic-aggregation",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/diagnostic-aggregation",
+      "availability": "local"
+    },
+    {
+      "id": "generator/safe-emission",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/safe-emission",
+      "availability": "local"
+    },
+    {
+      "id": "generator/typescript-floor",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/typescript-floor",
+      "availability": "local"
+    },
+    {
+      "id": "generator/emission-diagnostics",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/emission-diagnostics",
+      "availability": "local"
+    },
+    {
+      "id": "generator/emission-determinism",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/emission-determinism",
+      "availability": "local"
+    },
+    {
+      "id": "generator/no-query-runtime",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/no-query-runtime",
+      "availability": "local"
+    },
+    {
+      "id": "generator/checked-values",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/checked-values",
+      "availability": "local"
+    },
+    {
+      "id": "generator/runtime-values",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/runtime-values",
+      "availability": "local"
+    },
+    {
+      "id": "generator/batch-session-contract",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/batch-session-contract",
+      "availability": "local"
+    },
+    {
+      "id": "generator/command-results",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/command-results",
+      "availability": "local"
+    },
+    {
+      "id": "generator/embed-model",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/embed-model",
+      "availability": "local"
+    },
+    {
+      "id": "generator/embed-values",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/embed-values",
+      "availability": "local"
+    },
+    {
+      "id": "generator/embed-boundary",
+      "layer": "generator",
+      "file": "test/generator/scenarios.ts",
+      "title": "generator/embed-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "types/typescript-5-2",
+      "layer": "types",
+      "file": "test/types/candidate.test.ts",
+      "title": "public API compiles with TypeScript 5.2",
+      "availability": "local"
+    },
+    {
+      "id": "types/typescript-current",
+      "layer": "types",
+      "file": "test/types/candidate.test.ts",
+      "title": "public API compiles with current TypeScript",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/current-commands",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/current-commands",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/command-semantics",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/command-semantics",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/checked-values",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/checked-values",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/runtime-values",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/runtime-values",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/command-results",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/command-results",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/batch-session-contract",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/batch-session-contract",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/file-grouping",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/file-grouping",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/options-boundary",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/options-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/protocol-boundary",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/protocol-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/unknown-protobuf-field",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/unknown-protobuf-field",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/sqlc-compatibility",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/sqlc-compatibility",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/query-boundary",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/query-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/unsupported-commands",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/unsupported-commands",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/emission-readiness",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/emission-readiness",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/argument-model",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/argument-model",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/argument-values",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/argument-values",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/argument-boundary",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/argument-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/embed-model",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/embed-model",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/embed-values",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/embed-values",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/embed-boundary",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/embed-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/diagnostic-aggregation",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/diagnostic-aggregation",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/safe-emission",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/safe-emission",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/typescript-floor",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/typescript-floor",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/emission-diagnostics",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/emission-diagnostics",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/emission-determinism",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/emission-determinism",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/no-query-runtime",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/no-query-runtime",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/digest-validation",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/digest-validation",
+      "availability": "local"
+    },
+    {
+      "id": "candidate/retained-bytes",
+      "layer": "candidate",
+      "file": "test/generator/candidate.test.ts",
+      "title": "candidate/retained-bytes",
+      "availability": "local"
+    },
+    {
+      "id": "verification/coverage-graph",
+      "layer": "verification",
+      "file": "test/verification-contracts.test.ts",
+      "title": "verification/coverage-graph",
+      "availability": "local"
+    },
+    {
+      "id": "verification/coverage-mutations",
+      "layer": "verification",
+      "file": "test/verification-contracts.test.ts",
+      "title": "verification/coverage-mutations",
+      "availability": "local"
+    },
+    {
+      "id": "verification/surface-inventory",
+      "layer": "verification",
+      "file": "test/verification-contracts.test.ts",
+      "title": "verification/surface-inventory",
+      "availability": "local"
+    },
+    {
+      "id": "verification/evidence-envelope",
+      "layer": "verification",
+      "file": "test/verification-contracts.test.ts",
+      "title": "verification/evidence-envelope",
+      "availability": "local"
+    },
+    {
+      "id": "verification/generate-candidate-digest",
+      "layer": "verification",
+      "file": "test/candidate-scripts.test.ts",
+      "title": "verification/generate-candidate-digest",
+      "availability": "local"
+    },
+    {
+      "id": "verification/generated-tree-comparison",
+      "layer": "verification",
+      "file": "test/candidate-scripts.test.ts",
+      "title": "verification/generated-tree-comparison",
+      "availability": "local"
+    },
+    {
+      "id": "verification/generate-candidate-retained",
+      "layer": "verification",
+      "file": "test/candidate-scripts.test.ts",
+      "title": "verification/generate-candidate-retained",
+      "availability": "local"
+    },
+    {
+      "id": "verification/generated-drift",
+      "layer": "verification",
+      "file": "scripts/check-generated-drift.mjs",
+      "title": "verification/generated-drift",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-execrows",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-execrows",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-execlastid",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-execlastid",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-execresult",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-execresult",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-one-returning",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-one-returning",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-empty-results",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-empty-results",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-many-returning",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-many-returning",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/command-all-batch",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/commands.spec.ts",
+      "title": "miniflare/command-all-batch",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-arg",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-arg",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-narg",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-narg",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-slice",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-slice",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-bind-order",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-bind-order",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-empty-slice",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-empty-slice",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-slice-commands",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-slice-commands",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/interaction-slice-batch",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/interaction-slice-batch",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/argument-hostile-values",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/arguments.spec.ts",
+      "title": "miniflare/argument-hostile-values",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/embed-reconstruction",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/embeds.spec.ts",
+      "title": "miniflare/embed-reconstruction",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/embed-outer-join",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/embeds.spec.ts",
+      "title": "miniflare/embed-outer-join",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/interaction-slice-embed",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/embeds.spec.ts",
+      "title": "miniflare/interaction-slice-embed",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/interaction-embed-batch",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/embeds.spec.ts",
+      "title": "miniflare/interaction-embed-batch",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/embed-private-aliases",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/embeds.spec.ts",
+      "title": "miniflare/embed-private-aliases",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/conversion-round-trip",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/conversion-round-trip",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/conversion-physical-values",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/conversion-physical-values",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/error-argument",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/error-argument",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/error-result",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/error-result",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/interaction-post-write-mapping",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/interaction-post-write-mapping",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/error-batch-mapping",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/error-batch-mapping",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/error-native-identity",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/values.spec.ts",
+      "title": "miniflare/error-native-identity",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/batch-empty",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/batches-sessions.spec.ts",
+      "title": "miniflare/batch-empty",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/batch-native-rollback",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/batches-sessions.spec.ts",
+      "title": "miniflare/batch-native-rollback",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/batch-post-success-mapping",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/batches-sessions.spec.ts",
+      "title": "miniflare/batch-post-success-mapping",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/session-starts",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/batches-sessions.spec.ts",
+      "title": "miniflare/session-starts",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/session-bookmark-transfer",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/batches-sessions.spec.ts",
+      "title": "miniflare/session-bookmark-transfer",
+      "availability": "local"
+    },
+    {
+      "id": "miniflare/session-bookmark-after-failure",
+      "layer": "miniflare",
+      "file": "test/miniflare/test/batches-sessions.spec.ts",
+      "title": "miniflare/session-bookmark-after-failure",
+      "availability": "local"
+    },
+    {
+      "id": "example/list-users",
+      "layer": "example",
+      "file": "examples/d1-worker/test/index.spec.ts",
+      "title": "example/list-users",
+      "availability": "local"
+    },
+    {
+      "id": "example/get-user",
+      "layer": "example",
+      "file": "examples/d1-worker/test/index.spec.ts",
+      "title": "example/get-user",
+      "availability": "local"
+    },
+    {
+      "id": "example/rename-user",
+      "layer": "example",
+      "file": "examples/d1-worker/test/index.spec.ts",
+      "title": "example/rename-user",
+      "availability": "local"
+    },
+    {
+      "id": "example/error-boundary",
+      "layer": "example",
+      "file": "examples/d1-worker/test/index.spec.ts",
+      "title": "example/error-boundary",
+      "availability": "local"
+    },
+    {
+      "id": "example/routing-statuses",
+      "layer": "example",
+      "file": "examples/d1-worker/test/index.spec.ts",
+      "title": "example/routing-statuses",
+      "availability": "local"
+    },
+    {
+      "id": "managed-d1/batch-rollback",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/batch.spec.ts",
+      "title": "managed-d1/batch-rollback",
+      "availability": "deferred"
+    },
+    {
+      "id": "managed-d1/bookmark-transfer",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/session.spec.ts",
+      "title": "managed-d1/bookmark-transfer",
+      "availability": "deferred"
+    }
   ],
   "promises": [
     {
-      "id": "pure-generator-boundary",
-      "primary": "generator/current-commands",
-      "smoke": ["generator/file-grouping", "generator/no-query-runtime"]
-    },
-    {
-      "id": "generator-boundary-validation",
-      "primary": "generator/query-boundary",
-      "smoke": ["generator/options-boundary", "generator/protocol-boundary", "generator/sqlc-compatibility", "generator/emission-readiness"]
-    },
-    {
-      "id": "stable-generator-diagnostics",
-      "primary": "generator/diagnostic-aggregation",
-      "smoke": ["generator/options-boundary", "generator/query-boundary"]
-    },
-    {
-      "id": "safe-typescript-emission",
-      "primary": "generator/safe-emission",
-      "smoke": ["generator/current-commands"]
-    },
-    {
-      "id": "portable-output-allocation",
-      "primary": "generator/emission-diagnostics",
-      "smoke": ["generator/file-grouping"]
-    },
-    {
-      "id": "deterministic-emission",
-      "primary": "generator/emission-determinism",
-      "smoke": ["generator/diagnostic-aggregation"]
-    },
-    {
-      "id": "typescript-floor",
-      "primary": "generator/typescript-floor",
-      "smoke": ["generator/safe-emission"]
-    },
-    {
-      "id": "checked-runtime-values",
-      "primary": "generator/runtime-values",
-      "smoke": ["generator/checked-values", "generator/current-commands"]
-    },
-    {
       "id": "command-one",
-      "primary": "generator/command-results",
-      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+      "category": "command",
+      "primary": [
+        "miniflare/command-one-returning"
+      ],
+      "smoke": [
+        "generator/command-results"
+      ]
     },
     {
       "id": "command-many",
-      "primary": "generator/command-results",
-      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+      "category": "command",
+      "primary": [
+        "miniflare/command-many-returning"
+      ],
+      "smoke": [
+        "generator/command-results"
+      ]
     },
     {
       "id": "command-exec",
-      "primary": "generator/command-results",
-      "smoke": ["generator/current-commands", "worker/command-semantics"]
+      "category": "command",
+      "primary": [
+        "miniflare/command-all-batch"
+      ],
+      "smoke": [
+        "generator/command-results"
+      ]
     },
     {
       "id": "command-execrows",
-      "primary": "generator/command-results",
-      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+      "category": "command",
+      "primary": [
+        "miniflare/command-execrows"
+      ],
+      "smoke": [
+        "generator/command-results"
+      ]
     },
     {
       "id": "command-execlastid",
-      "primary": "generator/command-results",
-      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+      "category": "command",
+      "primary": [
+        "miniflare/command-execlastid"
+      ],
+      "smoke": [
+        "generator/command-results"
+      ]
     },
     {
       "id": "command-execresult",
-      "primary": "generator/command-results",
-      "smoke": ["generator/command-semantics", "worker/command-semantics"]
+      "category": "command",
+      "primary": [
+        "miniflare/command-execresult"
+      ],
+      "smoke": [
+        "generator/command-results"
+      ]
     },
     {
-      "id": "command-public-types",
-      "primary": "generator/command-semantics",
-      "smoke": ["generator/current-commands"]
+      "id": "macro-positional",
+      "category": "macro",
+      "primary": [
+        "generator/argument-model"
+      ],
+      "smoke": []
     },
     {
-      "id": "native-command-metadata",
-      "primary": "worker/command-semantics",
-      "smoke": ["generator/command-results"]
+      "id": "macro-arg",
+      "category": "macro",
+      "primary": [
+        "miniflare/argument-arg"
+      ],
+      "smoke": []
     },
     {
-      "id": "unsupported-command-rejection",
-      "primary": "generator/unsupported-commands",
-      "smoke": ["generator/query-boundary", "generator/emission-readiness"]
+      "id": "macro-narg",
+      "category": "macro",
+      "primary": [
+        "miniflare/argument-narg"
+      ],
+      "smoke": []
     },
     {
-      "id": "named-arguments",
-      "primary": "generator/argument-values",
-      "smoke": ["generator/argument-model", "worker/arguments"]
+      "id": "macro-slice",
+      "category": "macro",
+      "primary": [
+        "miniflare/argument-slice"
+      ],
+      "smoke": []
     },
     {
-      "id": "nullable-arguments",
-      "primary": "generator/argument-values",
-      "smoke": ["generator/argument-model", "worker/arguments"]
+      "id": "macro-embed",
+      "category": "macro",
+      "primary": [
+        "miniflare/embed-reconstruction"
+      ],
+      "smoke": []
     },
     {
-      "id": "slice-arguments",
-      "primary": "generator/argument-values",
-      "smoke": ["generator/argument-model", "worker/arguments"]
+      "id": "error-sqlc-d1",
+      "category": "error",
+      "primary": [
+        "generator/current-commands"
+      ],
+      "smoke": []
     },
     {
-      "id": "slice-command-coverage",
-      "primary": "worker/arguments",
-      "smoke": ["generator/argument-values", "generator/command-semantics"]
+      "id": "error-argument",
+      "category": "error",
+      "primary": [
+        "miniflare/error-argument"
+      ],
+      "smoke": []
     },
     {
-      "id": "argument-bind-order",
-      "primary": "generator/argument-values",
-      "smoke": ["worker/arguments", "generator/argument-model"]
+      "id": "error-usage",
+      "category": "error",
+      "primary": [
+        "miniflare/batch-empty"
+      ],
+      "smoke": []
     },
     {
-      "id": "unsupported-bind-shape",
-      "primary": "generator/argument-boundary",
-      "smoke": ["generator/query-boundary", "generator/emission-readiness"]
+      "id": "error-result",
+      "category": "error",
+      "primary": [
+        "miniflare/error-result"
+      ],
+      "smoke": []
     },
     {
-      "id": "embed-reconstruction",
-      "primary": "generator/embed-values",
-      "smoke": ["generator/embed-model", "worker/embeds"]
+      "id": "error-native-identity",
+      "category": "error",
+      "primary": [
+        "miniflare/error-native-identity"
+      ],
+      "smoke": []
     },
     {
-      "id": "embed-private-aliases",
-      "primary": "generator/embed-model",
-      "smoke": ["generator/embed-values", "worker/embeds"]
+      "id": "conversion-integer",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "embed-outer-join",
-      "primary": "worker/embeds",
-      "smoke": ["generator/embed-values", "generator/embed-model"]
+      "id": "conversion-number",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "embed-metadata-rejection",
-      "primary": "generator/embed-boundary",
-      "smoke": ["generator/emission-readiness", "generator/query-boundary"]
+      "id": "conversion-text",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "non-empty-positional-batches",
-      "primary": "generator/batch-session-contract",
-      "smoke": ["generator/command-semantics", "worker/batch-semantics"]
+      "id": "conversion-null",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "one-native-batch-call",
-      "primary": "generator/batch-session-contract",
-      "smoke": ["worker/command-semantics"]
+      "id": "conversion-boolean",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-physical-values"
+      ],
+      "smoke": []
     },
     {
-      "id": "post-success-batch-mapping",
-      "primary": "worker/batch-semantics",
-      "smoke": ["generator/batch-session-contract"]
+      "id": "conversion-json",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "local-native-batch-rollback",
-      "primary": "worker/batch-semantics",
-      "smoke": ["managed-d1/batch-rollback"]
+      "id": "conversion-blob",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "session-starting-forms",
-      "primary": "generator/batch-session-contract",
-      "smoke": ["worker/session-bookmarks"]
+      "id": "conversion-opaque",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "session-api-parity",
-      "primary": "worker/session-bookmarks",
-      "smoke": ["generator/batch-session-contract"]
+      "id": "conversion-row-renaming",
+      "category": "conversion",
+      "primary": [
+        "miniflare/conversion-round-trip"
+      ],
+      "smoke": []
     },
     {
-      "id": "bookmark-delegation",
-      "primary": "generator/batch-session-contract",
-      "smoke": ["worker/session-bookmarks", "managed-d1/bookmark-transfer"]
+      "id": "diagnostic-protocol",
+      "category": "diagnostic",
+      "primary": [
+        "generator/protocol-boundary"
+      ],
+      "smoke": []
     },
     {
-      "id": "exact-candidate-execution",
-      "primary": "candidate/retained-bytes",
-      "smoke": ["generator/current-commands", "candidate/digest-validation"]
+      "id": "diagnostic-options",
+      "category": "diagnostic",
+      "primary": [
+        "generator/options-boundary"
+      ],
+      "smoke": []
     },
     {
-      "id": "verification-contracts",
-      "primary": "verification/coverage-manifest",
-      "smoke": ["verification/evidence-envelope"]
+      "id": "diagnostic-query",
+      "category": "diagnostic",
+      "primary": [
+        "generator/query-boundary"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "diagnostic-unsupported-command",
+      "category": "diagnostic",
+      "primary": [
+        "generator/unsupported-commands"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "diagnostic-unsupported-bind",
+      "category": "diagnostic",
+      "primary": [
+        "generator/argument-boundary"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "diagnostic-unsupported-embed",
+      "category": "diagnostic",
+      "primary": [
+        "generator/embed-boundary"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "diagnostic-aggregation",
+      "category": "diagnostic",
+      "primary": [
+        "generator/diagnostic-aggregation"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "diagnostic-redaction",
+      "category": "diagnostic",
+      "primary": [
+        "generator/safe-emission"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "diagnostic-sqlc-version",
+      "category": "diagnostic",
+      "primary": [
+        "generator/sqlc-compatibility"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-file-grouping",
+      "category": "generation",
+      "primary": [
+        "generator/file-grouping"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-portable-names",
+      "category": "generation",
+      "primary": [
+        "generator/emission-diagnostics"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-source-escaping",
+      "category": "generation",
+      "primary": [
+        "generator/safe-emission"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-determinism",
+      "category": "generation",
+      "primary": [
+        "generator/emission-determinism"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-atomic-failure",
+      "category": "generation",
+      "primary": [
+        "generator/emission-readiness"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-no-query-runtime",
+      "category": "generation",
+      "primary": [
+        "generator/no-query-runtime"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "generation-checked-regeneration",
+      "category": "generation",
+      "primary": [
+        "verification/generated-drift"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-descriptor-opacity",
+      "category": "execution",
+      "primary": [
+        "types/typescript-5-2"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-direct",
+      "category": "execution",
+      "primary": [
+        "generator/command-results"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-batch",
+      "category": "execution",
+      "primary": [
+        "miniflare/command-all-batch"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-rollback-local",
+      "category": "execution",
+      "primary": [
+        "miniflare/batch-native-rollback"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-batch-post-mapping",
+      "category": "execution",
+      "primary": [
+        "miniflare/batch-post-success-mapping"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-session-starts",
+      "category": "execution",
+      "primary": [
+        "miniflare/session-starts"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "execution-bookmark-transfer-local",
+      "category": "execution",
+      "primary": [
+        "miniflare/session-bookmark-transfer"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-typescript-5-2",
+      "category": "compatibility",
+      "primary": [
+        "types/typescript-5-2"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-typescript-current",
+      "category": "compatibility",
+      "primary": [
+        "types/typescript-current"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-exact-candidate",
+      "category": "compatibility",
+      "primary": [
+        "candidate/retained-bytes"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-candidate-digest",
+      "category": "compatibility",
+      "primary": [
+        "candidate/digest-validation"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-workers-flags",
+      "category": "compatibility",
+      "primary": [
+        "example/list-users"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-coverage-contract",
+      "category": "compatibility",
+      "primary": [
+        "verification/coverage-graph"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-candidate-generation",
+      "category": "compatibility",
+      "primary": [
+        "verification/generate-candidate-retained"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "interaction-slice-batch",
+      "category": "interaction",
+      "primary": [
+        "miniflare/interaction-slice-batch"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "interaction-embed-batch",
+      "category": "interaction",
+      "primary": [
+        "miniflare/interaction-embed-batch"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "interaction-slice-embed",
+      "category": "interaction",
+      "primary": [
+        "miniflare/interaction-slice-embed"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "interaction-write-returning",
+      "category": "interaction",
+      "primary": [
+        "miniflare/command-one-returning"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "interaction-post-write-mapping",
+      "category": "interaction",
+      "primary": [
+        "miniflare/interaction-post-write-mapping"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "interaction-bookmark-after-failure",
+      "category": "interaction",
+      "primary": [
+        "miniflare/session-bookmark-after-failure"
+      ],
+      "smoke": []
     }
   ]
 }

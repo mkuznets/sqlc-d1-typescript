@@ -12,8 +12,10 @@ const candidateSha256 = requiredEnvironment("CANDIDATE_SHA256");
 const candidateBytes = readFileSync(candidatePath);
 const candidateHarness = createCandidateHarness({ bytes: candidateBytes }, candidateSha256);
 
-for (const scenario of generatorScenarios) {
-  test(`candidate: ${scenario.id}`, async () => {
+export const candidateScenarioIds = generatorScenarios.map(({ id }) => `candidate/${id.slice("generator/".length)}`);
+
+for (const [index, scenario] of generatorScenarios.entries()) {
+  test(candidateScenarioIds[index], async () => {
     await runScenario(await candidateHarness, scenario);
   });
 }
