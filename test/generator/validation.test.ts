@@ -138,10 +138,11 @@ test("emission readiness is suppressed only by its own invalid metadata", () => 
     ["QUERY/MISSING_FILENAME"],
   );
 
+  // A well-formed embed is no longer a boundary finding of its own: planning owns it.
   const validEmbed = new Column({ name: "user", embedTable: identifier("users") });
   assert.deepEqual(
     reasons(request({ queries: [validQuery({ filename: "", columns: [validEmbed] })] })),
-    ["QUERY/MISSING_FILENAME", "EMISSION/UNIMPLEMENTED_EMBED"],
+    ["QUERY/MISSING_FILENAME"],
   );
 });
 
@@ -156,7 +157,7 @@ test("query metadata validates repeated binds, slices, embeds, result columns, a
   assert.ok(reasons(request({ queries: [validQuery({ params: [new Parameter({ number: 1, column: slice })] })] })).includes("QUERY/SLICE_METADATA_MISMATCH"));
 
   const embed = new Column({ name: "user", embedTable: identifier("users") });
-  assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [embed] })] })), ["EMISSION/UNIMPLEMENTED_EMBED"]);
+  assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [embed] })] })), []);
   assert.ok(reasons(request({ queries: [validQuery({ columns: [new Column({ embedTable: identifier("") })] })] })).includes("QUERY/INVALID_EMBED_METADATA"));
 
   assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [] })] })), ["QUERY/MISSING_RESULT_COLUMNS"]);
@@ -269,4 +270,13 @@ test("duplicate physical result keys are rejected only where rows are mapped", (
   for (const cmd of [":exec", ":execrows", ":execlastid", ":execresult"]) {
     assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: repeated })] })), []);
   }
+
+  // A self-join embeds one table twice; the repeated table name is not a physical key.
+  const embed = () => new Column({ name: "users", embedTable: identifier("users") });
+  assert.deepEqual(reasons(request({ queries: [validQuery({ cmd: ":many", columns: [embed(), embed()] })] })), []);
+  // An ordinary column may still collide with another ordinary column of the same name.
+  assert.deepEqual(
+    reasons(request({ queries: [validQuery({ cmd: ":many", columns: [embed(), column(), column()] })] })),
+    ["QUERY/DUPLICATE_PHYSICAL_COLUMN"],
+  );
 });

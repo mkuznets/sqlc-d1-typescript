@@ -1257,3 +1257,195 @@ export function copySampleForTextValues(args: CopySampleForTextValuesArgs): Quer
         params: Object.freeze([d1_values.argText(args["textValue"], "CopySampleForTextValues", "textValue"), ...d1_slice_values])
     }) as unknown as QueryDescriptor<number>;
 }
+
+const getFeedAndItemEmbedQuery = "SELECT f.id AS \"d1_embed_0_0\", f.user_id AS \"d1_embed_0_1\", f.type AS \"d1_embed_0_2\", f.title AS \"d1_embed_0_3\", f.link AS \"d1_embed_0_4\", f.authors AS \"d1_embed_0_5\", f.description AS \"d1_embed_0_6\", f.created_at AS \"d1_embed_0_7\", f.updated_at AS \"d1_embed_0_8\", f.deleted_at AS \"d1_embed_0_9\", i.id AS \"d1_embed_1_0\", i.feed_id AS \"d1_embed_1_1\", i.user_id AS \"d1_embed_1_2\", i.file_id AS \"d1_embed_1_3\", i.title AS \"d1_embed_1_4\", i.description AS \"d1_embed_1_5\", i.link AS \"d1_embed_1_6\", i.authors AS \"d1_embed_1_7\", i.created_at AS \"d1_embed_1_8\", i.updated_at AS \"d1_embed_1_9\", i.deleted_at AS \"d1_embed_1_10\", i.published_at AS \"d1_embed_1_11\"\nFROM feeds f\n         JOIN items i ON i.feed_id = f.id\nWHERE i.id = ?";
+
+export interface GetFeedAndItemEmbedArgs {
+    "id": string;
+}
+
+export interface GetFeedAndItemEmbedRow {
+    "feeds": {
+        "id": string;
+        "userId": string;
+        "type": string;
+        "title": string;
+        "link": string;
+        "authors": string;
+        "description": string;
+        "createdAt": number;
+        "updatedAt": number;
+        "deletedAt": number | null;
+    };
+    "items": {
+        "id": string;
+        "feedId": string;
+        "userId": string;
+        "fileId": string;
+        "title": string;
+        "description": string;
+        "link": string;
+        "authors": string;
+        "createdAt": number;
+        "updatedAt": number;
+        "deletedAt": number | null;
+        "publishedAt": number;
+    };
+}
+
+function parseGetFeedAndItemEmbedRow(row: Record<string, unknown>, ctx: d1_Context): GetFeedAndItemEmbedRow {
+    return {
+        "feeds": {
+            "id": d1_values.rowText(row, "d1_embed_0_0", "feeds.id", ctx),
+            "userId": d1_values.rowText(row, "d1_embed_0_1", "feeds.userId", ctx),
+            "type": d1_values.rowText(row, "d1_embed_0_2", "feeds.type", ctx),
+            "title": d1_values.rowText(row, "d1_embed_0_3", "feeds.title", ctx),
+            "link": d1_values.rowText(row, "d1_embed_0_4", "feeds.link", ctx),
+            "authors": d1_values.rowText(row, "d1_embed_0_5", "feeds.authors", ctx),
+            "description": d1_values.rowText(row, "d1_embed_0_6", "feeds.description", ctx),
+            "createdAt": d1_values.rowInteger(row, "d1_embed_0_7", "feeds.createdAt", ctx),
+            "updatedAt": d1_values.rowInteger(row, "d1_embed_0_8", "feeds.updatedAt", ctx),
+            "deletedAt": d1_values.rowIntegerOrNull(row, "d1_embed_0_9", "feeds.deletedAt", ctx)
+        },
+        "items": {
+            "id": d1_values.rowText(row, "d1_embed_1_0", "items.id", ctx),
+            "feedId": d1_values.rowText(row, "d1_embed_1_1", "items.feedId", ctx),
+            "userId": d1_values.rowText(row, "d1_embed_1_2", "items.userId", ctx),
+            "fileId": d1_values.rowText(row, "d1_embed_1_3", "items.fileId", ctx),
+            "title": d1_values.rowText(row, "d1_embed_1_4", "items.title", ctx),
+            "description": d1_values.rowText(row, "d1_embed_1_5", "items.description", ctx),
+            "link": d1_values.rowText(row, "d1_embed_1_6", "items.link", ctx),
+            "authors": d1_values.rowText(row, "d1_embed_1_7", "items.authors", ctx),
+            "createdAt": d1_values.rowInteger(row, "d1_embed_1_8", "items.createdAt", ctx),
+            "updatedAt": d1_values.rowInteger(row, "d1_embed_1_9", "items.updatedAt", ctx),
+            "deletedAt": d1_values.rowIntegerOrNull(row, "d1_embed_1_10", "items.deletedAt", ctx),
+            "publishedAt": d1_values.rowInteger(row, "d1_embed_1_11", "items.publishedAt", ctx)
+        }
+    };
+}
+
+export function getFeedAndItemEmbed(args: GetFeedAndItemEmbedArgs): QueryDescriptor<GetFeedAndItemEmbedRow | null> {
+    d1_values.requireArgs(args, "GetFeedAndItemEmbed");
+    return Object.freeze({
+        kind: "one",
+        name: "GetFeedAndItemEmbed",
+        sql: getFeedAndItemEmbedQuery,
+        params: Object.freeze([d1_values.argText(args["id"], "GetFeedAndItemEmbed", "id")]),
+        parse: parseGetFeedAndItemEmbedRow
+    }) as unknown as QueryDescriptor<GetFeedAndItemEmbedRow | null>;
+}
+
+const listItemsWithNotesQuery = "SELECT i.id AS item_id, n.item_id AS \"d1_embed_0_0\", n.note AS \"d1_embed_0_1\", n.rating AS \"d1_embed_0_2\"\nFROM items i\n         LEFT JOIN item_notes n ON n.item_id = i.id\nWHERE i.feed_id = ?\nORDER BY i.id";
+
+export interface ListItemsWithNotesArgs {
+    "feedId": string;
+}
+
+export interface ListItemsWithNotesRow {
+    "itemId": string;
+    "itemNotes": {
+        "itemId": string | null;
+        "note": string | null;
+        "rating": number | null;
+    };
+}
+
+function parseListItemsWithNotesRow(row: Record<string, unknown>, ctx: d1_Context): ListItemsWithNotesRow {
+    return {
+        "itemId": d1_values.rowText(row, "item_id", "itemId", ctx),
+        "itemNotes": {
+            "itemId": d1_values.rowTextOrNull(row, "d1_embed_0_0", "itemNotes.itemId", ctx),
+            "note": d1_values.rowTextOrNull(row, "d1_embed_0_1", "itemNotes.note", ctx),
+            "rating": d1_values.rowIntegerOrNull(row, "d1_embed_0_2", "itemNotes.rating", ctx)
+        }
+    };
+}
+
+export function listItemsWithNotes(args: ListItemsWithNotesArgs): QueryDescriptor<ListItemsWithNotesRow[]> {
+    d1_values.requireArgs(args, "ListItemsWithNotes");
+    return Object.freeze({
+        kind: "many",
+        name: "ListItemsWithNotes",
+        sql: listItemsWithNotesQuery,
+        params: Object.freeze([d1_values.argText(args["feedId"], "ListItemsWithNotes", "feedId")]),
+        parse: parseListItemsWithNotesRow
+    }) as unknown as QueryDescriptor<ListItemsWithNotesRow[]>;
+}
+
+const listItemsWithFilesByIdsQuery = "SELECT i.id AS \"d1_embed_0_0\", i.feed_id AS \"d1_embed_0_1\", i.user_id AS \"d1_embed_0_2\", i.file_id AS \"d1_embed_0_3\", i.title AS \"d1_embed_0_4\", i.description AS \"d1_embed_0_5\", i.link AS \"d1_embed_0_6\", i.authors AS \"d1_embed_0_7\", i.created_at AS \"d1_embed_0_8\", i.updated_at AS \"d1_embed_0_9\", i.deleted_at AS \"d1_embed_0_10\", i.published_at AS \"d1_embed_0_11\", fl.id AS \"d1_embed_1_0\", fl.user_id AS \"d1_embed_1_1\", fl.item_id AS \"d1_embed_1_2\", fl.size AS \"d1_embed_1_3\", fl.mime_type AS \"d1_embed_1_4\", fl.hash AS \"d1_embed_1_5\", fl.upload_url AS \"d1_embed_1_6\", fl.created_at AS \"d1_embed_1_7\", fl.updated_at AS \"d1_embed_1_8\", fl.deleted_at AS \"d1_embed_1_9\"\nFROM items i\n         JOIN files fl ON i.file_id = fl.id\nWHERE i.id IN (/*SLICE:ids*/?)\nORDER BY i.id";
+
+export interface ListItemsWithFilesByIdsArgs {
+    "ids": ReadonlyArray<string>;
+}
+
+export interface ListItemsWithFilesByIdsRow {
+    "items": {
+        "id": string;
+        "feedId": string;
+        "userId": string;
+        "fileId": string;
+        "title": string;
+        "description": string;
+        "link": string;
+        "authors": string;
+        "createdAt": number;
+        "updatedAt": number;
+        "deletedAt": number | null;
+        "publishedAt": number;
+    };
+    "files": {
+        "id": string;
+        "userId": string;
+        "itemId": string | null;
+        "size": number;
+        "mimeType": string;
+        "hash": string;
+        "uploadUrl": string;
+        "createdAt": number;
+        "updatedAt": number;
+        "deletedAt": number | null;
+    };
+}
+
+function parseListItemsWithFilesByIdsRow(row: Record<string, unknown>, ctx: d1_Context): ListItemsWithFilesByIdsRow {
+    return {
+        "items": {
+            "id": d1_values.rowText(row, "d1_embed_0_0", "items.id", ctx),
+            "feedId": d1_values.rowText(row, "d1_embed_0_1", "items.feedId", ctx),
+            "userId": d1_values.rowText(row, "d1_embed_0_2", "items.userId", ctx),
+            "fileId": d1_values.rowText(row, "d1_embed_0_3", "items.fileId", ctx),
+            "title": d1_values.rowText(row, "d1_embed_0_4", "items.title", ctx),
+            "description": d1_values.rowText(row, "d1_embed_0_5", "items.description", ctx),
+            "link": d1_values.rowText(row, "d1_embed_0_6", "items.link", ctx),
+            "authors": d1_values.rowText(row, "d1_embed_0_7", "items.authors", ctx),
+            "createdAt": d1_values.rowInteger(row, "d1_embed_0_8", "items.createdAt", ctx),
+            "updatedAt": d1_values.rowInteger(row, "d1_embed_0_9", "items.updatedAt", ctx),
+            "deletedAt": d1_values.rowIntegerOrNull(row, "d1_embed_0_10", "items.deletedAt", ctx),
+            "publishedAt": d1_values.rowInteger(row, "d1_embed_0_11", "items.publishedAt", ctx)
+        },
+        "files": {
+            "id": d1_values.rowText(row, "d1_embed_1_0", "files.id", ctx),
+            "userId": d1_values.rowText(row, "d1_embed_1_1", "files.userId", ctx),
+            "itemId": d1_values.rowTextOrNull(row, "d1_embed_1_2", "files.itemId", ctx),
+            "size": d1_values.rowInteger(row, "d1_embed_1_3", "files.size", ctx),
+            "mimeType": d1_values.rowText(row, "d1_embed_1_4", "files.mimeType", ctx),
+            "hash": d1_values.rowText(row, "d1_embed_1_5", "files.hash", ctx),
+            "uploadUrl": d1_values.rowText(row, "d1_embed_1_6", "files.uploadUrl", ctx),
+            "createdAt": d1_values.rowInteger(row, "d1_embed_1_7", "files.createdAt", ctx),
+            "updatedAt": d1_values.rowInteger(row, "d1_embed_1_8", "files.updatedAt", ctx),
+            "deletedAt": d1_values.rowIntegerOrNull(row, "d1_embed_1_9", "files.deletedAt", ctx)
+        }
+    };
+}
+
+export function listItemsWithFilesByIds(args: ListItemsWithFilesByIdsArgs): QueryDescriptor<ListItemsWithFilesByIdsRow[]> {
+    d1_values.requireArgs(args, "ListItemsWithFilesByIds");
+    const d1_slice_ids = d1_values.argSlice(args["ids"], d1_values.argText, "ListItemsWithFilesByIds", "ids");
+    return Object.freeze({
+        kind: "many",
+        name: "ListItemsWithFilesByIds",
+        sql: d1_values.expandSlices(listItemsWithFilesByIdsQuery, "ListItemsWithFilesByIds", [["/*SLICE:ids*/?", d1_slice_ids.length]]),
+        params: Object.freeze([...d1_slice_ids]),
+        parse: parseListItemsWithFilesByIdsRow
+    }) as unknown as QueryDescriptor<ListItemsWithFilesByIdsRow[]>;
+}

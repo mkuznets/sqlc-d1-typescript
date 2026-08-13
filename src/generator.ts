@@ -1,6 +1,6 @@
 import { File, GenerateRequest, GenerateResponse } from "./gen/plugin/codegen_pb";
 import { Driver as D1Driver } from "./d1";
-import { planEmission, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type ValueFieldPlan } from "./emission-plan";
+import { planEmission, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type RowFieldPlan } from "./emission-plan";
 import { validateGenerateRequest, type ValidatedGeneration } from "./validation";
 
 type Options = ValidatedGeneration["options"];
@@ -9,8 +9,8 @@ interface Driver {
   runtimeCode(): string;
   resultContextDecl(): string;
   argumentType(field: ArgumentFieldPlan): string;
-  rowType(field: ValueFieldPlan): string;
-  parseFnDecl(funcName: string, returnIface: string, fields: QueryPlan["rowFields"]): string;
+  rowType(field: RowFieldPlan): string;
+  parseFnDecl(funcName: string, returnIface: string, fields: readonly RowFieldPlan[]): string;
   factoryDecl(plan: QueryPlan): string;
 }
 
@@ -57,7 +57,7 @@ export function generateValidated(validated: ValidatedGeneration): GenerateRespo
   return new GenerateResponse({ files });
 }
 
-function interfaceDecl<Field extends ValueFieldPlan & { publicNameLiteral: string }>(
+function interfaceDecl<Field extends { publicNameLiteral: string }>(
   name: string,
   fields: readonly Field[],
   spell: (field: Field) => string,

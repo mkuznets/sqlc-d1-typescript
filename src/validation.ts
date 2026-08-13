@@ -223,9 +223,7 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
   const sliceValidationStart = diagnostics.length;
   if (query.text) validateSlices(query, queryIndex, diagnostics);
   const sliceMetadataValid = query.text !== "" && diagnostics.length === sliceValidationStart;
-  const embedValidationStart = diagnostics.length;
   validateEmbeds(query, queryIndex, diagnostics);
-  const embedMetadataValid = diagnostics.length === embedValidationStart;
 
   if (ROW_COMMANDS.has(query.cmd) && query.columns.length === 0) {
     diagnostics.push(error("QUERY", "MISSING_RESULT_COLUMNS", `command ${quoteDiagnosticValue(query.cmd)} requires at least one result column`, context({ fieldPath: "columns" })));
@@ -234,7 +232,9 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
   if (ROW_COMMANDS.has(query.cmd)) {
     const physicalColumns = new Map<string, number>();
     query.columns.forEach((column, columnIndex) => {
-      if (!column.name) return;
+      // An embed column's name is a table name, not a physical result key: a self-join
+      // legitimately repeats it, and its real keys are the private aliases planning assigns.
+      if (!column.name || column.embedTable) return;
       const prior = physicalColumns.get(column.name);
       if (prior !== undefined) {
         diagnostics.push(error(
@@ -251,10 +251,6 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
 
   const hasSlice = query.params.some((parameter) => parameter.column?.isSqlcSlice);
   if (parametersValid && sliceMetadataValid) validateBindShape(query, hasSlice, context, diagnostics);
-
-  if (embedMetadataValid && query.columns.some((column) => column.embedTable !== undefined)) {
-    diagnostics.push(error("EMISSION", "UNIMPLEMENTED_EMBED", "sqlc embed columns are recognized but not yet renderable", context({ fieldPath: "columns" })));
-  }
 }
 
 // A numbered placeholder is "?" followed by a digit. Deliberately conservative: a "?1"

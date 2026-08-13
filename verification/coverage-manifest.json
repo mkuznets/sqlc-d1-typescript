@@ -23,8 +23,12 @@
     { "id": "generator/argument-model", "layer": "generator" },
     { "id": "generator/argument-values", "layer": "generator" },
     { "id": "generator/argument-boundary", "layer": "generator" },
+    { "id": "generator/embed-model", "layer": "generator" },
+    { "id": "generator/embed-values", "layer": "generator" },
+    { "id": "generator/embed-boundary", "layer": "generator" },
     { "id": "worker/command-semantics", "layer": "worker" },
     { "id": "worker/arguments", "layer": "worker" },
+    { "id": "worker/embeds", "layer": "worker" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
     { "id": "verification/coverage-manifest", "layer": "verification" },
@@ -145,6 +149,26 @@
       "id": "unsupported-bind-shape",
       "primary": "generator/argument-boundary",
       "smoke": ["generator/query-boundary", "generator/emission-readiness"]
+    },
+    {
+      "id": "embed-reconstruction",
+      "primary": "generator/embed-values",
+      "smoke": ["generator/embed-model", "worker/embeds"]
+    },
+    {
+      "id": "embed-private-aliases",
+      "primary": "generator/embed-model",
+      "smoke": ["generator/embed-values", "worker/embeds"]
+    },
+    {
+      "id": "embed-outer-join",
+      "primary": "worker/embeds",
+      "smoke": ["generator/embed-values", "generator/embed-model"]
+    },
+    {
+      "id": "embed-metadata-rejection",
+      "primary": "generator/embed-boundary",
+      "smoke": ["generator/emission-readiness", "generator/query-boundary"]
     },
     {
       "id": "exact-candidate-execution",

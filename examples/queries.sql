@@ -243,3 +243,23 @@ FROM samples s
 WHERE s.text_value IN (sqlc.slice(values))
 ORDER BY s.id
 LIMIT 1;
+
+-- name: GetFeedAndItemEmbed :one
+SELECT sqlc.embed(f), sqlc.embed(i)
+FROM feeds f
+         JOIN items i ON i.feed_id = f.id
+WHERE i.id = ?;
+
+-- name: ListItemsWithNotes :many
+SELECT i.id AS item_id, sqlc.embed(n)
+FROM items i
+         LEFT JOIN item_notes n ON n.item_id = i.id
+WHERE i.feed_id = ?
+ORDER BY i.id;
+
+-- name: ListItemsWithFilesByIds :many
+SELECT sqlc.embed(i), sqlc.embed(fl)
+FROM items i
+         JOIN files fl ON i.file_id = fl.id
+WHERE i.id IN (sqlc.slice(ids))
+ORDER BY i.id;

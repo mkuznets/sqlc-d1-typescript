@@ -1,4 +1,4 @@
-import { RESULT_CONTEXT_ALIAS, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type RowFieldPlan, type SlicePlan, type ValueFieldPlan } from "./emission-plan";
+import { RESULT_CONTEXT_ALIAS, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type RowFieldPlan, type RowValueFieldPlan, type SlicePlan, type ValueFieldPlan } from "./emission-plan";
 import { RUNTIME } from "./runtime";
 import { VALUE_KINDS } from "./sqlite-types";
 
@@ -8,6 +8,23 @@ const spelling = (field: ValueFieldPlan) => VALUE_KINDS[field.valueKind];
 
 function codecCall(prefix: "arg" | "row", field: ValueFieldPlan): string {
   return `${RUNTIME_VALUE_ALIAS}.${prefix}${spelling(field).codecSuffix}${field.nullable ? "OrNull" : ""}`;
+}
+
+function valueType(field: ValueFieldPlan): string {
+  const entry = spelling(field);
+  return field.nullable ? entry.nullableRowType : entry.rowType;
+}
+
+// The one place a mapped value becomes a property, so a nested field and a flat one
+// cannot drift apart in physical key, public path, or codec.
+function valueProperty(field: RowValueFieldPlan, indent: string): string {
+  return `${indent}${field.publicNameLiteral}: ${codecCall("row", field)}(row, ${field.physicalKeyLiteral}, ${field.pathLiteral}, ctx)`;
+}
+
+function codecProperty(field: RowFieldPlan, indent: string): string {
+  if (field.kind !== "embed") return valueProperty(field, indent);
+  const nested = field.fields.map((nestedField) => valueProperty(nestedField, `${indent}    `)).join(",\n");
+  return `${indent}${field.publicNameLiteral}: {\n${nested}\n${indent}}`;
 }
 
 export class Driver {
@@ -26,15 +43,16 @@ export class Driver {
     return field.slice ? `ReadonlyArray<${base}>` : base;
   }
 
-  rowType(field: ValueFieldPlan): string {
-    const entry = spelling(field);
-    return field.nullable ? entry.nullableRowType : entry.rowType;
+  // An embed is spelled inline: a derived module-level interface name could collide with
+  // another query's declarations, and GetUserRow["users"] already names the nested type.
+  rowType(field: RowFieldPlan): string {
+    if (field.kind !== "embed") return valueType(field);
+    const nested = field.fields.map((nestedField) => `        ${nestedField.publicNameLiteral}: ${valueType(nestedField)}`).join(";\n");
+    return `{\n${nested};\n    }`;
   }
 
   parseFnDecl(funcName: string, returnIface: string, fields: readonly RowFieldPlan[]): string {
-    const properties = fields.map((field) =>
-      `        ${field.publicNameLiteral}: ${codecCall("row", field)}(row, ${field.physicalKeyLiteral}, ${field.publicNameLiteral}, ctx)`,
-    ).join(",\n");
+    const properties = fields.map((field) => codecProperty(field, "        ")).join(",\n");
     return `function ${funcName}(row: Record<string, unknown>, ctx: ${RESULT_CONTEXT_ALIAS}): ${returnIface} {
     return {
 ${properties}
