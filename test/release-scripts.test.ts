@@ -68,6 +68,11 @@ test("release/artifact discovery is run-scoped, exact, paginated, and token-reda
   await assert.rejects(listRunArtifacts({ owner: "o", repo: "r", runId: "123", name: "x", token, fetchImpl: timeoutFetch }), (error: Error) => !error.message.includes(token) && /timeout \[REDACTED\]/.test(error.message));
   const malformedFetch = (async () => new Response("no", { status: 200 })) as typeof fetch;
   await assert.rejects(listRunArtifacts({ owner: "o", repo: "r", runId: "123", name: "x", token, fetchImpl: malformedFetch }), /malformed JSON/);
+  const prefixFetch = (async () => new Response('{"total_count":3,"artifacts":[{"id":1,"name":"managed-d1-evidence-123-1","expired":false},{"id":2,"name":"other","expired":false},{"id":3,"name":"managed-d1-evidence-123-2","expired":false}]}')) as typeof fetch;
+  const prefixed = await listRunArtifacts({ owner: "o", repo: "r", runId: "123", prefix: "managed-d1-evidence-123-", token, fetchImpl: prefixFetch }); assert.deepEqual(prefixed.map(({ id }) => String(id)), ["1", "3"]);
+  const { selectPassingManagedEvidence } = await artifactsApi(); const attempts: string[] = [];
+  assert.deepEqual(await selectPassingManagedEvidence(prefixed, async (artifact) => { attempts.push(String(artifact.id)); return String(artifact.id) === "3" ? { remoteDate: "2026-02-05" } : null; }), { mode: "reuse", artifactId: "3", name: "managed-d1-evidence-123-2", remoteDate: "2026-02-05" }); assert.deepEqual(attempts, ["3"]);
+  assert.deepEqual(await selectPassingManagedEvidence(prefixed, async () => null), { mode: "create" });
 });
 
 async function evidenceFiles(root: string, candidateSha256 = digest): Promise<string[]> {
@@ -78,6 +83,7 @@ async function evidenceFiles(root: string, candidateSha256 = digest): Promise<st
   }
   return paths;
 }
+const managedEvidence = () => ({ schemaVersion: 1, candidateSha256: digest, sourceCommit: sha, run: { id: "123", url: "https://github.com/o/r/actions/runs/123", trigger: "release", startedAt: "2026-02-05T12:00:00.000Z", completedAt: "2026-02-05T12:01:00.000Z", remoteDate: "2026-02-05" }, configuration: { compatibilityDate: "2026-02-05", compatibilityFlags: [], wranglerVersion: "4.63.0" }, resources: { worker: { status: "created", name: "sqlc-d1-ci-20260205T120000Z-123-1-deadbeef", id: "sqlc-d1-ci-20260205T120000Z-123-1-deadbeef" }, database: { status: "created", name: "sqlc-d1-ci-20260205T120000Z-123-1-deadbeef", id: "123e4567-e89b-42d3-a456-426614174000" } }, scenarios: ["value-command-metadata", "macro-smoke", "batch-success", "batch-rollback", "direct-session", "bookmark-transfer", "native-error-identity", "post-execution-result-error"].map((id) => ({ id: `managed-d1/${id}`, status: "passed", attempts: 1 })), test: { status: "passed" }, cleanup: { status: "confirmed", worker: "deleted", database: "deleted", emergencyRecovery: "not-needed" } });
 const descriptor = (): CandidateDescriptor => ({ schemaVersion: 1, plugin: "sqlc-d1-typescript", version: "0.2.0", tag: null, sourceCommit: sha, workflowRunId: "123", workflowUrl: "https://github.com/o/r/actions/runs/123", buildPolicy: "build-once-exact-artifact", filename: "sqlc-gen-d1-typescript_0.2.0.wasm", size: 42, sha256: digest });
 
 test("release/evidence aggregation and deterministic manifest use authoritative facts", async () => {
@@ -86,11 +92,11 @@ test("release/evidence aggregation and deterministic manifest use authoritative 
   try {
     const config = await loadCompatibilityConfig(); const paths = await evidenceFiles(root); const evidence = await collectCompatibilityEvidence({ paths: paths.reverse(), candidateSha256: digest, config });
     assert.deepEqual((evidence as Array<{ tools: { sqlc: string[] } }>).map((item) => item.tools.sqlc[0]), config.sqlc.samples.map(({ version }) => version));
-    const manifest = createReleaseManifest({ intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence }); await validateReleaseManifest({ manifest, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config });
-    assert.equal(manifest.remote_d1.result, "not-run"); assert.equal(manifest.tag, null); assert.equal(manifest.dry_run, true); assert.deepEqual((manifest.tested_versions as { sqlc: string[] }).sqlc, config.sqlc.samples.map(({ version }) => version));
-    const output = resolve(root, canonicalManifestFilename("0.2.0")); await writeReleaseManifest({ output, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence }); const source = await readFile(output, "utf8"); assert.equal(source.endsWith("\n") && !source.endsWith("\n\n"), true); assert.equal(source, stableJson(JSON.parse(source)));
+    const managed = managedEvidence(); const manifest = createReleaseManifest({ intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence, managedEvidence: managed, managedEvidenceArtifactId: "789" }); await validateReleaseManifest({ manifest, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, managedEvidence: managed, managedEvidenceArtifactId: "789" });
+    assert.deepEqual(manifest.remote_d1, { result: "passed", date: "2026-02-05", evidence_artifact_id: "789" }); assert.equal(manifest.tag, null); assert.equal(manifest.dry_run, true); assert.deepEqual((manifest.tested_versions as { sqlc: string[] }).sqlc, config.sqlc.samples.map(({ version }) => version));
+    const output = resolve(root, canonicalManifestFilename("0.2.0")); await writeReleaseManifest({ output, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence, managedEvidence: managed, managedEvidenceArtifactId: "789" }); const source = await readFile(output, "utf8"); assert.equal(source.endsWith("\n") && !source.endsWith("\n\n"), true); assert.equal(source, stableJson(JSON.parse(source)));
     await writeFile(output, JSON.stringify(JSON.parse(source))); await assert.rejects(validateReleaseManifest({ path: output, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config }), /canonical encoding mismatch/); await writeFile(output, source);
-    await assert.rejects(writeReleaseManifest({ output: resolve(root, "release-manifest.json"), intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence }), /canonical manifest filename/);
+    await assert.rejects(writeReleaseManifest({ output: resolve(root, "release-manifest.json"), intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence, managedEvidence: managed, managedEvidenceArtifactId: "789" }), /canonical manifest filename/);
     await assert.rejects(collectCompatibilityEvidence({ paths: paths.slice(1), candidateSha256: digest, config }), /version set mismatch/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -99,9 +105,11 @@ test("release/manifest rejects unknown fields and inconsistent remote or tag sta
   const { collectCompatibilityEvidence, createReleaseManifest, validateReleaseManifest } = await release(); const { loadCompatibilityConfig } = await compatibility();
   const root = await mkdtemp(resolve(tmpdir(), "release-manifest-"));
   try {
-    const config = await loadCompatibilityConfig(); const evidence = await collectCompatibilityEvidence({ paths: await evidenceFiles(root), candidateSha256: digest, config }); const manifest = createReleaseManifest({ intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence });
-    await assert.rejects(validateReleaseManifest({ manifest: { ...manifest, credentials: "secret" } }), /schema mismatch/);
-    await assert.rejects(validateReleaseManifest({ manifest: { ...manifest, dry_run: false } }), /tag\/dry_run mismatch/);
-    await assert.rejects(validateReleaseManifest({ manifest: { ...manifest, remote_d1: { result: "passed", date: null, evidence_artifact_id: null } } }), /schema mismatch/);
+    const config = await loadCompatibilityConfig(); const evidence = await collectCompatibilityEvidence({ paths: await evidenceFiles(root), candidateSha256: digest, config }); const managed = managedEvidence(); const manifest = createReleaseManifest({ intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, evidence, managedEvidence: managed, managedEvidenceArtifactId: "789" });
+    await assert.rejects(validateReleaseManifest({ manifest, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config }), /managed evidence.*required/i);
+    await assert.rejects(validateReleaseManifest({ manifest, intent: baseIntent(), candidate: descriptor(), artifactId: "456", config, managedEvidence: managed }), /managed.*artifact ID.*required/i);
+    await assert.rejects(validateReleaseManifest({ manifest: { ...manifest, credentials: "secret" }, managedEvidence: managed, managedEvidenceArtifactId: "789" }), /schema mismatch/);
+    await assert.rejects(validateReleaseManifest({ manifest: { ...manifest, dry_run: false }, managedEvidence: managed, managedEvidenceArtifactId: "789" }), /tag\/dry_run mismatch/);
+    await assert.rejects(validateReleaseManifest({ manifest: { ...manifest, remote_d1: { result: "passed", date: null, evidence_artifact_id: null } }, managedEvidence: managed, managedEvidenceArtifactId: "789" }), /schema mismatch/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

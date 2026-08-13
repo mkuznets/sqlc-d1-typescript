@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "noEmit": true, "types": ["@cloudflare/workers-types"] },
+  "include": ["src/**/*.ts", "../../scripts/managed-d1-contract.d.mts", "../miniflare/src/**/*.ts"]
+}

@@ -422,6 +422,13 @@
       "availability": "local"
     },
     {
+      "id": "verification/managed-workflow-security",
+      "layer": "verification",
+      "file": "test/verification-contracts.test.ts",
+      "title": "verification/managed-workflow-security",
+      "availability": "local"
+    },
+    {
       "id": "verification/compatibility-config",
       "layer": "verification",
       "file": "test/compatibility-scripts.test.ts",
@@ -751,18 +758,158 @@
       "availability": "local"
     },
     {
+      "id": "managed-d1/value-command-metadata",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/src/scenarios.ts",
+      "title": "managed-d1/value-command-metadata",
+      "availability": "local"
+    },
+    {
+      "id": "managed-d1/macro-smoke",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/src/scenarios.ts",
+      "title": "managed-d1/macro-smoke",
+      "availability": "local"
+    },
+    {
+      "id": "managed-d1/batch-success",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/src/scenarios.ts",
+      "title": "managed-d1/batch-success",
+      "availability": "local"
+    },
+    {
       "id": "managed-d1/batch-rollback",
       "layer": "managed-d1",
-      "file": "test/managed-d1/batch.spec.ts",
+      "file": "test/managed-d1/src/scenarios.ts",
       "title": "managed-d1/batch-rollback",
-      "availability": "deferred"
+      "availability": "local"
+    },
+    {
+      "id": "managed-d1/direct-session",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/src/scenarios.ts",
+      "title": "managed-d1/direct-session",
+      "availability": "local"
     },
     {
       "id": "managed-d1/bookmark-transfer",
       "layer": "managed-d1",
-      "file": "test/managed-d1/session.spec.ts",
+      "file": "test/managed-d1/src/scenarios.ts",
       "title": "managed-d1/bookmark-transfer",
-      "availability": "deferred"
+      "availability": "local"
+    },
+    {
+      "id": "managed-d1/native-error-identity",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/src/scenarios.ts",
+      "title": "managed-d1/native-error-identity",
+      "availability": "local"
+    },
+    {
+      "id": "managed-d1/post-execution-result-error",
+      "layer": "managed-d1",
+      "file": "test/managed-d1/src/scenarios.ts",
+      "title": "managed-d1/post-execution-result-error",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-name-contract",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-name-contract",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-evidence-contract",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-evidence-contract",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-protocol",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-protocol",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-protocol-safe-errors",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-protocol-safe-errors",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-reaper",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-reaper",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-reaper-exact-deletion",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-reaper-exact-deletion",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-json",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-json",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-protocol-size",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-protocol-size",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-reaper-pagination",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-reaper-pagination",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-failures",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-failures",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-attempts",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-attempts",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-signal",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-signal",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-timeout",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-timeout",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-provision-races",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-provision-races",
+      "availability": "local"
     }
   ],
   "promises": [
@@ -1136,7 +1283,9 @@
       "primary": [
         "miniflare/batch-native-rollback"
       ],
-      "smoke": []
+      "smoke": [
+        "managed-d1/batch-rollback"
+      ]
     },
     {
       "id": "execution-batch-post-mapping",
@@ -1160,7 +1309,9 @@
       "primary": [
         "miniflare/session-bookmark-transfer"
       ],
-      "smoke": []
+      "smoke": [
+        "managed-d1/bookmark-transfer"
+      ]
     },
     {
       "id": "compatibility-typescript-5-2",

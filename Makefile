@@ -12,18 +12,21 @@ ROOT_TESTS := \
 	test/generator/sqlite-types.test.ts test/generator/emission-plan.test.ts \
 	test/generator/embeds.test.ts test/generator/source.test.ts \
 	test/verification-contracts.test.ts test/candidate-scripts.test.ts \
-	test/compatibility-scripts.test.ts test/release-scripts.test.ts
+	test/compatibility-scripts.test.ts test/release-scripts.test.ts \
+	test/managed-d1-contracts.test.ts
 ROOT_SCRIPTS := \
 	scripts/compatibility-config.mjs scripts/check-compatibility.mjs \
 	scripts/verify-sqlc-compatibility.mjs scripts/check-upstream-compatibility.mjs \
 	scripts/write-compatibility-evidence.mjs scripts/release-contract.mjs \
-	scripts/github-run-artifacts.mjs
+	scripts/github-run-artifacts.mjs scripts/select-managed-d1-evidence.mjs scripts/managed-d1-contract.mjs \
+	scripts/managed-d1.mjs scripts/reap-managed-d1.mjs
 ROOT_DIST := \
 	test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs \
 	test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs \
 	test/dist/generator-embeds.test.cjs test/dist/generator-source.test.cjs \
 	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
-	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs
+	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs \
+	test/dist/managed-d1-contracts.test.cjs
 
 build: build/plugin.wasm
 
@@ -54,10 +57,27 @@ define validate_candidate
 endef
 
 .PHONY: test-generator
-test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json verification/compatibility.schema.json
+test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json verification/compatibility.schema.json verification/managed-d1-evidence.schema.json
 	npx tsc -p test/tsconfig.json --noEmit
+	npx tsc -p test/managed-d1/tsconfig.json --noEmit
 	node test/build.mjs $(ROOT_TESTS)
 	node --test $(ROOT_DIST)
+
+.PHONY: test-managed-d1-contract
+test-managed-d1-contract: node_modules $(ROOT_SCRIPTS) verification/managed-d1-evidence.schema.json
+	npx tsc -p test/tsconfig.json --noEmit
+	npx tsc -p test/managed-d1/tsconfig.json --noEmit
+	node test/build.mjs test/managed-d1-contracts.test.ts
+	node --test test/dist/managed-d1-contracts.test.cjs
+
+.PHONY: validate-managed-d1-evidence
+validate-managed-d1-evidence:
+	@test -n "$(EVIDENCE)" || (echo "EVIDENCE is required" >&2; exit 2)
+	node scripts/managed-d1-contract.mjs validate-evidence --path "$(EVIDENCE)"
+
+.PHONY: reap-managed-d1
+reap-managed-d1:
+	node scripts/reap-managed-d1.mjs reap --output managed-d1-reaper-report.json
 
 .PHONY: test-release-contract
 test-release-contract: node_modules $(ROOT_SCRIPTS) verification/release-manifest.schema.json

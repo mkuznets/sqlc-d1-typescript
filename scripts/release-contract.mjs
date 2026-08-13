@@ -5,6 +5,7 @@ import { resolve, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { readCandidate, usageError } from "./candidate-utils.mjs";
+import { validateManagedD1Evidence } from "./managed-d1-contract.mjs";
 
 async function loadConfig(options) { return (await import("./compatibility-config.mjs")).loadCompatibilityConfig(options); }
 async function ajv() { const { default: Ajv } = await import("ajv"); return new Ajv({ allErrors: true }); }
@@ -102,7 +103,7 @@ export async function collectCompatibilityEvidence({ paths, candidateSha256, con
   const versions = config.sqlc.samples.map(({ version }) => version); equal("compatibility version set", [...versions].sort(), [...byVersion.keys()].sort());
   return versions.map((version) => byVersion.get(version));
 }
-function semanticManifest(manifest, { intent, candidate, artifactId, config } = {}) {
+function semanticManifest(manifest, { intent, candidate, artifactId, config, managedEvidence, managedEvidenceArtifactId } = {}) {
   parseSemver(manifest.version); assertSource(manifest.source_commit); assertId(manifest.artifact.actions_artifact_id, "artifact.actions_artifact_id");
   equal("tag/dry_run", manifest.tag === null, manifest.dry_run); if (manifest.tag !== null) equal("tag", manifest.version, parseSemver(manifest.tag, { prefixed: true }));
   equal("artifact.filename", canonicalWasmFilename(manifest.version), manifest.artifact.filename);
@@ -113,15 +114,22 @@ function semanticManifest(manifest, { intent, candidate, artifactId, config } = 
   if (config) {
     const expected = manifestFacts(config); equal("manifest.tested_versions", expected.tested_versions, manifest.tested_versions); equal("manifest.verification_configuration", expected.verification_configuration, manifest.verification_configuration);
   }
+  if (manifest.remote_d1.result !== "passed") throw usageError("release-complete manifest requires a managed D1 pass");
+  if (!managedEvidence) throw usageError("managed evidence is required to validate a release-complete manifest");
+  if (!managedEvidenceArtifactId) throw usageError("managed evidence artifact ID is required to validate a release-complete manifest");
+  assertId(managedEvidenceArtifactId, "managedEvidenceArtifactId");
+  equal("manifest remote date", managedEvidence.run.remoteDate, manifest.remote_d1.date); equal("manifest remote evidence artifact ID", managedEvidenceArtifactId, manifest.remote_d1.evidence_artifact_id);
   return manifest;
 }
 function manifestFacts(config) { return { tested_versions: { bun: config.tools.bun, cloudflare: { miniflare: config.cloudflare.miniflare, vitest_pool_workers: config.cloudflare.vitestPoolWorkers, workerd: config.cloudflare.workerd, workers_types: config.cloudflare.workersTypes, wrangler: config.cloudflare.wrangler }, node: config.tools.node, npm: config.tools.npm, sqlc: config.sqlc.samples.map(({ version }) => version), typescript: [config.typescript.floor, config.typescript.current] }, verification_configuration: { compatibility_date: config.cloudflare.compatibilityDate, compatibility_flags: config.cloudflare.compatibilityFlags, known_exceptions: config.sqlc.knownExceptions } }; }
-export function createReleaseManifest({ intent, candidate, artifactId, config, evidence, remote = { result: "not-run", date: null, evidenceArtifactId: null } }) {
-  assertId(artifactId, "artifactId"); equal("evidence count", config.sqlc.samples.length, evidence.length);
-  const facts = manifestFacts(config); const manifest = { artifact: { actions_artifact_id: artifactId, filename: candidate.filename, sha256: candidate.sha256, size: candidate.size, url: `https://sqlc.mkuznets.com/plugins/${candidate.filename}` }, build_policy: POLICY, dry_run: intent.dryRun, plugin: PLUGIN, remote_d1: { date: remote.date, evidence_artifact_id: remote.evidenceArtifactId, result: remote.result }, schema_version: 1, source_commit: intent.sourceCommit, tag: intent.tag, ...facts, version: intent.version, workflow_url: intent.workflowUrl };
-  return semanticManifest(manifest, { intent, candidate, artifactId, config });
+export async function validateCompatibilitySet({ paths, candidateSha256, config, root = process.cwd() }) { return collectCompatibilityEvidence({ paths, candidateSha256, config, root }); }
+export function createReleaseManifest({ intent, candidate, artifactId, config, evidence, managedEvidence, managedEvidenceArtifactId }) {
+  assertId(artifactId, "artifactId"); assertId(managedEvidenceArtifactId, "managedEvidenceArtifactId"); equal("evidence count", config.sqlc.samples.length, evidence.length);
+  if (!managedEvidence || managedEvidence.candidateSha256 !== candidate.sha256 || managedEvidence.sourceCommit !== intent.sourceCommit || managedEvidence.run.id !== intent.workflowRunId || managedEvidence.run.url !== intent.workflowUrl || managedEvidence.run.trigger !== "release" || managedEvidence.test.status !== "passed" || managedEvidence.cleanup.status !== "confirmed") throw usageError("managed evidence is not a passing release-run record for the exact candidate");
+  const facts = manifestFacts(config); const manifest = { artifact: { actions_artifact_id: artifactId, filename: candidate.filename, sha256: candidate.sha256, size: candidate.size, url: `https://sqlc.mkuznets.com/plugins/${candidate.filename}` }, build_policy: POLICY, dry_run: intent.dryRun, plugin: PLUGIN, remote_d1: { date: managedEvidence.run.remoteDate, evidence_artifact_id: managedEvidenceArtifactId, result: "passed" }, schema_version: 1, source_commit: intent.sourceCommit, tag: intent.tag, ...facts, version: intent.version, workflow_url: intent.workflowUrl };
+  return semanticManifest(manifest, { intent, candidate, artifactId, config, managedEvidence, managedEvidenceArtifactId });
 }
-export async function validateReleaseManifest({ manifest, path, intent, candidate, artifactId, config, root = process.cwd() }) {
+export async function validateReleaseManifest({ manifest, path, intent, candidate, artifactId, config, managedEvidence, managedEvidenceArtifactId, root = process.cwd() }) {
   let value = manifest;
   if (path) {
     let source;
@@ -132,9 +140,14 @@ export async function validateReleaseManifest({ manifest, path, intent, candidat
   }
   const schema = JSON.parse(await readFile(resolve(root, "verification/release-manifest.schema.json"), "utf8")); const validate = (await ajv()).compile(schema);
   if (!validate(value)) throw usageError(`release manifest schema mismatch: ${JSON.stringify(validate.errors)}`);
-  return semanticManifest(value, { intent, candidate, artifactId, config });
+  if (!managedEvidence) throw usageError("managed evidence is required to validate a release-complete manifest");
+  const checkedManagedEvidence = await validateManagedD1Evidence({ evidence: managedEvidence, candidateSha256: candidate?.sha256, sourceCommit: intent?.sourceCommit, runId: intent?.workflowRunId, runUrl: intent?.workflowUrl, trigger: intent ? "release" : undefined, config, root, requirePassing: true });
+  return semanticManifest(value, { intent, candidate, artifactId, config, managedEvidence: checkedManagedEvidence, managedEvidenceArtifactId });
 }
-export async function writeReleaseManifest({ output, ...options }) { const manifest = createReleaseManifest(options); const expected = canonicalManifestFilename(manifest.version); if (basename(output) !== expected) throw usageError(`canonical manifest filename mismatch: expected ${expected}`); await validateReleaseManifest({ manifest, ...options }); await writeFile(resolve(output), stableJson(manifest)); return manifest; }
+export async function writeReleaseManifest({ output, root = process.cwd(), ...options }) {
+  const managedEvidence = await validateManagedD1Evidence({ evidence: options.managedEvidence, candidateSha256: options.candidate.sha256, sourceCommit: options.intent.sourceCommit, runId: options.intent.workflowRunId, runUrl: options.intent.workflowUrl, trigger: "release", config: options.config, root, requirePassing: true });
+  const manifest = createReleaseManifest({ ...options, managedEvidence }); const expected = canonicalManifestFilename(manifest.version); if (basename(output) !== expected) throw usageError(`canonical manifest filename mismatch: expected ${expected}`); await validateReleaseManifest({ manifest, ...options, managedEvidence, root }); await writeFile(resolve(output), stableJson(manifest)); return manifest;
+}
 
 function gitAncestor(source, branch) { return new Promise((ok, fail) => { const child = spawn("git", ["merge-base", "--is-ancestor", source, `origin/${branch}`], { stdio: "ignore" }); child.on("error", fail); child.on("exit", (code) => code === 0 ? ok(true) : code === 1 ? ok(false) : fail(new Error(`git merge-base exited ${code}`))); }); }
 function args(argv) { const result = {}; for (let i = 0; i < argv.length; i += 2) { if (!argv[i]?.startsWith("--") || argv[i + 1] === undefined) throw usageError("arguments must be --name value pairs"); result[argv[i].slice(2)] = argv[i + 1]; } return result; }
@@ -146,8 +159,9 @@ async function cli() {
   } else if (command === "stage-candidate") { const intent = JSON.parse(await readFile(values.intent)); await writeCandidateBundle({ wasmPath: values.wasm, directory: output, intent });
   } else if (command === "validate-candidate") { const intent = JSON.parse(await readFile(values.intent)); const candidate = await validateCandidateBundle({ directory: values.directory, intent }); if (output) await writeFile(resolve(output), stableJson(candidate));
   } else if (command === "validate-evidence") { const config = await loadConfig(); await validateCompatibilityEvidence({ path: values.path, candidateSha256: values.sha256, sqlcVersion: values.sqlc, config });
-  } else if (command === "manifest") { const intent = JSON.parse(await readFile(values.intent)); const candidate = await validateCandidateBundle({ directory: values.candidate, intent }); const config = await loadConfig(); const paths = JSON.parse(await readFile(values.evidence)); const evidence = await collectCompatibilityEvidence({ paths, candidateSha256: candidate.sha256, config }); await writeReleaseManifest({ output, intent, candidate, artifactId: values["artifact-id"], config, evidence });
-  } else if (command === "validate-manifest") { const intent = JSON.parse(await readFile(values.intent)); const candidate = await validateCandidateBundle({ directory: values.candidate, intent }); const config = await loadConfig(); await validateReleaseManifest({ path: values.manifest, intent, candidate, artifactId: values["artifact-id"], config });
+  } else if (command === "validate-compatibility-set") { const config = await loadConfig(); const paths = JSON.parse(await readFile(values.evidence)); await validateCompatibilitySet({ paths, candidateSha256: values.sha256, config });
+  } else if (command === "manifest") { const intent = JSON.parse(await readFile(values.intent)); const candidate = await validateCandidateBundle({ directory: values.candidate, intent }); const config = await loadConfig(); const paths = JSON.parse(await readFile(values.evidence)); const evidence = await collectCompatibilityEvidence({ paths, candidateSha256: candidate.sha256, config }); const managedEvidence = JSON.parse(await readFile(values["managed-evidence"])); await writeReleaseManifest({ output, intent, candidate, artifactId: values["artifact-id"], config, evidence, managedEvidence, managedEvidenceArtifactId: values["managed-evidence-artifact-id"] });
+  } else if (command === "validate-manifest") { const intent = JSON.parse(await readFile(values.intent)); const candidate = await validateCandidateBundle({ directory: values.candidate, intent }); const config = await loadConfig(); let managedEvidence; if (values["managed-evidence"]) managedEvidence = await validateManagedD1Evidence({ path: values["managed-evidence"], candidateSha256: candidate.sha256, sourceCommit: intent.sourceCommit, runId: intent.workflowRunId, runUrl: intent.workflowUrl, trigger: "release", config, requirePassing: true }); await validateReleaseManifest({ path: values.manifest, intent, candidate, artifactId: values["artifact-id"], config, managedEvidence, managedEvidenceArtifactId: values["managed-evidence-artifact-id"] });
   } else throw usageError(`unknown release-contract command ${command}`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) void cli().catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = error?.exitCode ?? 1; });

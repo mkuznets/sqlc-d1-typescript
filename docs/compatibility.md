@@ -50,7 +50,9 @@ The exact build/evidence tools are Node 24.12.0, npm 11.6.2, Bun 1.3.10, Buf 1.6
 
 ## Managed D1 status
 
-Managed-D1 scenarios are **not yet part of current evidence**. Current evidence is local and uncredentialed. Do not infer a managed-service verification date, a pinned D1/SQLite engine version, or remote routing behavior from this page. Managed verification remains deferred until its dedicated release-gate work lands.
+Managed-D1 scenarios are a release gate and a weekly/default-branch smoke check. A fresh D1 database and ephemeral authenticated Scenario Worker exercise physical values and metadata, native batch rollback and error identity, session routing/bookmark transfer, and post-execution row mapping for the exact publication candidate. The closed managed evidence records candidate/configuration identity, scenario outcomes, exact resource identifiers, and primary cleanup facts for 30 days.
+
+This is managed-runtime evidence, not a claim about a pinned D1 or SQLite engine version. Local Miniflare tests remain the exhaustive primary owner of the compatibility surface. See [managed D1 verification operations](managed-d1-verification.md) for the protected Environment, minimum Cloudflare token permissions, cleanup/reaper policy, and audit procedure.
 
 ## How a selected release binds evidence
 
@@ -60,7 +62,8 @@ A selected GitHub release and its release manifest identify:
 - permanent artifact URL;
 - lowercase SHA-256 and artifact size;
 - exact publication candidate identity;
-- compatibility evidence associated with those bytes.
+- compatibility evidence associated with those bytes;
+- a managed-D1 pass date and numeric evidence artifact ID, after all scenarios and primary cleanup pass.
 
 Use URL and digest values from the same release record. Repository documentation stays evergreen and therefore does not invent a concrete first-release version or SHA. The immutable URL shape is:
 
