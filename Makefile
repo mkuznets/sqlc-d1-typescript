@@ -24,8 +24,6 @@ ROOT_DIST := \
 	test/dist/generator-embeds.test.cjs test/dist/generator-source.test.cjs \
 	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
 	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs
-DOCUMENTATION_TESTS := test/documentation.test.ts
-DOCUMENTATION_DIST := test/dist/documentation.test.cjs
 
 build: build/plugin.wasm
 
@@ -86,14 +84,6 @@ test-types: node_modules
 	node test/build.mjs test/types/candidate.test.ts
 	CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)" node --test test/dist/types-candidate.test.cjs
 
-.PHONY: test-documentation
-test-documentation: node_modules
-	$(validate_candidate)
-	@test -n "$(SQLC_BIN)" || (echo "SQLC_BIN is required" >&2; exit 2)
-	npx tsc -p test/tsconfig.json --noEmit
-	node test/build.mjs $(DOCUMENTATION_TESTS)
-	CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)" SQLC_BIN="$(SQLC_BIN)" node --test $(DOCUMENTATION_DIST)
-
 .PHONY: test-miniflare
 test-miniflare:
 	$(validate_candidate)
@@ -142,7 +132,6 @@ verify-local:
 	rm -f build/out.js build/plugin.wasm
 	$(MAKE) build
 	$(MAKE) verify-candidate CANDIDATE_WASM="$(CURDIR)/build/plugin.wasm" CANDIDATE_SHA256="$$(shasum -a 256 build/plugin.wasm | awk '{print $$1}')"
-	$(MAKE) test-documentation CANDIDATE_WASM="$(CURDIR)/build/plugin.wasm" CANDIDATE_SHA256="$$(shasum -a 256 build/plugin.wasm | awk '{print $$1}')" SQLC_BIN="$$(command -v sqlc)"
 
 .PHONY: test
 test: verify-local

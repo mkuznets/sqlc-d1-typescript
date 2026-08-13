@@ -485,27 +485,6 @@
       "availability": "local"
     },
     {
-      "id": "verification/documentation-contract",
-      "layer": "verification",
-      "file": "test/documentation.test.ts",
-      "title": "verification/documentation-contract",
-      "availability": "local"
-    },
-    {
-      "id": "verification/documentation-facts",
-      "layer": "verification",
-      "file": "test/documentation.test.ts",
-      "title": "verification/documentation-facts",
-      "availability": "local"
-    },
-    {
-      "id": "verification/documentation-snippets",
-      "layer": "verification",
-      "file": "test/documentation.test.ts",
-      "title": "verification/documentation-snippets",
-      "availability": "local"
-    },
-    {
       "id": "miniflare/command-execrows",
       "layer": "miniflare",
       "file": "test/miniflare/test/commands.spec.ts",

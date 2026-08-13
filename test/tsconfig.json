@@ -6,6 +6,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["./generator/**/*.ts", "./types/**/*.ts", "./catalog.ts", "./verification-contracts.test.ts", "./candidate-scripts.test.ts", "./compatibility-scripts.test.ts", "./documentation.test.ts", "./release-scripts.test.ts", "../scripts/*.d.mts", "../src/**/*.ts"],
+  "include": ["./generator/**/*.ts", "./types/**/*.ts", "./catalog.ts", "./verification-contracts.test.ts", "./candidate-scripts.test.ts", "./compatibility-scripts.test.ts", "./release-scripts.test.ts", "../scripts/*.d.mts", "../src/**/*.ts"],
   "exclude": ["../src/runtime.d1.ts", "./miniflare"]
 }

@@ -100,4 +100,3 @@ The canonical Worker is the repository's only complete application. It demonstra
 ## Known rough edges
 
 - Pre-1.0 releases may break generated APIs. Pin the URL and SHA-256, then regenerate deliberately.
-- Generated code includes a shared runtime, so the first imported query can have more bundle cost than later descriptors. In one real 28-query Worker, a Wrangler `4.120.0` dry run measured `221.17 KiB / 55.29 KiB gzip` without generated code, `241.68 KiB / 59.51 KiB gzip` with one query, and `258.26 KiB / 61.36 KiB gzip` with all 28. That was `+37.09 KiB / +6.07 KiB gzip` total; after the shared runtime was present, the other 27 descriptors added `16.58 KiB / 1.85 KiB gzip`. This is one historical Worker observation, not a benchmark, budget, or compatibility promise. Measure your own bundle.
