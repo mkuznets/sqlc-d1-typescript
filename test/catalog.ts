@@ -32,6 +32,9 @@ export const executableCatalog: readonly CatalogTest[] = [
   entry("verification/generated-tree-comparison", "verification", "test/candidate-scripts.test.ts"),
   entry("verification/generate-candidate-retained", "verification", "test/candidate-scripts.test.ts"),
   entry("verification/generated-drift", "verification", "scripts/check-generated-drift.mjs"),
+  entry("verification/documentation-contract", "verification", "test/documentation.test.ts"),
+  entry("verification/documentation-facts", "verification", "test/documentation.test.ts"),
+  entry("verification/documentation-snippets", "verification", "test/documentation.test.ts"),
   ...[
     ["commands.spec.ts", ["command-execrows", "command-execlastid", "command-execresult", "command-one-returning", "command-empty-results", "command-many-returning", "command-all-batch"]],
     ["arguments.spec.ts", ["argument-arg", "argument-narg", "argument-slice", "argument-bind-order", "argument-empty-slice", "argument-slice-commands", "interaction-slice-batch", "argument-hostile-values"]],

@@ -240,10 +240,29 @@ jobs:
           rm "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
         env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
 
-  # Issue #40 inserts managed-D1 after uncredentialed-gates. Issues #41/#44 add
-  # documentation readiness and publication; this workflow deliberately cannot publish.
-  release-spine-complete:
+  documentation-readiness:
     needs: [intent, candidate, uncredentialed-gates]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
+      - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+        with: { sqlc-version: "${{ needs.intent.outputs.sqlc-ceiling-install }}" }
+      - run: npm install --global npm@${{ needs.intent.outputs.npm }} && node --version && npm --version && sqlc version && npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { artifact-ids: "${{ needs.candidate.outputs.artifact-id }}", path: retained }
+      - name: Validate exact retained candidate identity
+        env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
+        run: |
+          node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
+          node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+      - run: make test-documentation CANDIDATE_WASM="$PWD/retained/${{ needs.candidate.outputs.wasm-filename }}" CANDIDATE_SHA256="${{ needs.candidate.outputs.sha256 }}" SQLC_BIN="$(command -v sqlc)"
+
+  # Issue #40 inserts managed-D1 after uncredentialed-gates. Issue #44 adds
+  # publication; this workflow deliberately cannot publish.
+  release-spine-complete:
+    needs: [intent, candidate, uncredentialed-gates, documentation-readiness]
     runs-on: ubuntu-latest
     outputs:
       candidate-artifact-id: ${{ needs.candidate.outputs.artifact-id }}

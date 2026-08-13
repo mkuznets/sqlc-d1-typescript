@@ -48,6 +48,11 @@ const lastId: Promise<number> = db.execute(insertFeedId({ title: "x" }));
 const native: Promise<D1Result<Record<string, unknown>>> = db.execute(purgeFeeds({ userId: "u" }));
 const tuple = db.batch(getFeed({id:1}), createFeed({title:"x"}), listFeeds(), touchFeed({title:"x",id:1}), deleteFeedsByUser({userId:"u"}), insertFeedId({title:"x"}), purgeFeeds({userId:"u"}));
 type _BatchTuple = Expect<Equal<Awaited<typeof tuple>, [GetFeedRow | null, CreateFeedRow | null, ListFeedsRow[], void, number, number, D1Result<Record<string, unknown>>]>>;
+const sideEffects: QueryDescriptor<void>[] = [touchFeed({title:"updated",id:1})];
+const typedHeadAndTail = db.batch(getFeed({id:1}), ...sideEffects);
+type _TypedHeadAndTail = Expect<Equal<Awaited<typeof typedHeadAndTail>, [GetFeedRow | null, ...void[]]>>;
+const [typedHead] = await typedHeadAndTail;
+type _TypedHead = Expect<Equal<typeof typedHead, GetFeedRow | null>>;
 const session = db.withSession("bookmark");
 const directExecutor: QueryExecutor = db;
 const sessionExecutor: QueryExecutor = session;
@@ -66,7 +71,7 @@ const context: SqlcD1ErrorContext = { operation:"execute", queryName:"GetFeed", 
 const errors: SqlcD1Error[] = [new QueryArgumentError("x", context), new QueryUsageError("x", context), new QueryResultError("x", context)];
 const operation: "construct" | "execute" | "batch" | "withSession" = errors[0].operation;
 const fields: (string | number | unknown | undefined)[] = [errors[0].queryName, errors[0].batchIndex, errors[0].rowIndex, errors[0].path, errors[0].expected, errors[0].received, errors[0].cause];
-void [one,inserted,many,nothing,changed,sliceChanged,lastId,native,tuple,directResult,sessionResult,sessionTuple,bookmark,values,nullable,json,sampleOne,sampleRead,sampleMany,operation,fields,userAndPost({id:1}),embedValues({intValue:1})];
+void [one,inserted,many,nothing,changed,sliceChanged,lastId,native,tuple,typedHead,directResult,sessionResult,sessionTuple,bookmark,values,nullable,json,sampleOne,sampleRead,sampleMany,operation,fields,userAndPost({id:1}),embedValues({intValue:1})];
 
 // @ts-expect-error nullable properties remain required
 searchByNickname({});
