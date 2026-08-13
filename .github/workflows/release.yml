@@ -20,7 +20,7 @@ concurrency:
 
 env:
   CANDIDATE_ARTIFACT: publication-candidate-${{ github.run_id }}
-  MANIFEST_ARTIFACT: release-evidence-${{ github.run_id }}
+  MANIFEST_ARTIFACT: release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   intent:
@@ -236,14 +236,24 @@ jobs:
         run: |
           node -e 'const fs=require("fs"); const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
           node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
-          node scripts/release-contract.mjs manifest --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --evidence evidence-paths.json --output "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
-          rm "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
+          node scripts/release-contract.mjs validate-compatibility-set --sha256 "${{ needs.candidate.outputs.sha256 }}" --evidence evidence-paths.json
         env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
 
-  # Issue #40 inserts managed-D1 after uncredentialed-gates. Issues #41/#44 add
-  # documentation readiness and publication; this workflow deliberately cannot publish.
-  release-spine-complete:
+  managed-d1:
     needs: [intent, candidate, uncredentialed-gates]
+    uses: ./.github/workflows/_managed-d1.yml
+    with:
+      candidate-artifact-id: ${{ needs.candidate.outputs.artifact-id }}
+      candidate-filename: ${{ needs.candidate.outputs.wasm-filename }}
+      candidate-sha256: ${{ needs.candidate.outputs.sha256 }}
+      source-commit: ${{ needs.intent.outputs.source-commit }}
+      trigger: release
+      mode: normal
+    secrets: inherit
+
+  # Issues #41/#44 add documentation readiness and publication; this workflow deliberately cannot publish.
+  release-spine-complete:
+    needs: [intent, candidate, uncredentialed-gates, managed-d1]
     runs-on: ubuntu-latest
     outputs:
       candidate-artifact-id: ${{ needs.candidate.outputs.artifact-id }}
@@ -263,6 +273,9 @@ jobs:
         run: node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
       - name: Validate exact retained candidate identity
         run: node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+      - name: Download exact managed evidence artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { artifact-ids: "${{ needs.managed-d1.outputs.evidence-artifact-id }}", path: managed }
       - id: lookup
         env: { GITHUB_TOKEN: "${{ github.token }}" }
         run: node scripts/github-run-artifacts.mjs --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --name "$MANIFEST_ARTIFACT" --output selection.json --github-output "$GITHUB_OUTPUT"
@@ -270,7 +283,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { artifact-ids: "${{ steps.lookup.outputs.artifact-id }}", path: manifest }
       - if: steps.lookup.outputs.mode == 'reuse'
-        run: node scripts/release-contract.mjs validate-manifest --manifest "manifest/sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json" --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}"
+        run: node scripts/release-contract.mjs validate-manifest --manifest "manifest/sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json" --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --managed-evidence managed/managed-d1-evidence.json --managed-evidence-artifact-id "${{ needs.managed-d1.outputs.evidence-artifact-id }}"
       - if: steps.lookup.outputs.mode == 'create'
         name: Download same-run evidence for first manifest creation
         run: |
@@ -288,7 +301,7 @@ jobs:
           NODE
         env: { GITHUB_TOKEN: "${{ github.token }}", GH_TOKEN: "${{ github.token }}", MATRIX: "${{ needs.intent.outputs.sqlc-matrix }}", RUN_ID: "${{ github.run_id }}", REPOSITORY: "${{ github.repository }}" }
       - if: steps.lookup.outputs.mode == 'create'
-        run: node scripts/release-contract.mjs manifest --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --evidence evidence-paths.json --output "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
+        run: node scripts/release-contract.mjs manifest --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --evidence evidence-paths.json --managed-evidence managed/managed-d1-evidence.json --managed-evidence-artifact-id "${{ needs.managed-d1.outputs.evidence-artifact-id }}" --output "sqlc-gen-d1-typescript_${{ needs.intent.outputs.version }}.manifest.json"
       - id: upload
         if: steps.lookup.outputs.mode == 'create'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

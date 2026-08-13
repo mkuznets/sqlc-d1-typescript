@@ -4,8 +4,8 @@
     "module": "Node16",
     "moduleResolution": "Node16",
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["./generator/**/*.ts", "./types/**/*.ts", "./catalog.ts", "./verification-contracts.test.ts", "./candidate-scripts.test.ts", "./compatibility-scripts.test.ts", "./release-scripts.test.ts", "../scripts/*.d.mts", "../src/**/*.ts"],
-  "exclude": ["../src/runtime.d1.ts", "./miniflare"]
+  "include": ["./generator/**/*.ts", "./types/**/*.ts", "./catalog.ts", "./verification-contracts.test.ts", "./candidate-scripts.test.ts", "./compatibility-scripts.test.ts", "./release-scripts.test.ts", "./managed-d1-contracts.test.ts", "./managed-d1/src/**/*.ts", "../scripts/*.d.mts", "../src/**/*.ts"],
+  "exclude": ["../src/runtime.d1.ts", "./miniflare", "./managed-d1/src/index.ts", "./managed-d1/src/scenarios.ts"]
 }

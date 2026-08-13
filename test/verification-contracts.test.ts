@@ -84,27 +84,41 @@ function extractRegisteredIds(source: string): string[] {
   return [...source.matchAll(/(?:test|it)\(\s*["'`]((?:generator|types|miniflare|example|candidate|verification)\/[a-z][a-z0-9-]*)\b/g)].map((match) => match[1]);
 }
 
-test("release workflow is an exact-artifact non-publishing spine", () => {
+test("release workflow is an exact-artifact managed-D1-gated non-publishing spine", () => {
   const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /tags: \["v\*"\]/); assert.match(workflow, /workflow_dispatch:\s*\n\s+inputs:\s*\n\s+version:/);
   assert.match(workflow, /group: \$\{\{ github\.repository \}\}-release/); assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /permissions:\s*\n\s+contents: read\s*\n\s+actions: read/);
-  assert.doesNotMatch(workflow, /secrets\.|environment:|id-token: write|pull_request_target|gh release|wrangler|\br2\b|s3|git tag|create-a-release/i);
+  assert.doesNotMatch(workflow, /id-token: write|pull_request_target|gh release|\br2\b|s3|git tag|create-a-release/i);
   assert.equal((workflow.match(/make build/g) ?? []).length, 1);
-  for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/g)) assert.match(action[1], /@[0-9a-f]{40}$/, action[1]);
-  for (const job of ["local-verification", "sqlc-compatibility", "uncredentialed-gates", "release-spine-complete"]) assert.match(workflow, new RegExp(`  ${job}:`));
+  for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/g)) if (!action[1].startsWith("./")) assert.match(action[1], /@[0-9a-f]{40}$/, action[1]);
+  for (const job of ["local-verification", "sqlc-compatibility", "uncredentialed-gates", "managed-d1", "release-spine-complete"]) assert.match(workflow, new RegExp(`  ${job}:`));
   assert.match(workflow, /local-verification:\s*\n\s+needs: \[intent, candidate\]/); assert.match(workflow, /sqlc-compatibility:\s*\n\s+needs: \[intent, candidate\]/);
-  assert.match(workflow, /uncredentialed-gates:\s*\n\s+needs: \[intent, candidate, local-verification, sqlc-compatibility\]/);
+  assert.match(workflow, /uncredentialed-gates:\s*\n\s+needs: \[intent, candidate, local-verification, sqlc-compatibility\]/); assert.match(workflow, /managed-d1:\s*\n\s+needs: \[intent, candidate, uncredentialed-gates\]/); assert.match(workflow, /release-spine-complete:\s*\n\s+needs: \[intent, candidate, uncredentialed-gates, managed-d1\]/);
   assert.doesNotMatch(workflow, /make verify-local|make test(?:\s|$)/); assert.match(workflow, /make verify-candidate/);
   const local = workflow.slice(workflow.indexOf("  local-verification:"), workflow.indexOf("  sqlc-compatibility:"));
   assert.match(local, /sqlc-dev\/setup-sqlc@[0-9a-f]{40}/); assert.match(local, /sqlc-ceiling-install/);
   assert.match(workflow, /artifact-ids: "\$\{\{ needs\.candidate\.outputs\.artifact-id \}\}"/);
-  assert.match(workflow, /publication-candidate-\$\{\{ github\.run_id \}\}/); assert.match(workflow, /release-evidence-\$\{\{ github\.run_id \}\}/);
+  assert.match(workflow, /publication-candidate-\$\{\{ github\.run_id \}\}/); assert.match(workflow, /release-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.match(workflow, /sqlc-gen-d1-typescript_\$\{\{ needs\.intent\.outputs\.version \}\}\.manifest\.json/); assert.doesNotMatch(workflow, /release-manifest\.json/);
   const candidate = workflow.slice(workflow.indexOf("  candidate:"), workflow.indexOf("  local-verification:"));
   assert.match(candidate, /--allow-create "\$ALLOW_CREATE"/); assert.match(candidate, /github\.run_attempt == 1/);
   const reuse = candidate.slice(candidate.indexOf("steps.lookup.outputs.mode == 'reuse'"), candidate.indexOf("steps.lookup.outputs.mode == 'create'"));
   assert.doesNotMatch(reuse, /make build|upload-artifact|javy/);
+  assert.match(workflow, /validate-compatibility-set/); assert.match(workflow, /--managed-evidence managed\/managed-d1-evidence\.json/);
+});
+
+test("verification/managed-workflow-security - isolates credentials and exact candidates from ordinary CI", () => {
+  const reusable = readFileSync(resolve(process.cwd(), ".github/workflows/_managed-d1.yml"), "utf8");
+  const entry = readFileSync(resolve(process.cwd(), ".github/workflows/managed-d1.yml"), "utf8");
+  const ci = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+  assert.match(reusable, /^on:\n  workflow_call:/m); assert.doesNotMatch(reusable, /pull_request|schedule:|workflow_dispatch:/);
+  assert.match(reusable, /environment: managed-d1/); assert.match(reusable, /secrets\.CLOUDFLARE_API_TOKEN/); assert.match(reusable, /vars\.CLOUDFLARE_ACCOUNT_ID/); assert.doesNotMatch(reusable, /  verify:[\s\S]*?\n    env:\s*\n\s+CLOUDFLARE/);
+  assert.match(reusable, /artifact-ids: "\$\{\{ inputs\.candidate-artifact-id \}\}"/); assert.equal((reusable.match(/make build/g) ?? []).length, 0);
+  assert.match(reusable, /managed-d1-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/); assert.match(reusable, /--prefix "managed-d1-evidence-\$\{\{ github\.run_id \}\}-"/); assert.match(reusable, /SELECTED_ID/); assert.match(reusable, /retention-days: 30/); assert.match(reusable, /if: \$\{\{ always\(\)/);
+  assert.match(entry, /schedule:/); assert.match(entry, /workflow_dispatch:/); assert.doesNotMatch(entry, /pull_request/); assert.equal((entry.match(/make build/g) ?? []).length, 1); assert.match(entry, /reap-stale-managed-d1/);
+  assert.doesNotMatch(ci, /managed-d1|CLOUDFLARE|environment:|pull_request_target|wrangler deploy/i);
+  for (const source of [reusable, entry]) for (const action of source.matchAll(/uses:\s*([^\s#]+)/g)) if (!action[1].startsWith("./")) assert.match(action[1], /@[0-9a-f]{40}$/);
 });
 
 test("verification/evidence-envelope accepts redacted evidence and rejects unknown fields", () => {
