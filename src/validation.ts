@@ -1,12 +1,17 @@
 import { Column, GenerateRequest, Identifier, Query } from "./gen/plugin/codegen_pb";
+import compatibility from "../verification/compatibility.json";
 import {
   GenerationDiagnosticError,
   quoteDiagnosticValue,
   type Diagnostic,
 } from "./diagnostics";
 
-export const MINIMUM_SQLC_VERSION = "1.18.0";
-export const TESTED_SQLC_VERSION = "1.31.1";
+export const SQLC_COMPATIBILITY_POLICY = Object.freeze({
+  supportedFloor: compatibility.sqlc.supportedFloor.replace(/^v/, ""),
+  testedCeiling: compatibility.sqlc.testedCeiling.replace(/^v/, ""),
+});
+export const MINIMUM_SQLC_VERSION = SQLC_COMPATIBILITY_POLICY.supportedFloor;
+export const TESTED_SQLC_VERSION = SQLC_COMPATIBILITY_POLICY.testedCeiling;
 export const SUPPORTED_COMMANDS = [":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"] as const;
 export type SupportedCommand = (typeof SUPPORTED_COMMANDS)[number];
 
@@ -24,8 +29,8 @@ interface SemVer {
   prerelease: string[];
 }
 
-const minimumVersion = parseSemVer(MINIMUM_SQLC_VERSION)!;
-const testedVersion = parseSemVer(TESTED_SQLC_VERSION)!;
+const minimumVersion = parseSemVer(SQLC_COMPATIBILITY_POLICY.supportedFloor)!;
+const testedVersion = parseSemVer(SQLC_COMPATIBILITY_POLICY.testedCeiling)!;
 
 export function validateGenerateRequest(request: GenerateRequest): ValidatedGeneration {
   const diagnostics: Diagnostic[] = [];

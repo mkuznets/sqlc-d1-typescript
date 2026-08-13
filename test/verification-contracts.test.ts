@@ -87,9 +87,14 @@ function extractRegisteredIds(source: string): string[] {
 test("verification/evidence-envelope accepts redacted evidence and rejects unknown fields", () => {
   const schema = readJson("verification/evidence.schema.json");
   const validate = new Ajv({ allErrors: true }).compile(schema as AnySchema);
-  const valid = { schemaVersion: 1, candidateSha256: "0123456789abcdef".repeat(4), tools: { node: "24.12.0", sqlc: [], typescript: ["5.9.3"] }, configuration: { compatibilityFlags: [] }, scenarios: [{ id: "generator/current-commands", status: "passed" }], cleanup: { status: "confirmed" } };
+  const valid = {
+    schemaVersion: 1, candidateSha256: "0123456789abcdef".repeat(4),
+    tools: { node: "24.12.0", npm: "11.6.2", bun: "1.3.10", sqlc: ["v1.18.0", "v1.31.1"], typescript: ["5.2.2", "5.9.3"], workersTypes: "4.20260214.0", wrangler: "4.63.0", vitestPoolWorkers: "0.12.21", miniflare: "4.20260310.0", workerd: "1.20260310.1", buf: "1.65.0", javy: "8.0.0" },
+    configuration: { compatibilityDate: "2026-02-05", compatibilityFlags: [], knownExceptions: [] },
+    scenarios: [{ id: "generator/current-commands", status: "passed" }], cleanup: { status: "confirmed" },
+  };
   assert.equal(validate(valid), true, JSON.stringify(validate.errors));
-  assert.equal(validate({ ...valid, sqlSource: "SELECT secret" }), false);
+  for (const forbidden of ["sqlSource", "credentials", "managedD1Version", "sqliteVersion", "rows", "values", "bookmarks"]) assert.equal(validate({ ...valid, [forbidden]: "forbidden" }), false, forbidden);
   assert.equal(validate({ ...valid, tools: { ...valid.tools, authorizationHeader: "secret" } }), false);
   assert.equal(validate({ ...valid, scenarios: [{ ...valid.scenarios[0], stack: "secret" }] }), false);
 });

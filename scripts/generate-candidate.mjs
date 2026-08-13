@@ -19,8 +19,10 @@ export async function generateCandidate({ candidate, sha256, config, cwd, sqlc =
     await writeFile(temporaryCandidate, retained.bytes, { mode: 0o400 });
     await chmod(temporaryCandidate, 0o400);
     const wasmUrl = pathToFileURL(temporaryCandidate).href;
-    const replaced = source.replace(/(^\s*url:\s*)\S+/m, (_match, prefix) => `${prefix}${wasmUrl}`);
+    let replaced = source.replace(/(^\s*url:\s*)\S+/m, (_match, prefix) => `${prefix}${wasmUrl}`);
     if (replaced === source) throw new Error(`config has no Plugin WASM URL: ${configPath}`);
+    if (/^\s*sha256:\s*\S+/m.test(replaced)) replaced = replaced.replace(/(^\s*sha256:\s*)\S+/m, `$1${retained.sha256}`);
+    else replaced = replaced.replace(/^(\s*url:\s*\S+)$/m, `$1\n      sha256: ${retained.sha256}`);
     await writeFile(temporaryConfig, replaced, { mode: 0o600 });
     await run(sqlc, ["-f", temporaryConfig, "generate"], workingDirectory);
   } catch (error) {

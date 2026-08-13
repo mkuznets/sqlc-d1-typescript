@@ -4,18 +4,25 @@ JAVY := ./bin/javy
 GENERATOR_SOURCES := \
 	src/app.ts src/plugin.ts src/validation.ts src/diagnostics.ts src/generator.ts \
 	src/emission-plan.ts src/embeds.ts src/sqlite-types.ts src/d1.ts src/runtime.ts \
-	src/runtime.d1.ts src/gen/plugin/codegen_pb.ts build.mjs scripts/runtime-text-plugin.mjs
+	src/runtime.d1.ts src/gen/plugin/codegen_pb.ts build.mjs scripts/runtime-text-plugin.mjs \
+	verification/compatibility.json
 
 ROOT_TESTS := \
 	test/generator/diagnostics.test.ts test/generator/validation.test.ts \
 	test/generator/sqlite-types.test.ts test/generator/emission-plan.test.ts \
 	test/generator/embeds.test.ts test/generator/source.test.ts \
-	test/verification-contracts.test.ts test/candidate-scripts.test.ts
+	test/verification-contracts.test.ts test/candidate-scripts.test.ts \
+	test/compatibility-scripts.test.ts
+ROOT_SCRIPTS := \
+	scripts/compatibility-config.mjs scripts/check-compatibility.mjs \
+	scripts/verify-sqlc-compatibility.mjs scripts/check-upstream-compatibility.mjs \
+	scripts/write-compatibility-evidence.mjs
 ROOT_DIST := \
 	test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs \
 	test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs \
 	test/dist/generator-embeds.test.cjs test/dist/generator-source.test.cjs \
-	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs
+	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
+	test/dist/compatibility-scripts.test.cjs
 
 build: build/plugin.wasm
 
@@ -46,10 +53,17 @@ define validate_candidate
 endef
 
 .PHONY: test-generator
-test-generator: node_modules
+test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json verification/compatibility.schema.json
 	npx tsc -p test/tsconfig.json --noEmit
 	node test/build.mjs $(ROOT_TESTS)
 	node --test $(ROOT_DIST)
+
+.PHONY: test-compatibility-config
+test-compatibility-config: node_modules
+	npx tsc -p test/tsconfig.json --noEmit
+	node test/build.mjs test/compatibility-scripts.test.ts
+	node --test test/dist/compatibility-scripts.test.cjs
+	node scripts/check-compatibility.mjs
 
 .PHONY: test-candidate
 test-candidate: node_modules
@@ -66,14 +80,12 @@ test-types: node_modules
 .PHONY: test-miniflare
 test-miniflare:
 	$(validate_candidate)
-	$(MAKE) --no-print-directory test-generated-drift CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 	cd test/miniflare && bun install --frozen-lockfile
 	cd test/miniflare && bun run typecheck && bun run typecheck:test && bun run test:run
 
 .PHONY: test-example
 test-example:
 	$(validate_candidate)
-	$(MAKE) --no-print-directory test-generated-drift CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 	cd examples/d1-worker && bun install --frozen-lockfile
 	cd examples/d1-worker && bun run typecheck && bun run typecheck:test && bun run test:run
 
@@ -86,11 +98,23 @@ test-generated-drift-worktree:
 	$(validate_candidate)
 	node scripts/check-generated-drift.mjs --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --mode worktree
 
+.PHONY: test-sqlc-compatibility
+test-sqlc-compatibility:
+	$(validate_candidate)
+	@test -n "$(SQLC_VERSION)" || (echo "SQLC_VERSION is required" >&2; exit 2)
+	@test -n "$(SQLC_BIN)" || (echo "SQLC_BIN is required" >&2; exit 2)
+	node scripts/verify-sqlc-compatibility.mjs --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --sqlc-version "$(SQLC_VERSION)" --sqlc "$(SQLC_BIN)"
+
+.PHONY: check-upstream-compatibility
+check-upstream-compatibility: node_modules
+	node scripts/check-upstream-compatibility.mjs
+
 .PHONY: verify-candidate
 verify-candidate:
 	# Mirror drift validates the supplied candidate without mutating the developer worktree.
 	$(MAKE) test-generated-drift CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 	$(MAKE) test-generator
+	$(MAKE) test-compatibility-config
 	$(MAKE) test-candidate CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 	$(MAKE) test-types CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 	$(MAKE) test-miniflare CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"

@@ -422,6 +422,41 @@
       "availability": "local"
     },
     {
+      "id": "verification/compatibility-config",
+      "layer": "verification",
+      "file": "test/compatibility-scripts.test.ts",
+      "title": "verification/compatibility-config",
+      "availability": "local"
+    },
+    {
+      "id": "verification/compatibility-mutations",
+      "layer": "verification",
+      "file": "test/compatibility-scripts.test.ts",
+      "title": "verification/compatibility-mutations",
+      "availability": "local"
+    },
+    {
+      "id": "verification/upstream-comparison",
+      "layer": "verification",
+      "file": "test/compatibility-scripts.test.ts",
+      "title": "verification/upstream-comparison",
+      "availability": "local"
+    },
+    {
+      "id": "verification/ci-security-contract",
+      "layer": "verification",
+      "file": "test/compatibility-scripts.test.ts",
+      "title": "verification/ci-security-contract",
+      "availability": "local"
+    },
+    {
+      "id": "verification/sqlc-matrix",
+      "layer": "verification",
+      "file": "test/compatibility-scripts.test.ts",
+      "title": "verification/sqlc-matrix",
+      "availability": "local"
+    },
+    {
       "id": "verification/generate-candidate-digest",
       "layer": "verification",
       "file": "test/candidate-scripts.test.ts",
@@ -1228,6 +1263,48 @@
       "category": "interaction",
       "primary": [
         "miniflare/session-bookmark-after-failure"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-strategic-sqlc-samples",
+      "category": "compatibility",
+      "primary": [
+        "verification/sqlc-matrix"
+      ],
+      "smoke": [
+        "verification/compatibility-config"
+      ]
+    },
+    {
+      "id": "compatibility-exact-tool-baseline",
+      "category": "compatibility",
+      "primary": [
+        "verification/compatibility-config"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-shared-worker-configuration",
+      "category": "compatibility",
+      "primary": [
+        "verification/compatibility-mutations"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-upstream-drift",
+      "category": "compatibility",
+      "primary": [
+        "verification/upstream-comparison"
+      ],
+      "smoke": []
+    },
+    {
+      "id": "compatibility-uncredentialed-ci",
+      "category": "compatibility",
+      "primary": [
+        "verification/ci-security-contract"
       ],
       "smoke": []
     }
