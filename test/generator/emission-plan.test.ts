@@ -349,6 +349,27 @@ test("nested public names share the row allocator and allocate their own fields"
   );
 });
 
+test("two embeds of one table are counted together however each spelled its schema", () => {
+  // Resolution applies the catalog's default schema, so grouping the located expansions
+  // must apply it too, or one table's two expansions look like two tables' one each.
+  const plan = planEmbedded(embedCatalog, [
+    new Query({
+      filename: "queries.sql", name: "SelfJoin", cmd: ":many",
+      text: "SELECT a.id, a.name, b.id, b.name FROM users a JOIN users b ON b.id = a.id",
+      columns: [
+        new Column({ name: "users", embedTable: identifier("users") }),
+        new Column({ name: "users", embedTable: new Identifier({ name: "users", schema: "main" }) }),
+      ],
+    }),
+  ]);
+  const query = plan.queryModules[0].queries[0];
+  assert.deepEqual(query.rowFields.map((field) => field.publicName), ["users", "users_2"]);
+  assert.equal(
+    JSON.parse(query.sqlLiteral),
+    'SELECT a.id AS "d1_embed_0_0", a.name AS "d1_embed_0_1", b.id AS "d1_embed_1_0", b.name AS "d1_embed_1_1" FROM users a JOIN users b ON b.id = a.id',
+  );
+});
+
 test("embed metadata that cannot be planned fails generation instead of guessing", () => {
   const fails = (query: Query, catalog = embedCatalog): string[] => {
     try {
@@ -364,6 +385,16 @@ test("embed metadata that cannot be planned fails generation instead of guessing
 
   assert.deepEqual(fails(embedQuery({ columns: [embedColumn("absent")] })), ["UNKNOWN_EMBED_TABLE"]);
   assert.deepEqual(fails(embedQuery({}), new Catalog()), ["UNKNOWN_EMBED_TABLE"]);
+  // A request that ships no catalog at all resolves nothing, and says so once.
+  assert.throws(() => planEmission({
+    request: new GenerateRequest({ settings: new Settings({ engine: "sqlite" }), sqlcVersion: "v1.31.1", queries: [embedQuery({})] }),
+    options: { interface: "workers" },
+    warnings: [],
+  }), (error) => {
+    assert.ok(error instanceof GenerationDiagnosticError);
+    assert.deepEqual(error.diagnostics.map(({ reason }) => reason), ["UNKNOWN_EMBED_TABLE"]);
+    return true;
+  });
   assert.deepEqual(
     fails(embedQuery({}), new Catalog({ defaultSchema: "main", schemas: [new Schema({ name: "main", tables: [catalogTable("users", [])] })] })),
     ["EMPTY_EMBED_TABLE"],
@@ -382,6 +413,11 @@ test("embed metadata that cannot be planned fails generation instead of guessing
   assert.deepEqual(fails(embedQuery({ text: "SELECT * FROM users" })), ["AMBIGUOUS_EMBED_PROJECTION"]);
   // A metadata failure suppresses the location attempt that depends on it.
   assert.deepEqual(fails(embedQuery({ text: "SELECT * FROM absent", columns: [embedColumn("absent")] })), ["UNKNOWN_EMBED_TABLE"]);
+  // An embed whose own name cannot become a public property fails the same way: the table
+  // name is not something a SQL alias can fix, and the projection is not located either.
+  const unsafeEmbed = new Column({ name: "my table", embedTable: identifier("users") });
+  assert.deepEqual(fails(embedQuery({ text: "SELECT * FROM users", columns: [unsafeEmbed] })), ["INVALID_FIELD_NAME"]);
+  assert.deepEqual(fails(embedQuery({ columns: [unsafeEmbed] })), ["INVALID_FIELD_NAME"]);
 });
 
 test("valid planning preserves request order within sorted modules and exact SQL", () => {

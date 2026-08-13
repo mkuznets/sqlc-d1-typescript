@@ -282,6 +282,22 @@ export function embedValues(args: EmbedValuesArgs): QueryDescriptor<EmbedValuesR
     }) as unknown as QueryDescriptor<EmbedValuesRow | null>;
 }
 
+const deleteUsersQuery = "DELETE FROM users WHERE id = ?";
+
+export interface DeleteUsersArgs {
+    "id": number;
+}
+
+export function deleteUsers(args: DeleteUsersArgs): QueryDescriptor<number> {
+    d1_values.requireArgs(args, "DeleteUsers");
+    return Object.freeze({
+        kind: "exec-rows",
+        name: "DeleteUsers",
+        sql: deleteUsersQuery,
+        params: Object.freeze([d1_values.argInteger(args["id"], "DeleteUsers", "id")])
+    }) as unknown as QueryDescriptor<number>;
+}
+
 const embedWithSliceQuery = "SELECT users.id AS \"d1_embed_0_0\", users.name AS \"d1_embed_0_1\" FROM users WHERE users.id IN (/*SLICE:ids*/?) ORDER BY users.id";
 
 export interface EmbedWithSliceArgs {

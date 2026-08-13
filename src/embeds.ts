@@ -46,9 +46,17 @@ export class CatalogIndex {
     }
   }
 
+  /**
+   * The identity two embeds of one table share, whatever schema each was written with.
+   * Resolution and any grouping of embeds must agree on it, so both go through here.
+   */
+  key(embedTable: Identifier): string {
+    return catalogKey(embedTable.catalog, embedTable.schema || this.defaultSchema, embedTable.name);
+  }
+
   /** Exact identifier match; an empty schema falls back to the catalog's default schema. */
   resolve(embedTable: Identifier): readonly Column[] | undefined {
-    return this.tables.get(catalogKey(embedTable.catalog, embedTable.schema || this.defaultSchema, embedTable.name));
+    return this.tables.get(this.key(embedTable));
   }
 }
 
