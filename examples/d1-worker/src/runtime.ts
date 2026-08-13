@@ -503,9 +503,10 @@ function asInternalQuery(query: unknown, operation: "execute" | "batch", batchIn
     return query as InternalQuery
 }
 
+type NonEmptyQueryTuple = readonly [QueryDescriptor<unknown>, ...QueryDescriptor<unknown>[]]
 type DescriptorResult<Q> = Q extends QueryDescriptor<infer Result> ? Result : never
-type BatchResults<Q extends readonly QueryDescriptor<unknown>[]> = {
-    [K in keyof Q]: DescriptorResult<Q[K]>
+type BatchResults<Q extends NonEmptyQueryTuple> = {
+    -readonly [K in keyof Q]: DescriptorResult<Q[K]>
 }
 
 export abstract class QueryExecutor {
@@ -551,7 +552,27 @@ export abstract class QueryExecutor {
         }
     }
 
-    async batch<Q extends readonly QueryDescriptor<unknown>[]>(...queries: Q): Promise<BatchResults<Q>> {
+    /**
+     * Executes a non-empty, heterogeneous tuple as one native atomic D1 batch and
+     * resolves a mutable tuple of positional results. Native failures pass through unchanged.
+     *
+     * Row mapping starts only after the native batch succeeds. A mapping failure
+     * rejects without exposing a partial tuple, but cannot roll back native effects;
+     * it is not evidence that retrying the batch is safe.
+     */
+    batch<Q extends NonEmptyQueryTuple>(...queries: Q): Promise<BatchResults<Q>> {
+        if (queries.length === 0) {
+            throw new QueryUsageError("batch requires at least one generated query descriptor", {
+                operation: "batch",
+                expected: "at least one generated query descriptor",
+                received: "no query descriptors",
+            })
+        }
+        return this.executeBatch(queries)
+    }
+
+    private async executeBatch<Q extends NonEmptyQueryTuple>(queries: Q): Promise<BatchResults<Q>> {
+        // Complete public-shape validation before prepare() can have any observable effect.
         const internalQueries = queries.map((query, batchIndex) => asInternalQuery(query, "batch", batchIndex))
         const stmts = internalQueries.map((query) =>
             this.executor.prepare(query.sql).bind(...query.params),
@@ -588,7 +609,13 @@ const sessionExecutorCapability: unique symbol = Symbol("SessionExecutor")
 
 export abstract class SessionExecutor extends QueryExecutor {
     protected constructor(executor: Executor, capability: typeof sessionExecutorCapability) {
-        if (capability !== sessionExecutorCapability) throw new TypeError("SessionExecutor must be created by DB.withSession")
+        if (capability !== sessionExecutorCapability) {
+            throw new QueryUsageError("SessionExecutor must be created by DB.withSession", {
+                operation: "withSession",
+                expected: "the private DB.withSession capability",
+                received: "an invalid capability",
+            })
+        }
         super(executor)
     }
 
@@ -610,7 +637,27 @@ export class DB extends QueryExecutor {
         super(db)
     }
 
+    /**
+     * Creates a request-flow-local session executor from D1's default constraint,
+     * either documented constraint literal, or an opaque session bookmark.
+     *
+     * The Plugin does not parse or retain bookmarks, queue concurrent operations,
+     * promise routing, or make commit/rollback claims. Await operations in the order
+     * required by the caller, and transfer only the opaque bookmark string
+     * between request flows.
+     */
     withSession(constraintOrBookmark?: string): SessionExecutor {
-        return new D1SessionExecutor((this.executor as D1Database).withSession(constraintOrBookmark))
+        if (constraintOrBookmark !== undefined && typeof constraintOrBookmark !== "string") {
+            throw new QueryUsageError("withSession requires a D1 constraint or opaque bookmark string", {
+                operation: "withSession",
+                expected: "a session constraint or opaque bookmark string",
+                received: describeValue(constraintOrBookmark),
+            })
+        }
+        const db = this.executor as D1Database
+        const session = constraintOrBookmark === undefined
+            ? db.withSession()
+            : db.withSession(constraintOrBookmark)
+        return new D1SessionExecutor(session)
     }
 }

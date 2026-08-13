@@ -63,7 +63,9 @@ test: build/plugin.wasm
 	$(MAKE) test-candidate CANDIDATE_WASM="$(CURDIR)/build/plugin.wasm" CANDIDATE_SHA256="$$(shasum -a 256 build/plugin.wasm | awk '{print $$1}')"
 	$(MAKE) generate
 	cd examples/d1-worker && bun install --frozen-lockfile
-	cd examples/d1-worker && bunx tsc --noEmit && bun run test -- --run
+	cd examples/d1-worker && bunx tsc --noEmit
+	cd examples/d1-worker && bunx tsc -p test/tsconfig.json --noEmit
+	cd examples/d1-worker && bun run test -- --run
 
 .PHONY: clean
 clean:

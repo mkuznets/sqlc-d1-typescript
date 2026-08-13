@@ -15,7 +15,7 @@ import {
 } from "../../src/gen/plugin/codegen_pb";
 import { GeneratorHarness, GeneratorOutcome } from "./harness";
 import { compileGeneratedResponse } from "./compile";
-import { DEFAULT_FAKE_META, FakeExecutor, loadGeneratedModules } from "./evaluate";
+import { DEFAULT_FAKE_META, FakeDatabase, FakeExecutor, loadGeneratedModules } from "./evaluate";
 
 export type GeneratorScenarioInput =
   | { kind: "request"; request: GenerateRequest }
@@ -99,11 +99,15 @@ declare const binding: D1Database;
 const db = new DB(binding);
 const descriptor = getUser();
 const direct: Promise<GetUserRow | null> = db.execute(descriptor);
+const sessionDefault: SessionExecutor = db.withSession();
+const sessionPrimary: SessionExecutor = db.withSession("first-primary");
+const sessionUnconstrained: SessionExecutor = db.withSession("first-unconstrained");
 const session = db.withSession("opaque-bookmark");
 const throughSession: Promise<GetUserRow | null> = session.execute(descriptor);
+const sessionBatch: Promise<[GetUserRow | null]> = session.batch(descriptor);
 const bookmark: string | null = session.getBookmark();
 const executor: QueryExecutor = session;
-void [direct, throughSession, bookmark, executor];
+void [direct, sessionDefault, sessionPrimary, sessionUnconstrained, throughSession, sessionBatch, bookmark, executor];
 const mixedResult: Promise<[
   GetUserRow | null,
   CreateUserRow | null,
@@ -116,6 +120,17 @@ const mixedResult: Promise<[
   updateName({ name: "Ada", id: 1 }),
 );
 void mixedResult;
+// @ts-expect-error batch requires at least one descriptor
+db.batch();
+const dynamicDescriptors: QueryDescriptor<unknown>[] = [descriptor];
+// @ts-expect-error dynamic arrays are not the public batch contract
+db.batch(...dynamicDescriptors);
+// @ts-expect-error session starts accept only a string or no argument
+db.withSession(null);
+// @ts-expect-error session starts accept only a string or no argument
+db.withSession(1);
+// @ts-expect-error session starts accept only a string or no argument
+db.withSession({});
 // @ts-expect-error descriptor representation is opaque
 void descriptor.sql;
 // @ts-expect-error the hidden brand prevents structural construction
@@ -193,7 +208,13 @@ const currentCommands: GeneratorScenario = {
     const sessionExecutor = runtimeExports.SessionExecutor as abstract new (...args: unknown[]) => unknown;
     assert.throws(
       () => Reflect.construct(sessionExecutor, [{}, Symbol("wrong capability")]),
-      { name: "TypeError", message: "SessionExecutor must be created by DB.withSession" },
+      {
+        name: "QueryUsageError",
+        message: "SessionExecutor must be created by DB.withSession",
+        operation: "withSession",
+        expected: "the private DB.withSession capability",
+        received: "an invalid capability",
+      },
     );
     for (const compiler of ["typescript-5-2", "typescript"] as const) {
       compileGeneratedResponse(response, {
@@ -283,6 +304,12 @@ const tuple: Promise<[
   purgeFeeds({ userId: "user_1" }),
 );
 void tuple;
+const readonlyTuple = [getFeed({ id: 1 }), listFeeds()] as const;
+const mutableTuple: Promise<[GetFeedRow | null, ListFeedsRow[]]> = db.batch(...readonlyTuple);
+void mutableTuple;
+// @ts-expect-error positional results cannot be swapped
+const wrongTuple: Promise<[ListFeedsRow[], GetFeedRow | null]> = db.batch(getFeed({ id: 1 }), listFeeds());
+void wrongTuple;
 
 async function readsNativeResult(): Promise<void> {
   const result = await db.execute(purgeFeeds({ userId: "user_1" }));
@@ -1823,6 +1850,193 @@ const runtimeValues: GeneratorScenario = {
   },
 };
 
+const batchSessionContract: GeneratorScenario = {
+  id: "generator/batch-session-contract",
+  createInput: () => queryInput(createCommandsRequest()),
+  async assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.ok(outcome.response);
+    const load = loadGeneratedModules(outcome.response);
+    const runtime = load("runtime");
+    const queries = load("queries_sql");
+    type Session = {
+      execute(query: unknown): Promise<unknown>;
+      batch(...queries: unknown[]): Promise<unknown[]>;
+      getBookmark(): string | null;
+    };
+    const DB = runtime.DB as new (executor: unknown) => {
+      execute(query: unknown): Promise<unknown>;
+      batch(...queries: unknown[]): Promise<unknown[]>;
+      withSession(value?: unknown): Session;
+    };
+    const QueryUsageError = runtime.QueryUsageError as new (...args: never[]) => Error;
+    const QueryResultError = runtime.QueryResultError as new (...args: never[]) => Error;
+    const identity = (row: Record<string, unknown>): unknown => row;
+
+    // The unsafe JavaScript form fails before a promise or executor effect exists.
+    const emptyExecutor = new FakeExecutor();
+    const emptyDb = new DB(emptyExecutor);
+    assert.throws(
+      () => emptyDb.batch(),
+      (error: unknown) => {
+        assert.ok(error instanceof QueryUsageError);
+        assert.deepEqual(
+          pickError(error as unknown as CheckedError),
+          {
+            name: "QueryUsageError",
+            operation: "batch",
+            expected: "at least one generated query descriptor",
+            received: "no query descriptors",
+          },
+        );
+        return true;
+      },
+    );
+    assert.equal(emptyExecutor.prepared.length, 0);
+    assert.equal(emptyExecutor.batches.length, 0);
+
+    // Every descriptor is validated before even the first statement is prepared.
+    const malformedExecutor = new FakeExecutor();
+    await assert.rejects(
+      new DB(malformedExecutor).batch(
+        handBuiltDescriptor("exec", "First"),
+        handBuiltDescriptor("exec", "Second"),
+        {},
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof QueryUsageError);
+        assert.equal((error as unknown as CheckedError).batchIndex, 2);
+        return true;
+      },
+    );
+    assert.equal(malformedExecutor.prepared.length, 0);
+    assert.equal(malformedExecutor.batches.length, 0);
+
+    // Every runtime kind maps positionally after one native call.
+    const executor = new FakeExecutor();
+    executor.batchRows = [[{ id: 1 }], [{ id: 2 }], [{ id: 3 }, { id: 4 }], [], [], [], []];
+    executor.batchMetas = [
+      DEFAULT_FAKE_META,
+      DEFAULT_FAKE_META,
+      DEFAULT_FAKE_META,
+      DEFAULT_FAKE_META,
+      { changes: 5, last_row_id: 0 },
+      { changes: 1, last_row_id: 77 },
+      { changes: 2, last_row_id: 78 },
+    ];
+    const result = await new DB(executor).batch(
+      handBuiltDescriptor("one", "One", { parse: identity }),
+      handBuiltDescriptor("one-insert", "OneInsert", { parse: identity }),
+      handBuiltDescriptor("many", "Many", { parse: identity }),
+      handBuiltDescriptor("exec", "Exec"),
+      handBuiltDescriptor("exec-rows", "Rows"),
+      handBuiltDescriptor("exec-lastid", "LastId"),
+      handBuiltDescriptor("exec-result", "Native"),
+    );
+    assert.deepEqual(result.slice(0, 6), [{ id: 1 }, { id: 2 }, [{ id: 3 }, { id: 4 }], undefined, 5, 77]);
+    assert.equal(result[6], executor.produced[6]);
+    assert.equal(executor.prepared.length, 7);
+    assert.equal(executor.batches.length, 1);
+    assert.equal(executor.batches[0].length, 7);
+
+    // The Plugin neither caps nor splits a large tuple.
+    const largeExecutor = new FakeExecutor();
+    const large = Array.from({ length: 256 }, (_, index) => handBuiltDescriptor("exec", `Exec${index}`));
+    assert.equal((await new DB(largeExecutor).batch(...large)).length, 256);
+    assert.equal(largeExecutor.prepared.length, 256);
+    assert.equal(largeExecutor.batches.length, 1);
+    assert.equal(largeExecutor.batches[0].length, 256);
+
+    // Native rejection identity survives exactly one attempted native call.
+    const nativeFailure = Object.assign(new Error("native batch failed"), { code: "D1_NATIVE" });
+    const nativeExecutor = new FakeExecutor();
+    nativeExecutor.failure = nativeFailure;
+    await assert.rejects(
+      new DB(nativeExecutor).batch(handBuiltDescriptor("exec", "NativeFailure")),
+      (error: unknown) => error === nativeFailure && (error as { code?: string }).code === "D1_NATIVE",
+    );
+    assert.equal(nativeExecutor.batches.length, 1);
+
+    // Mapping is local, happens after native success, and publishes no partial tuple.
+    const getFeed = queries.getFeed as (args: { id: number }) => unknown;
+    const mappingExecutor = new FakeExecutor();
+    mappingExecutor.batchRows = [[], [{ id: 9, title: 7 }]];
+    let mappingFailure: unknown;
+    try {
+      await new DB(mappingExecutor).batch(handBuiltDescriptor("exec", "Committed"), getFeed({ id: 9 }));
+    } catch (error) {
+      mappingFailure = error;
+    }
+    assert.ok(mappingFailure instanceof QueryResultError);
+    assert.equal(mappingExecutor.nativeBatchCompleted, true);
+    assert.equal((mappingFailure as unknown as CheckedError).queryName, "GetFeed");
+    assert.equal((mappingFailure as unknown as CheckedError).batchIndex, 1);
+    assert.equal((mappingFailure as unknown as CheckedError).rowIndex, 0);
+
+    const defect = new ReferenceError("mapper defect");
+    const defectExecutor = new FakeExecutor();
+    defectExecutor.batchRows = [[{ id: 1 }]];
+    await assert.rejects(
+      new DB(defectExecutor).batch(handBuiltDescriptor("one", "Defect", { parse: () => { throw defect; } })),
+      (error: unknown) => error === defect,
+    );
+    assert.equal(defectExecutor.nativeBatchCompleted, true);
+
+    // Session starts preserve zero arguments versus the exact opaque string.
+    const database = new FakeDatabase();
+    const db = new DB(database);
+    const defaultSession = db.withSession();
+    const primarySession = db.withSession("first-primary");
+    const unconstrainedSession = db.withSession("first-unconstrained");
+    const bookmarkSession = db.withSession("opaque-bookmark");
+    assert.deepEqual(database.sessionArguments, [[], ["first-primary"], ["first-unconstrained"], ["opaque-bookmark"]]);
+    assert.notEqual(defaultSession, primarySession);
+    assert.notEqual(primarySession, unconstrainedSession);
+    assert.notEqual(unconstrainedSession, bookmarkSession);
+
+    for (const [value, received] of [[null, "null"], [7, "number"], [{}, "object"]] as const) {
+      assert.throws(
+        () => db.withSession(value),
+        (error: unknown) => {
+          assert.ok(error instanceof QueryUsageError);
+          const checked = error as unknown as CheckedError;
+          assert.equal(checked.operation, "withSession");
+          assert.equal(checked.expected, "a session constraint or opaque bookmark string");
+          assert.equal(checked.received, received);
+          return true;
+        },
+      );
+    }
+    assert.equal(database.sessionArguments.length, 4);
+
+    // Operations use the native session, while bookmark reads are never cached.
+    const nativeSession = database.sessions[0];
+    nativeSession.rows = [{ id: 10, title: "Session" }];
+    assert.deepEqual(await defaultSession.execute(getFeed({ id: 10 })), { id: 10, title: "Session" });
+    assert.equal(database.prepared.length, 0);
+    assert.equal(nativeSession.prepared.length, 1);
+    nativeSession.bookmark = "bookmark-1";
+    assert.equal(defaultSession.getBookmark(), "bookmark-1");
+    nativeSession.bookmark = "bookmark-2";
+    assert.equal(defaultSession.getBookmark(), "bookmark-2");
+
+    nativeSession.batchRows = [[{ id: 11, title: 7 }]];
+    nativeSession.bookmarkAfterBatch = "bookmark-after-mapping-failure";
+    await assert.rejects(defaultSession.batch(getFeed({ id: 11 })), QueryResultError);
+    assert.equal(nativeSession.batches.length, 1);
+    assert.equal(defaultSession.getBookmark(), "bookmark-after-mapping-failure");
+  },
+};
+
+function pickError(error: CheckedError): Partial<CheckedError> {
+  return {
+    name: error.name,
+    operation: error.operation,
+    expected: error.expected,
+    received: error.received,
+  };
+}
+
 // Descriptors are opaque to consumers, so exercising a runtime kind before any factory
 // can produce it means hand-building the private descriptor shape.
 function handBuiltDescriptor(kind: string, name: string, extra: Record<string, unknown> = {}): unknown {
@@ -2625,6 +2839,7 @@ export const generatorScenarios = [
   checkedValues,
   runtimeValues,
   commandResults,
+  batchSessionContract,
   fileGrouping,
   optionsBoundary,
   protocolBoundary,

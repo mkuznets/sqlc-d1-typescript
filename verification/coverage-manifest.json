@@ -26,9 +26,14 @@
     { "id": "generator/embed-model", "layer": "generator" },
     { "id": "generator/embed-values", "layer": "generator" },
     { "id": "generator/embed-boundary", "layer": "generator" },
+    { "id": "generator/batch-session-contract", "layer": "generator" },
     { "id": "worker/command-semantics", "layer": "worker" },
     { "id": "worker/arguments", "layer": "worker" },
     { "id": "worker/embeds", "layer": "worker" },
+    { "id": "worker/batch-semantics", "layer": "worker" },
+    { "id": "worker/session-bookmarks", "layer": "worker" },
+    { "id": "managed-d1/batch-rollback", "layer": "managed-d1" },
+    { "id": "managed-d1/bookmark-transfer", "layer": "managed-d1" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
     { "id": "verification/coverage-manifest", "layer": "verification" },
@@ -169,6 +174,41 @@
       "id": "embed-metadata-rejection",
       "primary": "generator/embed-boundary",
       "smoke": ["generator/emission-readiness", "generator/query-boundary"]
+    },
+    {
+      "id": "non-empty-positional-batches",
+      "primary": "generator/batch-session-contract",
+      "smoke": ["generator/command-semantics", "worker/batch-semantics"]
+    },
+    {
+      "id": "one-native-batch-call",
+      "primary": "generator/batch-session-contract",
+      "smoke": ["worker/command-semantics"]
+    },
+    {
+      "id": "post-success-batch-mapping",
+      "primary": "worker/batch-semantics",
+      "smoke": ["generator/batch-session-contract"]
+    },
+    {
+      "id": "local-native-batch-rollback",
+      "primary": "worker/batch-semantics",
+      "smoke": ["managed-d1/batch-rollback"]
+    },
+    {
+      "id": "session-starting-forms",
+      "primary": "generator/batch-session-contract",
+      "smoke": ["worker/session-bookmarks"]
+    },
+    {
+      "id": "session-api-parity",
+      "primary": "worker/session-bookmarks",
+      "smoke": ["generator/batch-session-contract"]
+    },
+    {
+      "id": "bookmark-delegation",
+      "primary": "generator/batch-session-contract",
+      "smoke": ["worker/session-bookmarks", "managed-d1/bookmark-transfer"]
     },
     {
       "id": "exact-candidate-execution",
