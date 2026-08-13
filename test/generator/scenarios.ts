@@ -2184,6 +2184,14 @@ export function createEmbedsRequest(): GenerateRequest {
         params: [parameter(1, column("int_value", "INTEGER"))],
         columns: [embedColumn("samples")],
       }),
+      // The exec family ignores result columns, so it plans no embed and no alias even
+      // though it shares a module with queries that do.
+      new Query({
+        filename: "queries.sql", name: "DeleteUsers", cmd: ":execrows",
+        text: "DELETE FROM users WHERE id = ?",
+        params: [parameter(1, column("id", "integer"))],
+        columns: [embedColumn("users")],
+      }),
       new Query({
         filename: "queries.sql", name: "EmbedWithSlice", cmd: ":many",
         text: `SELECT ${projection("users", USERS_COLUMNS)} FROM users WHERE users.id IN (/*SLICE:ids*/?) ORDER BY users.id`,
@@ -2281,7 +2289,7 @@ const embedModel: GeneratorScenario = {
     // Every SQL constant is sqlc's own text plus exactly one alias per embedded column.
     const embeddedColumnCounts: Readonly<Record<string, number>> = {
       UserAndPost: 5, MixedEmbed: 2, UserWithProfile: 4, SelfJoin: 4,
-      AliasCollision: 2, NestedNames: 4, EmbedValues: VALUE_COLUMNS.length, EmbedWithSlice: 2,
+      AliasCollision: 2, NestedNames: 4, EmbedValues: VALUE_COLUMNS.length, DeleteUsers: 0, EmbedWithSlice: 2,
     };
     for (const query of createEmbedsRequest().queries) {
       const factory = query.name.charAt(0).toLowerCase() + query.name.slice(1);
@@ -2463,6 +2471,7 @@ const embedValuesScenario: GeneratorScenario = {
     assert.deepEqual(userAndPost({ id: 4 }).params, [4]);
 
     // Batched execution builds the same nested objects, and reports where it failed.
+    const deleteUsers = factory("deleteUsers");
     const batchExecutor = new FakeExecutor();
     batchExecutor.batchRows = [
       [userAndPostRow],
@@ -2470,12 +2479,14 @@ const embedValuesScenario: GeneratorScenario = {
       [],
     ];
     batchExecutor.batchMetas = [DEFAULT_FAKE_META, DEFAULT_FAKE_META, { changes: 2, last_row_id: 0 }];
-    const batched = await new DB(batchExecutor).batch(userAndPost({ id: 1 }), mixedEmbed(), embedWithSlice({ ids: [1] }));
+    const batched = await new DB(batchExecutor).batch(userAndPost({ id: 1 }), mixedEmbed(), deleteUsers({ id: 1 }));
     assert.deepEqual(batched, [
       { users: { id: 1, name: "Ada" }, posts: { id: 7, userId: 1, title: "Post title" } },
       [{ postId: 3, users: { id: 1, name: "Ada" }, postTitle: "Title" }],
-      [],
+      2,
     ]);
+    // An exec-family query maps no rows, so its embed column is planned away entirely.
+    assert.equal(deleteUsers({ id: 1 }).sql.includes("d1_embed_"), false);
 
     const failingBatch = new FakeExecutor();
     const badRow = { post_id: 4, d1_embed_0_0: 2, d1_embed_0_1: 7, post_title: "Other" };
@@ -2525,7 +2536,8 @@ export function createEmbedBoundaryRequest(): GenerateRequest {
           catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
           catalogTable("empty", []),
           catalogTable("repeated", [column("id", "INTEGER"), column("id", "TEXT")]),
-          catalogTable("weird", [column("my col", "TEXT"), column("ok_col", "TEXT")]),
+          // Neither name can become a safe ASCII property, and each is reported on its own.
+          catalogTable("weird", [column("my col", "TEXT"), column("café", "TEXT"), column("ok_col", "TEXT")]),
         ],
       })],
     }),
@@ -2547,9 +2559,11 @@ export function createEmbedBoundaryRequest(): GenerateRequest {
         text: "SELECT repeated.id, repeated.id FROM repeated",
         columns: [embedColumn("repeated")],
       }),
+      // sqlc quotes only reserved keywords, so this text is not even valid SQL; the
+      // Plugin rejects it earlier, and for its own reason.
       new Query({
         filename: "unsafe.sql", name: "UnsafeColumn", cmd: ":one",
-        text: "SELECT weird.my col, weird.ok_col FROM weird",
+        text: "SELECT weird.my col, weird.café, weird.ok_col FROM weird",
         columns: [embedColumn("weird")],
       }),
       // sqlc.embed(users) beside users.* expands twice, indistinguishably.
@@ -2584,16 +2598,19 @@ const embedBoundary: GeneratorScenario = {
       /\[EMISSION\/EMPTY_EMBED_TABLE\] file "empty\.sql", query "EmptyTable", field "columns\[0\]\.embedTable", position 1:\nembedded table "empty" has no columns\n/,
       /\[EMISSION\/DUPLICATE_EMBED_COLUMN\] file "repeated\.sql", query "RepeatedColumn", field "columns\[0\]\.embedTable", position 1:\nembedded table "repeated" repeats column name "id"/,
       /\[EMISSION\/INVALID_FIELD_NAME\] file "unsafe\.sql", query "UnsafeColumn", field "columns\[0\]\.embedTable", position 1:\nembedded column "my col" of table "weird" must match "\^\[A-Za-z\]\[A-Za-z0-9\]\*\(\?:_\[A-Za-z0-9\]\+\)\*\$"; rename the column or project it explicitly instead of embedding it\n/,
+      /\[EMISSION\/INVALID_FIELD_NAME\] file "unsafe\.sql", query "UnsafeColumn", field "columns\[0\]\.embedTable", position 1:\nembedded column "café" of table "weird" must match /,
       /\[EMISSION\/AMBIGUOUS_EMBED_PROJECTION\] file "ambiguous\.sql", query "AmbiguousProjection", field "columns\[0\]\.embedTable", position 1:\nthe expanded projection of embedded table "users" was found 2 times but is embedded 1 time; give the other projected columns explicit SQL aliases so the embedded columns can be identified\n/,
       /\[EMISSION\/AMBIGUOUS_EMBED_PROJECTION\] file "absent\.sql", query "AbsentProjection", field "columns\[0\]\.embedTable", position 1:\nthe expanded projection of embedded table "users" was found 0 times but is embedded 1 time/,
     ]) {
       assert.match(outcome.diagnostics, expected, expected.source);
     }
-    assert.match(outcome.diagnostics, /generation failed with 6 errors\n/);
+    assert.match(outcome.diagnostics, /generation failed with 7 errors\n/);
     // The whole request fails atomically, and one violation raises exactly one diagnostic.
-    for (const reason of ["UNKNOWN_EMBED_TABLE", "EMPTY_EMBED_TABLE", "DUPLICATE_EMBED_COLUMN", "INVALID_FIELD_NAME"]) {
+    for (const reason of ["UNKNOWN_EMBED_TABLE", "EMPTY_EMBED_TABLE", "DUPLICATE_EMBED_COLUMN"]) {
       assert.equal((outcome.diagnostics.match(new RegExp(`/${reason}\\]`, "g")) ?? []).length, 1, reason);
     }
+    // Two unusable column names in one embedded table are two findings, not one.
+    assert.equal((outcome.diagnostics.match(/\/INVALID_FIELD_NAME\]/g) ?? []).length, 2);
     assert.equal((outcome.diagnostics.match(/\/AMBIGUOUS_EMBED_PROJECTION\]/g) ?? []).length, 2);
     assert.doesNotMatch(outcome.diagnostics, /valid\.sql|ValidEmbed/);
     // No SQL fragment, no private alias, and no stack trace reaches the operator.
