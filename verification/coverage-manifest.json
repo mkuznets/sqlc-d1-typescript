@@ -20,7 +20,11 @@
     { "id": "generator/command-semantics", "layer": "generator" },
     { "id": "generator/command-results", "layer": "generator" },
     { "id": "generator/unsupported-commands", "layer": "generator" },
+    { "id": "generator/argument-model", "layer": "generator" },
+    { "id": "generator/argument-values", "layer": "generator" },
+    { "id": "generator/argument-boundary", "layer": "generator" },
     { "id": "worker/command-semantics", "layer": "worker" },
+    { "id": "worker/arguments", "layer": "worker" },
     { "id": "candidate/digest-validation", "layer": "candidate" },
     { "id": "candidate/retained-bytes", "layer": "candidate" },
     { "id": "verification/coverage-manifest", "layer": "verification" },
@@ -110,6 +114,36 @@
     {
       "id": "unsupported-command-rejection",
       "primary": "generator/unsupported-commands",
+      "smoke": ["generator/query-boundary", "generator/emission-readiness"]
+    },
+    {
+      "id": "named-arguments",
+      "primary": "generator/argument-values",
+      "smoke": ["generator/argument-model", "worker/arguments"]
+    },
+    {
+      "id": "nullable-arguments",
+      "primary": "generator/argument-values",
+      "smoke": ["generator/argument-model", "worker/arguments"]
+    },
+    {
+      "id": "slice-arguments",
+      "primary": "generator/argument-values",
+      "smoke": ["generator/argument-model", "worker/arguments"]
+    },
+    {
+      "id": "slice-command-coverage",
+      "primary": "worker/arguments",
+      "smoke": ["generator/argument-values", "generator/command-semantics"]
+    },
+    {
+      "id": "argument-bind-order",
+      "primary": "generator/argument-values",
+      "smoke": ["worker/arguments", "generator/argument-model"]
+    },
+    {
+      "id": "unsupported-bind-shape",
+      "primary": "generator/argument-boundary",
       "smoke": ["generator/query-boundary", "generator/emission-readiness"]
     },
     {

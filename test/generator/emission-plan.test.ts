@@ -7,6 +7,7 @@ import {
   QUERY_NAME_PATTERN,
   RESULT_CONTEXT_ALIAS,
   RUNTIME_VALUE_ALIAS,
+  SLICE_LOCAL_PREFIX,
   allocatePublicNames,
   planEmission,
   planOutputPath,
@@ -152,6 +153,57 @@ test("arguments and result columns plan a value kind and executable nullability"
   assert.deepEqual(plan.queryModules[0].runtimeTypeImports, ["QueryDescriptor", "D1NonNullValue", "JsonValue"]);
 });
 
+test("a repeated bind number plans one property and one bind slot", () => {
+  const repeated = typedColumn("id", "INTEGER");
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({
+      filename: "queries.sql",
+      name: "Repeated",
+      cmd: ":exec",
+      text: "DELETE FROM users WHERE id = ?1 AND owner_id = ?1 AND name = ?2",
+      params: [
+        new Parameter({ number: 1, column: repeated }),
+        new Parameter({ number: 1, column: repeated }),
+        new Parameter({ number: 2, column: typedColumn("name", "TEXT") }),
+      ],
+    }),
+  ])));
+  const query = plan.queryModules[0].queries[0];
+  assert.deepEqual(query.argumentFields.map((field) => [field.publicName, field.bindNumber, field.firstParameterIndex]), [
+    ["id", 1, 0],
+    ["name", 2, 2],
+  ]);
+});
+
+test("slice parameters plan a marker literal and a collision-proof local binding", () => {
+  const slice = (name: string, typeName: string, notNull = true) =>
+    new Column({ name, type: identifier(typeName), notNull, isNamedParam: true, isSqlcSlice: true });
+  const plan = planEmission(validateGenerateRequest(request([
+    new Query({
+      filename: "queries.sql",
+      name: "Search",
+      cmd: ":exec",
+      text: "DELETE FROM feeds WHERE user_id = ? AND id IN (/*SLICE:ids*/?) AND tag IN (/*SLICE:tags*/?)",
+      params: [
+        new Parameter({ number: 1, column: typedColumn("user_id", "TEXT") }),
+        new Parameter({ number: 2, column: slice("ids", "INTEGER") }),
+        new Parameter({ number: 3, column: slice("tags", "JSON", false) }),
+      ],
+    }),
+  ])));
+  const query = plan.queryModules[0].queries[0];
+  assert.deepEqual(query.argumentFields.map((field) => [field.publicName, field.slice?.markerLiteral, field.slice?.localName]), [
+    ["userId", undefined, undefined],
+    ["ids", '"/*SLICE:ids*/?"', "d1_slice_ids"],
+    ["tags", '"/*SLICE:tags*/?"', "d1_slice_tags"],
+  ]);
+  for (const field of query.argumentFields) {
+    if (field.slice) assert.equal(field.slice.localName, `${SLICE_LOCAL_PREFIX}${field.publicName}`);
+  }
+  // A slice element type needs the same runtime import a scalar of that kind would.
+  assert.deepEqual(plan.queryModules[0].runtimeTypeImports, ["QueryDescriptor", "JsonValue"]);
+});
+
 test("modules select the runtime value import and the result-context alias only when used", () => {
   const plan = planEmission(validateGenerateRequest(request([
     new Query({ filename: "plain.sql", name: "ClearOne", cmd: ":exec", text: "DELETE FROM one;" }),
@@ -171,7 +223,7 @@ test("modules select the runtime value import and the result-context alias only 
 test("emitted helper bindings are collision-proof against every query-derived symbol", () => {
   // The helper bindings are registered with the collision checker as defense in depth,
   // but they are underscore-bearing while every query-derived binding is alphanumeric.
-  for (const identifier of [RUNTIME_VALUE_ALIAS, RESULT_CONTEXT_ALIAS]) {
+  for (const identifier of [RUNTIME_VALUE_ALIAS, RESULT_CONTEXT_ALIAS, SLICE_LOCAL_PREFIX]) {
     assert.match(identifier, /_/, identifier);
   }
   const plan = planEmission(validateGenerateRequest(request([

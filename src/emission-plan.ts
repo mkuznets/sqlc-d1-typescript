@@ -4,10 +4,18 @@ import {
   quoteDiagnosticValue,
   type Diagnostic,
 } from "./diagnostics";
-import { valueKindForColumn, type ValueKind } from "./sqlite-types";
+import {
+  RUNTIME_TYPE_IMPORT_ORDER,
+  VALUE_KINDS,
+  valueKindForColumn,
+  type RuntimeTypeImport,
+  type ValueFieldPlan,
+  type ValueKind,
+} from "./sqlite-types";
 import { ROW_COMMANDS, type SupportedCommand, type ValidatedGeneration } from "./validation";
 
-export type { ValueKind };
+export type { RuntimeTypeImport, ValueFieldPlan, ValueKind };
+export { RUNTIME_TYPE_IMPORT_ORDER };
 
 // Descriptor kind per command. ":one" splits further on an INSERT target; see planQuery.
 const COMMAND_KINDS: Readonly<Record<SupportedCommand, string>> = {
@@ -30,17 +38,14 @@ const COMMAND_RESULTS: Readonly<Record<Exclude<SupportedCommand, ":one" | ":many
 export const QUERY_NAME_PATTERN = /^[A-Z][A-Za-z0-9]*$/;
 export const FIELD_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*$/;
 
-export type RuntimeTypeImport = "QueryDescriptor" | "D1NonNullValue" | "D1Value" | "JsonValue";
-export const RUNTIME_TYPE_IMPORT_ORDER: readonly RuntimeTypeImport[] = ["QueryDescriptor", "D1NonNullValue", "D1Value", "JsonValue"];
-
 export interface PlannedPropertyAccess {
   readonly publicName: string;
   readonly publicNameLiteral: string;
 }
 
-export interface ValueFieldPlan {
-  readonly valueKind: ValueKind;
-  readonly nullable: boolean;
+export interface SlicePlan {
+  readonly markerLiteral: string;
+  readonly localName: string;
 }
 
 export interface ArgumentFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
@@ -48,6 +53,7 @@ export interface ArgumentFieldPlan extends PlannedPropertyAccess, ValueFieldPlan
   readonly bindNumber: number;
   readonly sourceName: string;
   readonly column: Column;
+  readonly slice?: SlicePlan;
 }
 
 export interface RowFieldPlan extends PlannedPropertyAccess, ValueFieldPlan {
@@ -71,8 +77,8 @@ export interface QueryPlan {
   readonly argsTypeName?: string;
   readonly rowTypeName?: string;
   readonly parserName?: string;
+  // Simultaneously the argument-property list and the bind-slot list, in bind order.
   readonly argumentFields: readonly ArgumentFieldPlan[];
-  readonly bindAccesses: readonly ArgumentFieldPlan[];
   readonly rowFields: readonly RowFieldPlan[];
   readonly physicalKeyNamespace: PhysicalKeyNamespace;
 }
@@ -80,6 +86,8 @@ export interface QueryPlan {
 export type RuntimeValueImport = "generatedInternals";
 export const RUNTIME_VALUE_ALIAS = "d1_values";
 export const RESULT_CONTEXT_ALIAS = "d1_Context";
+// Underscore-bearing, like every helper binding, while query-derived bindings are alphanumeric.
+export const SLICE_LOCAL_PREFIX = "d1_slice_";
 
 export interface QueryModulePlan {
   readonly sourceFilename: string;
@@ -299,9 +307,8 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
 }
 
 function argumentTypeImport(field: ValueFieldPlan): RuntimeTypeImport | undefined {
-  if (field.valueKind === "json") return "JsonValue";
-  if (field.valueKind === "unknown") return field.nullable ? "D1Value" : "D1NonNullValue";
-  return undefined;
+  const spelling = VALUE_KINDS[field.valueKind];
+  return field.nullable ? spelling.nullableArgumentImport : spelling.argumentImport;
 }
 
 function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]): QueryPlan {
@@ -313,23 +320,25 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
   const argumentFields: ArgumentFieldPlan[] = [];
   const byBind = new Map<number, ArgumentFieldPlan>();
   const argumentCounts = new Map<string, number>();
-  const bindAccesses: ArgumentFieldPlan[] = [];
   query.params.forEach((parameter, parameterIndex) => {
-    const existing = byBind.get(parameter.number);
-    if (existing) {
-      bindAccesses.push(existing);
-      return;
-    }
+    // One logical argument is one property and one bind slot, matching SQLite's ?N reuse.
+    if (byBind.has(parameter.number)) return;
     const column = parameter.column!;
     const sourceName = column.name;
     if (sourceName && !FIELD_NAME_PATTERN.test(sourceName)) {
       diagnostics.push(emissionError("INVALID_FIELD_NAME", `argument name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}`, context({ fieldPath: `params[${parameterIndex}].column.name`, fieldIndex: parameterIndex })));
     }
     const publicName = allocatePublicName(sourceName, parameterIndex, argumentCounts);
-    const field = { firstParameterIndex: parameterIndex, bindNumber: parameter.number, sourceName, publicName, publicNameLiteral: quoteTypeScriptString(publicName), column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
+    const field: ArgumentFieldPlan = {
+      firstParameterIndex: parameterIndex, bindNumber: parameter.number, sourceName, publicName,
+      publicNameLiteral: quoteTypeScriptString(publicName), column,
+      valueKind: valueKindForColumn(column), nullable: !column.notNull,
+      slice: column.isSqlcSlice
+        ? { markerLiteral: quoteTypeScriptString(`/*SLICE:${column.name}*/?`), localName: `${SLICE_LOCAL_PREFIX}${publicName}` }
+        : undefined,
+    };
     argumentFields.push(field);
     byBind.set(parameter.number, field);
-    bindAccesses.push(field);
   });
 
   const command = query.cmd as SupportedCommand;
@@ -365,7 +374,6 @@ function planQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]):
     rowTypeName,
     parserName: rowFields.length > 0 ? `parse${query.name}Row` : undefined,
     argumentFields,
-    bindAccesses,
     rowFields,
     physicalKeyNamespace: new PhysicalKeyNamespace(rowFields.map((field) => field.physicalKey)),
   };

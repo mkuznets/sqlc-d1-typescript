@@ -424,18 +424,11 @@ const queryBoundary: GeneratorScenario = {
   },
 };
 
-// The features that are still unimplemented must keep failing closed, loudly and
+// The one feature that is still unimplemented must keep failing closed, loudly and
 // without being mistaken for an unsupported command.
 const emissionReadiness: GeneratorScenario = {
   id: "generator/emission-readiness",
   createInput: () => queryInput(validRequest({ queries: [
-    new Query({
-      filename: "queries.sql",
-      name: "DeleteUsers",
-      cmd: ":exec",
-      text: "DELETE FROM users WHERE id IN (/*SLICE:ids*/?)",
-      params: [parameter(1, new Column({ name: "ids", type: type("integer"), isSqlcSlice: true }))],
-    }),
     new Query({
       filename: "queries.sql",
       name: "GetUserWithProfile",
@@ -446,11 +439,503 @@ const emissionReadiness: GeneratorScenario = {
   ] })),
   assert(outcome) {
     assertFailure(outcome);
-    assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_SLICE\]/);
     assert.match(outcome.diagnostics, /\[EMISSION\/UNIMPLEMENTED_EMBED\]/);
+    assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_SLICE/);
     assert.doesNotMatch(outcome.diagnostics, /\[QUERY\/UNSUPPORTED_COMMAND\]/);
     assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_COMMAND/);
-    assert.doesNotMatch(outcome.diagnostics, /DELETE FROM users|SELECT users/);
+    assert.doesNotMatch(outcome.diagnostics, /SELECT users/);
+  },
+};
+
+const namedColumn = (name: string, typeName = "integer", notNull = true) =>
+  new Column({ name, type: type(typeName), notNull, isNamedParam: true });
+const sliceColumn = (name: string, typeName = "integer", notNull = true) =>
+  new Column({ name, type: type(typeName), notNull, isNamedParam: true, isSqlcSlice: true });
+
+// The whole argument model in one module: named, repeated, nullable, and slice arguments
+// across every command, with the metadata shapes real sqlc emits for each macro.
+export function createArgumentsRequest(): GenerateRequest {
+  const id = column("id", "integer");
+  const title = column("title", "text");
+  const tagged = new Identifier({ name: "tagged" });
+  return validRequest({
+    queries: [
+      // One Parameter for two occurrences of ?1: one property, one bind slot.
+      new Query({
+        filename: "queries.sql", name: "GetUserByName", cmd: ":one",
+        text: "SELECT id, name FROM users WHERE name = ?1 AND nickname = ?1;",
+        params: [parameter(1, namedColumn("name", "text"))],
+        columns: [id, column("name", "text")],
+      }),
+      // sqlc.narg differs from sqlc.arg only by not_null.
+      new Query({
+        filename: "queries.sql", name: "SearchByNickname", cmd: ":many",
+        text: "SELECT id, name FROM users WHERE nickname = ?1;",
+        params: [parameter(1, namedColumn("nick", "text", false))],
+        columns: [id, column("name", "text")],
+      }),
+      new Query({
+        filename: "queries.sql", name: "DeleteUsersByIds", cmd: ":execrows",
+        text: "DELETE FROM users WHERE id IN (/*SLICE:ids*/?);",
+        params: [parameter(1, sliceColumn("ids", "integer"))],
+      }),
+      // params is text order; the bind numbers a slice query carries are not that order.
+      new Query({
+        filename: "queries.sql", name: "SearchFeeds", cmd: ":many",
+        text: "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (/*SLICE:ids*/?) LIMIT ?;",
+        params: [
+          parameter(1, column("user_id", "text")),
+          parameter(3, sliceColumn("ids", "text")),
+          parameter(2, column("limit", "integer")),
+        ],
+        columns: [id, title],
+      }),
+      new Query({
+        filename: "queries.sql", name: "PurgeByTags", cmd: ":execresult",
+        text: "DELETE FROM feeds WHERE tag IN (/*SLICE:tags*/?) OR label IN (/*SLICE:labels*/?) RETURNING *;",
+        params: [parameter(1, sliceColumn("tags", "text")), parameter(2, sliceColumn("labels", "text"))],
+      }),
+      new Query({
+        filename: "queries.sql", name: "TouchAll", cmd: ":exec",
+        text: "UPDATE feeds SET title = ? WHERE id IN (/*SLICE:ids*/?);",
+        params: [parameter(1, column("title", "text")), parameter(2, sliceColumn("ids", "integer"))],
+      }),
+      new Query({
+        filename: "queries.sql", name: "InsertTagged", cmd: ":execlastid",
+        text: "INSERT INTO tagged (tag) SELECT tag FROM tags WHERE tag IN (/*SLICE:tags*/?);",
+        params: [parameter(1, sliceColumn("tags", "text"))],
+        insertIntoTable: tagged,
+      }),
+      new Query({
+        filename: "queries.sql", name: "CreateTagged", cmd: ":one",
+        text: "INSERT INTO tagged (tag) SELECT tag FROM tags WHERE tag IN (/*SLICE:tags*/?) RETURNING id, title;",
+        params: [parameter(1, sliceColumn("tags", "text"))],
+        columns: [id, title],
+        insertIntoTable: tagged,
+      }),
+      // Distinct normalized names stay independently expressible.
+      new Query({
+        filename: "queries.sql", name: "MixedNames", cmd: ":one",
+        text: "SELECT id FROM users WHERE user_id = ?1 AND owner = ?2;",
+        params: [parameter(1, namedColumn("user_id", "text")), parameter(2, namedColumn("userID", "text"))],
+        columns: [id],
+      }),
+      // One slice per non-scalar value kind, plus a nullable element type.
+      new Query({
+        filename: "queries.sql", name: "MatchValues", cmd: ":many",
+        text: "SELECT id FROM samples WHERE payload IN (/*SLICE:payloads*/?) AND settings IN (/*SLICE:settings*/?) AND token IN (/*SLICE:tokens*/?) AND label IN (/*SLICE:labels*/?);",
+        params: [
+          parameter(1, sliceColumn("payloads", "BLOB")),
+          parameter(2, sliceColumn("settings", "JSON")),
+          parameter(3, sliceColumn("tokens", "ULID")),
+          parameter(4, sliceColumn("labels", "TEXT", false)),
+        ],
+        columns: [id],
+      }),
+    ],
+  });
+}
+
+const argumentsConsumer = `import { DB, type D1NonNullValue, type JsonValue } from "./runtime";
+import {
+  getUserByName,
+  searchByNickname,
+  deleteUsersByIds,
+  searchFeeds,
+  purgeByTags,
+  touchAll,
+  insertTagged,
+  createTagged,
+  mixedNames,
+  matchValues,
+  type GetUserByNameArgs,
+  type GetUserByNameRow,
+  type SearchByNicknameArgs,
+  type SearchFeedsArgs,
+  type SearchFeedsRow,
+  type MatchValuesArgs,
+  type MixedNamesArgs,
+} from "./queries_sql";
+
+declare const binding: D1Database;
+const db = new DB(binding);
+
+// One property for two occurrences of ?1, and a required nullable property for a narg.
+const named: GetUserByNameArgs = { name: "Ada" };
+const nullable: SearchByNicknameArgs = { nick: null };
+const withNickname: SearchByNicknameArgs = { nick: "ada" };
+void [named, nullable, withNickname];
+
+// Distinct normalized names stay two independent properties.
+const mixed: MixedNamesArgs = { userId: "u1", userId_2: "u2" };
+void mixed;
+
+// A slice accepts a mutable array and a readonly one alike.
+const mutableIds: number[] = [1, 2, 3];
+const readonlyIds: readonly number[] = [1, 2, 3];
+void db.execute(deleteUsersByIds({ ids: mutableIds }));
+void db.execute(deleteUsersByIds({ ids: readonlyIds }));
+
+const page: SearchFeedsArgs = { userId: "u1", ids: ["a", "b"], limit: 10 };
+const rows: Promise<SearchFeedsRow[]> = db.execute(searchFeeds(page));
+const one: Promise<GetUserByNameRow | null> = db.execute(getUserByName(named));
+const removed: Promise<number> = db.execute(deleteUsersByIds({ ids: [1] }));
+const nothing: Promise<void> = db.execute(touchAll({ title: "t", ids: [1] }));
+const lastId: Promise<number> = db.execute(insertTagged({ tags: ["a"] }));
+const native: Promise<D1Result<Record<string, unknown>>> = db.execute(purgeByTags({ tags: ["a"], labels: ["b"] }));
+void [rows, one, removed, nothing, lastId, native, db.execute(createTagged({ tags: ["a"] })), db.execute(searchByNickname(nullable))];
+
+// Element types are the scalar spellings of the same value kind and nullability.
+const values: MatchValuesArgs = {
+  payloads: [new Uint8Array([1])],
+  settings: [{ nested: [1, "two", null] }],
+  tokens: ["opaque", 1, true, new Uint8Array([2])],
+  labels: ["label", null],
+};
+const json: ReadonlyArray<JsonValue> = values.settings;
+const opaque: ReadonlyArray<D1NonNullValue> = values.tokens;
+const labels: ReadonlyArray<string | null> = values.labels;
+void [db.execute(matchValues(values)), json, opaque, labels];
+
+// A narg property is a value that may be null, never an optional property.
+// @ts-expect-error a nullable argument does not widen to its base type
+const asString: string = nullable.nick;
+void asString;
+// @ts-expect-error every property is required, and undefined is never a SQL NULL
+searchByNickname({});
+// @ts-expect-error undefined is not an accepted argument value
+searchByNickname({ nick: undefined });
+// @ts-expect-error a slice property is required like any other
+deleteUsersByIds({});
+// @ts-expect-error a slice argument is not a scalar
+deleteUsersByIds({ ids: 1 });
+// @ts-expect-error slice elements are checked against the element type
+deleteUsersByIds({ ids: ["1"] });
+// @ts-expect-error a non-null slice rejects a null element
+deleteUsersByIds({ ids: [1, null] });
+// @ts-expect-error a slice property is not nullable itself
+deleteUsersByIds({ ids: null });
+// @ts-expect-error the slice snapshot is not a mutable output array
+values.labels.push("more");
+`;
+
+const argumentModel: GeneratorScenario = {
+  id: "generator/argument-model",
+  createInput: () => queryInput(createArgumentsRequest()),
+  assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.equal(outcome.diagnostics, "");
+    assert.ok(outcome.response);
+    const response = outcome.response;
+    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "queries_sql.ts"]);
+    const source = new TextDecoder().decode(response.files[1].contents);
+
+    const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/arguments-output.ts.txt"), "utf8");
+    assert.equal(source, expected);
+
+    // Slice properties are the scalar spelling of their value kind, wrapped once.
+    for (const [property, spelling] of [
+      ["ids", "ReadonlyArray<number>"],
+      ["payloads", "ReadonlyArray<Uint8Array>"],
+      ["settings", "ReadonlyArray<JsonValue>"],
+      ["tokens", "ReadonlyArray<D1NonNullValue>"],
+      ["labels", "ReadonlyArray<string | null>"],
+    ] as const) {
+      assert.match(source, new RegExp(`^    "${property}": ${escapeRegExp(spelling)};$`, "m"), property);
+    }
+    assert.match(source, /^import type \{ QueryDescriptor, D1NonNullValue, JsonValue \} from "\.\/runtime";$/m);
+    // A nullable argument is a required property whose value may be null.
+    assert.match(source, /^    "nick": string \| null;$/m);
+    assert.doesNotMatch(source, /^\s+"[A-Za-z0-9_]+"\?: /m);
+
+    // The repeated named argument is one property and one bind expression.
+    const getUserByName = /export function getUserByName[\s\S]*?\n\}/.exec(source)![0];
+    assert.equal((getUserByName.match(/args\["name"\]/g) ?? []).length, 1);
+    assert.match(getUserByName, /params: Object\.freeze\(\[d1_values\.argText\(args\["name"\], "GetUserByName", "name"\)\]\)/);
+    assert.match(source, /^export interface GetUserByNameArgs \{\n    "name": string;\n\}$/m);
+    assert.match(source, /^    "userId": string;\n    "userId_2": string;$/m);
+
+    // Every slice is snapshotted before the descriptor, and spread at its bind position.
+    for (const [factory, marker, local] of [
+      ["deleteUsersByIds", "/*SLICE:ids*/?", "d1_slice_ids"],
+      ["searchFeeds", "/*SLICE:ids*/?", "d1_slice_ids"],
+      ["touchAll", "/*SLICE:ids*/?", "d1_slice_ids"],
+    ] as const) {
+      const body = new RegExp(`export function ${factory}\\([\\s\\S]*?\\n\\}`).exec(source)![0];
+      assert.equal((body.match(new RegExp(`const ${local} = d1_values\\.argSlice\\(`, "g")) ?? []).length, 1, factory);
+      assert.ok(body.indexOf(`const ${local} =`) < body.indexOf("return Object.freeze("), factory);
+      assert.equal((body.match(new RegExp(escapeRegExp(`...${local}`), "g")) ?? []).length, 1, factory);
+      assert.equal((body.match(/d1_values\.expandSlices\(/g) ?? []).length, 1, factory);
+      assert.ok(body.includes(marker), factory);
+    }
+    assert.match(source, /const d1_slice_ids = d1_values\.argSlice\(args\["ids"\], d1_values\.argInteger, "DeleteUsersByIds", "ids"\);/);
+    assert.match(source, /params: Object\.freeze\(\[d1_values\.argText\(args\["userId"\], "SearchFeeds", "userId"\), \.\.\.d1_slice_ids, d1_values\.argInteger\(args\["limit"\], "SearchFeeds", "limit"\)\]\)/);
+    // Two slices in one query expand together, in text order.
+    assert.match(source, /sql: d1_values\.expandSlices\(purgeByTagsQuery, "PurgeByTags", \[\["\/\*SLICE:tags\*\/\?", d1_slice_tags\.length\], \["\/\*SLICE:labels\*\/\?", d1_slice_labels\.length\]\]\)/);
+    // Non-slice queries neither expand nor snapshot anything.
+    for (const factory of ["getUserByName", "searchByNickname", "mixedNames"]) {
+      const body = new RegExp(`export function ${factory}\\([\\s\\S]*?\\n\\}`).exec(source)![0];
+      assert.doesNotMatch(body, /expandSlices|argSlice/, factory);
+    }
+    assert.equal((source.match(/d1_values\.expandSlices\(/g) ?? []).length, 7);
+    assert.equal((source.match(/d1_values\.argSlice\(/g) ?? []).length, 11);
+
+    // The SQL constants still hold sqlc's exact text, markers included.
+    for (const query of createArgumentsRequest().queries) {
+      const factory = query.name.charAt(0).toLowerCase() + query.name.slice(1);
+      const literal = new RegExp(`^const ${factory}Query = (.*);$`, "m").exec(source)![1];
+      assert.equal(JSON.parse(literal), query.text, query.name);
+    }
+
+    for (const compiler of ["typescript-5-2", "typescript"] as const) {
+      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": argumentsConsumer } });
+    }
+  },
+};
+
+const argumentValues: GeneratorScenario = {
+  id: "generator/argument-values",
+  createInput: () => queryInput(createArgumentsRequest()),
+  async assert(outcome) {
+    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
+    assert.ok(outcome.response);
+    const load = loadGeneratedModules(outcome.response);
+    const runtime = load("runtime");
+    const queries = load("queries_sql");
+    const DB = runtime.DB as new (executor: unknown) => {
+      execute(query: unknown): Promise<unknown>;
+      batch(...queries: unknown[]): Promise<unknown[]>;
+    };
+    const QueryArgumentError = runtime.QueryArgumentError as new (...args: never[]) => Error;
+    type Descriptor = { sql: string; params: readonly unknown[] };
+    const factory = (name: string) => queries[name] as (args: Record<string, unknown>) => Descriptor;
+    const deleteUsersByIds = factory("deleteUsersByIds");
+    const searchFeeds = factory("searchFeeds");
+    const purgeByTags = factory("purgeByTags");
+    const touchAll = factory("touchAll");
+    const insertTagged = factory("insertTagged");
+    const createTagged = factory("createTagged");
+    const matchValues = factory("matchValues");
+    const getUserByName = factory("getUserByName");
+    const searchByNickname = factory("searchByNickname");
+
+    // Expansion produces exactly as many placeholders as elements, and touches
+    // nothing else in sqlc's text.
+    const sqlConstant = "DELETE FROM users WHERE id IN (/*SLICE:ids*/?);";
+    for (const count of [1, 3, 25]) {
+      const ids = Array.from({ length: count }, (_, index) => index + 1);
+      const descriptor = deleteUsersByIds({ ids });
+      const placeholders = Array.from({ length: count }, () => "?").join(",");
+      assert.equal(descriptor.sql, sqlConstant.replace("/*SLICE:ids*/?", placeholders));
+      assert.deepEqual(descriptor.params, ids);
+      assert.equal((descriptor.sql.match(/\?/g) ?? []).length, count);
+    }
+
+    // Bind values land in text order, with the slice flattened in place.
+    const page = searchFeeds({ userId: "user_1", ids: ["a", "b"], limit: 10 });
+    assert.deepEqual(page.params, ["user_1", "a", "b", 10]);
+    assert.equal(page.sql, "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (?,?) LIMIT ?;");
+    const purged = purgeByTags({ tags: ["t1", "t2"], labels: ["l1"] });
+    assert.deepEqual(purged.params, ["t1", "t2", "l1"]);
+    assert.equal(purged.sql, "DELETE FROM feeds WHERE tag IN (?,?) OR label IN (?) RETURNING *;");
+
+    // A repeated logical argument binds once, matching SQLite's ?N reuse.
+    assert.deepEqual(getUserByName({ name: "Ada" }).params, ["Ada"]);
+    assert.deepEqual(searchByNickname({ nick: null }).params, [null]);
+    assert.deepEqual(searchByNickname({ nick: "ada" }).params, ["ada"]);
+
+    // Construction snapshots the array and every element.
+    const ids = [1, 2, 3];
+    const snapshot = deleteUsersByIds({ ids });
+    ids.push(4);
+    ids[0] = 99;
+    ids.splice(1, 1);
+    assert.deepEqual(snapshot.params, [1, 2, 3]);
+    const payload = new Uint8Array([1, 2, 3]);
+    const settings = { nested: [1, "two"] as unknown[] };
+    const values = matchValues({ payloads: [payload], settings: [settings], tokens: ["opaque"], labels: [null] });
+    payload[0] = 99;
+    settings.nested[0] = 42;
+    assert.deepEqual(values.params[0], new Uint8Array([1, 2, 3]));
+    assert.notEqual(values.params[0], payload);
+    // Elements convert exactly as the scalar codec of their value kind would.
+    assert.equal(values.params[1], JSON.stringify({ nested: [1, "two"] }));
+    assert.equal(values.params[2], "opaque");
+    assert.equal(values.params[3], null);
+    assert.deepEqual(
+      matchValues({ payloads: [new Uint8Array([7])], settings: [null, [1], "s"], tokens: [true, 1.5, "t"], labels: ["l", null] }).params.slice(1),
+      ["null", "[1]", '"s"', true, 1.5, "t", "l", null],
+    );
+
+    const rejects = (
+      construct: () => unknown,
+      expectations: { path: string; expected: string; received: string },
+    ): void => {
+      const executor = new FakeExecutor();
+      let caught: unknown;
+      try {
+        void new DB(executor).execute(construct());
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryArgumentError, `${expectations.path} ${expectations.received}`);
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.name, "QueryArgumentError");
+      assert.equal(checked.operation, "construct");
+      assert.equal(checked.path, expectations.path);
+      assert.equal(checked.expected, expectations.expected);
+      assert.equal(checked.received, expectations.received);
+      // The factory threw while its result was still being evaluated as an argument.
+      assert.equal(executor.bound.length, 0);
+    };
+
+    // An empty slice is rejected synchronously: no NULL substitution, no D1 call.
+    rejects(() => deleteUsersByIds({ ids: [] }), { path: "ids", expected: "a non-empty array", received: "an empty array" });
+    rejects(() => searchFeeds({ userId: "u", ids: [], limit: 1 }), { path: "ids", expected: "a non-empty array", received: "an empty array" });
+    const batchExecutor = new FakeExecutor();
+    let batchCaught: unknown;
+    try {
+      void new DB(batchExecutor).batch(touchAll({ title: "t", ids: [1] }), deleteUsersByIds({ ids: [] }), insertTagged({ tags: ["a"] }));
+    } catch (error) {
+      batchCaught = error;
+    }
+    assert.ok(batchCaught instanceof QueryArgumentError);
+    assert.equal((batchCaught as unknown as CheckedError).operation, "construct");
+    assert.equal(batchExecutor.bound.length, 0);
+
+    for (const [value, received] of [
+      [null, "null"], [undefined, "undefined"], ["abc", "string"], [7, "number"],
+      [new Uint8Array([1]), "Uint8Array"], [{ length: 2 }, "object"],
+    ] as const) {
+      rejects(() => deleteUsersByIds({ ids: value }), { path: "ids", expected: "a non-empty array", received });
+    }
+    rejects(() => deleteUsersByIds({ ids: [1, 2, "three"] }), { path: "ids[2]", expected: "a safe integer", received: "string" });
+    rejects(() => matchValues({ payloads: [new Uint8Array()], settings: [1], tokens: ["t"], labels: [1] }), {
+      path: "labels[0]", expected: "a string or null", received: "number",
+    });
+
+    // Every command executes a slice descriptor and resolves its decided result.
+    const executeWith = async (query: unknown, rows: unknown[] = []): Promise<{ executor: FakeExecutor; result: unknown }> => {
+      const executor = new FakeExecutor();
+      executor.rows = rows;
+      executor.meta = { changes: 3, last_row_id: 77 };
+      return { executor, result: await new DB(executor).execute(query) };
+    };
+    const feedRow = (id: number): Record<string, unknown> => ({ id, title: `Feed ${id}` });
+
+    assert.equal((await executeWith(deleteUsersByIds({ ids: [1, 2] }))).result, 3);
+    assert.deepEqual((await executeWith(searchFeeds({ userId: "u", ids: ["a"], limit: 5 }), [feedRow(1)])).result, [feedRow(1)]);
+    assert.equal((await executeWith(touchAll({ title: "t", ids: [1] }))).result, undefined);
+    assert.equal((await executeWith(insertTagged({ tags: ["a"] }))).result, 77);
+    assert.deepEqual((await executeWith(createTagged({ tags: ["a"] }), [feedRow(2)])).result, feedRow(2));
+    const nativeRun = await executeWith(purgeByTags({ tags: ["a"], labels: ["b"] }), [feedRow(3)]);
+    assert.equal(nativeRun.result, nativeRun.executor.produced[0]);
+    // Each statement was prepared with its own expanded SQL.
+    const executed = await executeWith(searchFeeds({ userId: "u", ids: ["a", "b", "c"], limit: 5 }));
+    assert.equal(executed.executor.bound[0].sql, "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (?,?,?) LIMIT ?;");
+    assert.deepEqual(executed.executor.bound[0].params, ["u", "a", "b", "c", 5]);
+
+    // One heterogeneous batch: two slice descriptors of different lengths, three without.
+    const mixedExecutor = new FakeExecutor();
+    mixedExecutor.batchRows = [[feedRow(1)], [], [], [], []];
+    mixedExecutor.batchMetas = [
+      DEFAULT_FAKE_META, { changes: 2, last_row_id: 0 }, DEFAULT_FAKE_META, { changes: 1, last_row_id: 9 }, DEFAULT_FAKE_META,
+    ];
+    const mixed = await new DB(mixedExecutor).batch(
+      searchFeeds({ userId: "u", ids: ["a", "b"], limit: 5 }),
+      deleteUsersByIds({ ids: [1, 2, 3] }),
+      searchByNickname({ nick: null }),
+      insertTagged({ tags: ["x"] }),
+      getUserByName({ name: "Ada" }),
+    );
+    assert.deepEqual(mixed.slice(0, 4), [[feedRow(1)], 2, [], 9]);
+    assert.deepEqual(mixedExecutor.bound.map((statement) => statement.params), [
+      ["u", "a", "b", 5], [1, 2, 3], [null], ["x"], ["Ada"],
+    ]);
+    assert.equal(mixedExecutor.bound[0].sql, "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (?,?) LIMIT ?;");
+    assert.equal(mixedExecutor.bound[1].sql, "DELETE FROM users WHERE id IN (?,?,?);");
+    assert.equal(mixedExecutor.bound[4].sql, "SELECT id, name FROM users WHERE name = ?1 AND nickname = ?1;");
+
+    // Failures leak no element value, SQL text, or parameter.
+    const secret = "s3cr3t-value";
+    for (const construct of [
+      () => deleteUsersByIds({ ids: [1, secret] }),
+      () => deleteUsersByIds({ ids: [] }),
+      () => matchValues({ payloads: [new Uint8Array()], settings: [1], tokens: ["t"], labels: [secret, 7] }),
+    ]) {
+      let caught: unknown;
+      try {
+        construct();
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryArgumentError);
+      const candidate = caught as Error;
+      const serialized = `${candidate.message}|${JSON.stringify(candidate, Object.getOwnPropertyNames(candidate))}`;
+      assert.equal(serialized.includes(secret), false, serialized);
+      assert.equal(serialized.includes("SLICE:"), false, serialized);
+      assert.equal(serialized.includes("DELETE FROM"), false, serialized);
+    }
+  },
+};
+
+// Bind metadata sqlc can produce but SQLite cannot reproduce. Each query violates exactly
+// one rule, in its own file, so the diagnostics cannot mask one another.
+export function createArgumentBoundaryRequest(): GenerateRequest {
+  return validRequest({
+    queries: [
+      new Query({
+        filename: "gap.sql", name: "NumberGap", cmd: ":exec",
+        text: "DELETE FROM users WHERE id = ?1 AND owner_id = ?3",
+        params: [parameter(1, namedColumn("id")), parameter(3, namedColumn("owner_id"))],
+      }),
+      new Query({
+        filename: "order.sql", name: "NamedThenPositional", cmd: ":exec",
+        text: "DELETE FROM users WHERE name = ?2 AND age = ?",
+        params: [parameter(2, namedColumn("nm", "text")), parameter(1, column("age", "integer"))],
+      }),
+      new Query({
+        filename: "mixture.sql", name: "SliceWithNumbered", cmd: ":exec",
+        text: "DELETE FROM users WHERE name IN (/*SLICE:names*/?) AND nickname = ?2",
+        params: [parameter(1, sliceColumn("names", "text")), parameter(2, namedColumn("nickname", "text"))],
+      }),
+      new Query({
+        filename: "metadata.sql", name: "SliceMetadata", cmd: ":exec",
+        text: "DELETE FROM users WHERE id IN (?) AND tag IN (/*SLICE:tags*/?)",
+        params: [parameter(1, sliceColumn("ids")), parameter(2, column("tag", "text"))],
+      }),
+      // A reproducible slice query in the same request contributes no diagnostic.
+      new Query({
+        filename: "valid.sql", name: "DeleteByIds", cmd: ":exec",
+        text: "DELETE FROM users WHERE id IN (/*SLICE:ids*/?) LIMIT ?",
+        params: [parameter(2, sliceColumn("ids")), parameter(1, column("limit", "integer"))],
+      }),
+    ],
+  });
+}
+
+const argumentBoundary: GeneratorScenario = {
+  id: "generator/argument-boundary",
+  createInput: () => queryInput(createArgumentBoundaryRequest()),
+  assert(outcome) {
+    assertFailure(outcome);
+    for (const expected of [
+      /\[QUERY\/BIND_NUMBER_GAP\] file "gap\.sql", query "NumberGap", field "params":\n/,
+      /\[QUERY\/UNSUPPORTED_BIND_ORDER\] file "order\.sql", query "NamedThenPositional", field "params\[0\]", position 1:\n/,
+      /\[QUERY\/SLICE_BIND_MIXTURE\] file "mixture\.sql", query "SliceWithNumbered", field "params":\n/,
+      /\[QUERY\/SLICE_METADATA_MISMATCH\] file "metadata\.sql", query "SliceMetadata"/,
+    ]) {
+      assert.match(outcome.diagnostics, expected, expected.source);
+    }
+    for (const reason of ["BIND_NUMBER_GAP", "UNSUPPORTED_BIND_ORDER", "SLICE_BIND_MIXTURE"]) {
+      assert.equal((outcome.diagnostics.match(new RegExp(`\\[QUERY/${reason}\\]`, "g")) ?? []).length, 1, reason);
+    }
+    // A slice parameter without a marker and a marker without a parameter are both mismatches.
+    assert.equal((outcome.diagnostics.match(/\[QUERY\/SLICE_METADATA_MISMATCH\]/g) ?? []).length, 2);
+    assert.match(outcome.diagnostics, /generation failed with 5 errors\n/);
+    assert.doesNotMatch(outcome.diagnostics, /valid\.sql|DeleteByIds/);
+    assert.doesNotMatch(outcome.diagnostics, /DELETE FROM users|SLICE:|\?\d/);
+    assertNoStack(outcome.diagnostics);
   },
 };
 
@@ -536,6 +1021,11 @@ const safeEmission: GeneratorScenario = {
     assert.match(sources.get("z_root_sql.ts")!, /"userId_3"/);
     assert.match(sources.get("z_root_sql.ts")!, /args\["default"\]/);
     assert.match(sources.get("z_root_sql.ts")!, /args\["column3"\]/);
+    // The repeated bind number binds once: one slot per distinct SQLite parameter index.
+    assert.match(
+      sources.get("z_root_sql.ts")!,
+      /params: Object\.freeze\(\[d1_values\.argText\(args\["default"\], "GetURL", "default"\), d1_values\.argText\(args\["column3"\], "GetURL", "column3"\)\]\)/,
+    );
     assert.match(sources.get("z_root_sql.ts")!, /"column4": string/);
     const sqlLiteral = /const getURLQuery = (.*);/.exec(sources.get("z_root_sql.ts")!)?.[1];
     assert.ok(sqlLiteral);
@@ -1014,6 +1504,85 @@ const runtimeValues: GeneratorScenario = {
       assert.equal(checked.received, received);
       assert.equal(checked.path, undefined);
     }
+
+    // The slice helpers the generated factories build on, driven directly.
+    const internals = runtime.generatedInternals as {
+      argSlice: (value: unknown, convert: unknown, queryName: string, path: string) => unknown[];
+      expandSlices: (sql: string, queryName: string, slices: readonly (readonly [string, number])[]) => string;
+      argInteger: (value: unknown, queryName: string, path: string) => number;
+      argBlob: (value: unknown, queryName: string, path: string) => Uint8Array;
+    };
+    const marker = "/*SLICE:ids*/?";
+
+    for (const count of [1, 3, 25]) {
+      const values = Array.from({ length: count }, (_, index) => index + 1);
+      const converted = internals.argSlice(values, internals.argInteger, "Sliced", "ids");
+      assert.deepEqual(converted, values);
+      assert.notEqual(converted, values);
+      const placeholders = Array.from({ length: count }, () => "?").join(",");
+      assert.equal(
+        internals.expandSlices(`SELECT 1 WHERE id IN (${marker}) LIMIT ?`, "Sliced", [[marker, count]]),
+        `SELECT 1 WHERE id IN (${placeholders}) LIMIT ?`,
+      );
+    }
+
+    // Elements are snapshotted through the same codec a scalar argument would use.
+    const sliceBytes = new Uint8Array([1, 2, 3]);
+    const blobs = internals.argSlice([sliceBytes], internals.argBlob, "Sliced", "payloads") as Uint8Array[];
+    sliceBytes[0] = 99;
+    assert.deepEqual(blobs[0], new Uint8Array([1, 2, 3]));
+    const source = [1, 2];
+    const snapshot = internals.argSlice(source, internals.argInteger, "Sliced", "ids");
+    source.push(3);
+    source[0] = 42;
+    assert.deepEqual(snapshot, [1, 2]);
+
+    // Two markers expand independently, and a repeated one is replaced left to right.
+    assert.equal(
+      internals.expandSlices(`SELECT 1 WHERE a IN (${marker}) OR b IN (/*SLICE:tags*/?)`, "Sliced", [[marker, 2], ["/*SLICE:tags*/?", 1]]),
+      "SELECT 1 WHERE a IN (?,?) OR b IN (?)",
+    );
+
+    const rejectsSlice = (
+      value: unknown,
+      expectations: { path: string; expected: string; received: string },
+    ): void => {
+      let caught: unknown;
+      try {
+        internals.argSlice(value, internals.argInteger, "Sliced", "ids");
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof QueryArgumentError, JSON.stringify(expectations));
+      const checked = caught as unknown as CheckedError;
+      assert.equal(checked.operation, "construct");
+      assert.equal(checked.queryName, "Sliced");
+      assert.equal(checked.path, expectations.path);
+      assert.equal(checked.expected, expectations.expected);
+      assert.equal(checked.received, expectations.received);
+    };
+
+    rejectsSlice([], { path: "ids", expected: "a non-empty array", received: "an empty array" });
+    for (const [value, received] of [
+      [null, "null"], [undefined, "undefined"], ["abc", "string"], [7, "number"],
+      [new Uint8Array([1]), "Uint8Array"], [{ length: 2 }, "object"],
+    ] as const) {
+      rejectsSlice(value, { path: "ids", expected: "a non-empty array", received });
+    }
+    // A bad element is reported at its own index, by the element codec.
+    rejectsSlice([1, 2, "three"], { path: "ids[2]", expected: "a safe integer", received: "string" });
+
+    // A module that lost its marker fails closed rather than sending malformed SQL to D1.
+    let missingMarker: unknown;
+    try {
+      internals.expandSlices("SELECT 1 WHERE id IN (?)", "Sliced", [[marker, 2]]);
+    } catch (error) {
+      missingMarker = error;
+    }
+    assert.ok(missingMarker instanceof QueryUsageError);
+    assert.equal((missingMarker as unknown as CheckedError).operation, "construct");
+    assert.equal((missingMarker as unknown as CheckedError).expected, "a generated slice placeholder");
+    assert.equal((missingMarker as unknown as CheckedError).received, "missing placeholder");
 
     // Row mapping.
     const physicalRow = (): Record<string, unknown> => ({
@@ -1554,6 +2123,9 @@ export const generatorScenarios = [
   queryBoundary,
   unsupportedCommands,
   emissionReadiness,
+  argumentModel,
+  argumentValues,
+  argumentBoundary,
   diagnosticAggregation,
   safeEmission,
   typescriptFloor,

@@ -1,29 +1,13 @@
-import { RESULT_CONTEXT_ALIAS, RUNTIME_VALUE_ALIAS, type QueryPlan, type RowFieldPlan, type ValueFieldPlan } from "./emission-plan";
+import { RESULT_CONTEXT_ALIAS, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type RowFieldPlan, type SlicePlan, type ValueFieldPlan } from "./emission-plan";
 import { RUNTIME } from "./runtime";
-import type { ValueKind } from "./sqlite-types";
+import { VALUE_KINDS } from "./sqlite-types";
 
-type ScalarValueKind = Exclude<ValueKind, "json" | "unknown">;
+type SliceArgumentFieldPlan = ArgumentFieldPlan & { readonly slice: SlicePlan };
 
-const SCALAR_TYPES: Readonly<Record<ScalarValueKind, string>> = {
-  integer: "number",
-  number: "number",
-  text: "string",
-  boolean: "boolean",
-  blob: "Uint8Array",
-};
-
-const CODEC_SUFFIXES: Readonly<Record<ValueKind, string>> = {
-  integer: "Integer",
-  number: "Number",
-  text: "Text",
-  boolean: "Boolean",
-  blob: "Blob",
-  json: "Json",
-  unknown: "Unknown",
-};
+const spelling = (field: ValueFieldPlan) => VALUE_KINDS[field.valueKind];
 
 function codecCall(prefix: "arg" | "row", field: ValueFieldPlan): string {
-  return `${RUNTIME_VALUE_ALIAS}.${prefix}${CODEC_SUFFIXES[field.valueKind]}${field.nullable ? "OrNull" : ""}`;
+  return `${RUNTIME_VALUE_ALIAS}.${prefix}${spelling(field).codecSuffix}${field.nullable ? "OrNull" : ""}`;
 }
 
 export class Driver {
@@ -36,16 +20,15 @@ export class Driver {
     return `type ${RESULT_CONTEXT_ALIAS} = { readonly operation: "execute" | "batch"; readonly queryName: string; readonly batchIndex?: number | undefined; readonly rowIndex?: number | undefined };`;
   }
 
-  argumentType(field: ValueFieldPlan): string {
-    if (field.valueKind === "unknown") return field.nullable ? "D1Value" : "D1NonNullValue";
-    const base = field.valueKind === "json" ? "JsonValue" : SCALAR_TYPES[field.valueKind];
-    return field.nullable ? `${base} | null` : base;
+  argumentType(field: ArgumentFieldPlan): string {
+    const entry = spelling(field);
+    const base = field.nullable ? entry.nullableArgumentType : entry.argumentType;
+    return field.slice ? `ReadonlyArray<${base}>` : base;
   }
 
   rowType(field: ValueFieldPlan): string {
-    if (field.valueKind === "unknown" || field.valueKind === "json") return "unknown";
-    const base = SCALAR_TYPES[field.valueKind];
-    return field.nullable ? `${base} | null` : base;
+    const entry = spelling(field);
+    return field.nullable ? entry.nullableRowType : entry.rowType;
   }
 
   parseFnDecl(funcName: string, returnIface: string, fields: readonly RowFieldPlan[]): string {
@@ -61,17 +44,28 @@ ${properties}
 
   factoryDecl(plan: QueryPlan): string {
     const fnParams = plan.argsTypeName ? `args: ${plan.argsTypeName}` : "";
-    const params = plan.bindAccesses.map((field) =>
-      `${codecCall("arg", field)}(args[${field.publicNameLiteral}], ${plan.queryNameLiteral}, ${field.publicNameLiteral})`,
+    // A slice is validated and snapshotted first, so its length is known before the
+    // descriptor's SQL and bind values are built from it.
+    const slices = plan.argumentFields.filter((field): field is SliceArgumentFieldPlan => field.slice !== undefined);
+    const preamble = plan.argsTypeName ? [`    ${RUNTIME_VALUE_ALIAS}.requireArgs(args, ${plan.queryNameLiteral});`] : [];
+    for (const field of slices) {
+      preamble.push(`    const ${field.slice.localName} = ${RUNTIME_VALUE_ALIAS}.argSlice(args[${field.publicNameLiteral}], ${codecCall("arg", field)}, ${plan.queryNameLiteral}, ${field.publicNameLiteral});`);
+    }
+    const sql = slices.length === 0 ? plan.sqlConstantName
+      : `${RUNTIME_VALUE_ALIAS}.expandSlices(${plan.sqlConstantName}, ${plan.queryNameLiteral}, [${
+        slices.map((field) => `[${field.slice.markerLiteral}, ${field.slice.localName}.length]`).join(", ")}])`;
+    const params = plan.argumentFields.map((field) => field.slice
+      ? `...${field.slice.localName}`
+      : `${codecCall("arg", field)}(args[${field.publicNameLiteral}], ${plan.queryNameLiteral}, ${field.publicNameLiteral})`,
     ).join(", ");
     const properties = [
       `        kind: ${plan.kindLiteral}`,
       `        name: ${plan.queryNameLiteral}`,
-      `        sql: ${plan.sqlConstantName}`,
+      `        sql: ${sql}`,
       `        params: Object.freeze([${params}])`,
     ];
     if (plan.parserName) properties.push(`        parse: ${plan.parserName}`);
-    const guard = plan.argsTypeName ? `    ${RUNTIME_VALUE_ALIAS}.requireArgs(args, ${plan.queryNameLiteral});\n` : "";
+    const guard = preamble.length > 0 ? `${preamble.join("\n")}\n` : "";
     return `export function ${plan.factoryName}(${fnParams}): ${plan.factoryReturnType} {
 ${guard}    return Object.freeze({
 ${properties.join(",\n")}

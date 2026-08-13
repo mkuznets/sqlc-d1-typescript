@@ -215,6 +215,54 @@ function argUnknownOrNull(value: unknown, queryName: string, path: string): D1Va
     throw argumentFailure(queryName, path, "a boolean, finite number, string, Uint8Array, or null", value)
 }
 
+// The snapshot: a fresh array whose elements each passed through the same codec a scalar
+// argument of that value kind would use, so later caller mutation cannot reach a descriptor.
+function argSlice<T>(
+    value: unknown,
+    convert: (value: unknown, queryName: string, path: string) => T,
+    queryName: string,
+    path: string,
+): T[] {
+    if (!Array.isArray(value)) throw argumentFailure(queryName, path, "a non-empty array", value)
+    if (value.length === 0) {
+        throw new QueryArgumentError(`argument ${path} of query ${queryName} must be a non-empty array`, {
+            operation: "construct",
+            queryName,
+            path,
+            expected: "a non-empty array",
+            received: "an empty array",
+        })
+    }
+    const converted: T[] = []
+    for (let index = 0; index < value.length; index++) {
+        converted.push(convert(value[index], queryName, `${path}[${index}]`))
+    }
+    return converted
+}
+
+// indexOf/slice rather than replace(), so no "$" pattern semantics apply to the
+// replacement and a missing marker fails closed instead of silently doing nothing.
+function expandSlices(sql: string, queryName: string, slices: readonly (readonly [string, number])[]): string {
+    let expanded = sql
+    for (let index = 0; index < slices.length; index++) {
+        const marker = slices[index][0]
+        const count = slices[index][1]
+        const at = expanded.indexOf(marker)
+        if (at === -1) {
+            throw new QueryUsageError(`query ${queryName} is missing a generated slice placeholder`, {
+                operation: "construct",
+                queryName,
+                expected: "a generated slice placeholder",
+                received: "missing placeholder",
+            })
+        }
+        const placeholders: string[] = []
+        for (let position = 0; position < count; position++) placeholders.push("?")
+        expanded = `${expanded.slice(0, at)}${placeholders.join(",")}${expanded.slice(at + marker.length)}`
+    }
+    return expanded
+}
+
 interface ResultContext {
     readonly operation: "execute" | "batch"
     readonly queryName: string
@@ -385,6 +433,8 @@ export const generatedInternals = Object.freeze({
     argJsonOrNull,
     argUnknown,
     argUnknownOrNull,
+    argSlice,
+    expandSlices,
     rowInteger,
     rowIntegerOrNull,
     rowNumber,

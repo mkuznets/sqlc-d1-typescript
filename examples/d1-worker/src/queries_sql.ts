@@ -1003,3 +1003,257 @@ export function deleteSamplesReturning(args: DeleteSamplesReturningArgs): QueryD
         parse: parseDeleteSamplesReturningRow
     }) as unknown as QueryDescriptor<DeleteSamplesReturningRow[]>;
 }
+
+const getFeedByIdAndUserQuery = "SELECT id, user_id, type, title, link, authors, description, created_at, updated_at, deleted_at\nFROM feeds\nWHERE id = ?1\n  AND (user_id = ?2 OR ?2 = '')";
+
+export interface GetFeedByIdAndUserArgs {
+    "id": string;
+    "userId": string;
+}
+
+export interface GetFeedByIdAndUserRow {
+    "id": string;
+    "userId": string;
+    "type": string;
+    "title": string;
+    "link": string;
+    "authors": string;
+    "description": string;
+    "createdAt": number;
+    "updatedAt": number;
+    "deletedAt": number | null;
+}
+
+function parseGetFeedByIdAndUserRow(row: Record<string, unknown>, ctx: d1_Context): GetFeedByIdAndUserRow {
+    return {
+        "id": d1_values.rowText(row, "id", "id", ctx),
+        "userId": d1_values.rowText(row, "user_id", "userId", ctx),
+        "type": d1_values.rowText(row, "type", "type", ctx),
+        "title": d1_values.rowText(row, "title", "title", ctx),
+        "link": d1_values.rowText(row, "link", "link", ctx),
+        "authors": d1_values.rowText(row, "authors", "authors", ctx),
+        "description": d1_values.rowText(row, "description", "description", ctx),
+        "createdAt": d1_values.rowInteger(row, "created_at", "createdAt", ctx),
+        "updatedAt": d1_values.rowInteger(row, "updated_at", "updatedAt", ctx),
+        "deletedAt": d1_values.rowIntegerOrNull(row, "deleted_at", "deletedAt", ctx)
+    };
+}
+
+export function getFeedByIdAndUser(args: GetFeedByIdAndUserArgs): QueryDescriptor<GetFeedByIdAndUserRow | null> {
+    d1_values.requireArgs(args, "GetFeedByIdAndUser");
+    return Object.freeze({
+        kind: "one",
+        name: "GetFeedByIdAndUser",
+        sql: getFeedByIdAndUserQuery,
+        params: Object.freeze([d1_values.argText(args["id"], "GetFeedByIdAndUser", "id"), d1_values.argText(args["userId"], "GetFeedByIdAndUser", "userId")]),
+        parse: parseGetFeedByIdAndUserRow
+    }) as unknown as QueryDescriptor<GetFeedByIdAndUserRow | null>;
+}
+
+const listFeedsByOptionalTitleQuery = "SELECT id, user_id, type, title, link, authors, description, created_at, updated_at, deleted_at\nFROM feeds\nWHERE title = ?1\n   OR ?1 IS NULL\nORDER BY id";
+
+export interface ListFeedsByOptionalTitleArgs {
+    "title": string | null;
+}
+
+export interface ListFeedsByOptionalTitleRow {
+    "id": string;
+    "userId": string;
+    "type": string;
+    "title": string;
+    "link": string;
+    "authors": string;
+    "description": string;
+    "createdAt": number;
+    "updatedAt": number;
+    "deletedAt": number | null;
+}
+
+function parseListFeedsByOptionalTitleRow(row: Record<string, unknown>, ctx: d1_Context): ListFeedsByOptionalTitleRow {
+    return {
+        "id": d1_values.rowText(row, "id", "id", ctx),
+        "userId": d1_values.rowText(row, "user_id", "userId", ctx),
+        "type": d1_values.rowText(row, "type", "type", ctx),
+        "title": d1_values.rowText(row, "title", "title", ctx),
+        "link": d1_values.rowText(row, "link", "link", ctx),
+        "authors": d1_values.rowText(row, "authors", "authors", ctx),
+        "description": d1_values.rowText(row, "description", "description", ctx),
+        "createdAt": d1_values.rowInteger(row, "created_at", "createdAt", ctx),
+        "updatedAt": d1_values.rowInteger(row, "updated_at", "updatedAt", ctx),
+        "deletedAt": d1_values.rowIntegerOrNull(row, "deleted_at", "deletedAt", ctx)
+    };
+}
+
+export function listFeedsByOptionalTitle(args: ListFeedsByOptionalTitleArgs): QueryDescriptor<ListFeedsByOptionalTitleRow[]> {
+    d1_values.requireArgs(args, "ListFeedsByOptionalTitle");
+    return Object.freeze({
+        kind: "many",
+        name: "ListFeedsByOptionalTitle",
+        sql: listFeedsByOptionalTitleQuery,
+        params: Object.freeze([d1_values.argTextOrNull(args["title"], "ListFeedsByOptionalTitle", "title")]),
+        parse: parseListFeedsByOptionalTitleRow
+    }) as unknown as QueryDescriptor<ListFeedsByOptionalTitleRow[]>;
+}
+
+const listFeedsByIdsQuery = "SELECT id, user_id, type, title, link, authors, description, created_at, updated_at, deleted_at\nFROM feeds\nWHERE id IN (/*SLICE:ids*/?)\nORDER BY id";
+
+export interface ListFeedsByIdsArgs {
+    "ids": ReadonlyArray<string>;
+}
+
+export interface ListFeedsByIdsRow {
+    "id": string;
+    "userId": string;
+    "type": string;
+    "title": string;
+    "link": string;
+    "authors": string;
+    "description": string;
+    "createdAt": number;
+    "updatedAt": number;
+    "deletedAt": number | null;
+}
+
+function parseListFeedsByIdsRow(row: Record<string, unknown>, ctx: d1_Context): ListFeedsByIdsRow {
+    return {
+        "id": d1_values.rowText(row, "id", "id", ctx),
+        "userId": d1_values.rowText(row, "user_id", "userId", ctx),
+        "type": d1_values.rowText(row, "type", "type", ctx),
+        "title": d1_values.rowText(row, "title", "title", ctx),
+        "link": d1_values.rowText(row, "link", "link", ctx),
+        "authors": d1_values.rowText(row, "authors", "authors", ctx),
+        "description": d1_values.rowText(row, "description", "description", ctx),
+        "createdAt": d1_values.rowInteger(row, "created_at", "createdAt", ctx),
+        "updatedAt": d1_values.rowInteger(row, "updated_at", "updatedAt", ctx),
+        "deletedAt": d1_values.rowIntegerOrNull(row, "deleted_at", "deletedAt", ctx)
+    };
+}
+
+export function listFeedsByIds(args: ListFeedsByIdsArgs): QueryDescriptor<ListFeedsByIdsRow[]> {
+    d1_values.requireArgs(args, "ListFeedsByIds");
+    const d1_slice_ids = d1_values.argSlice(args["ids"], d1_values.argText, "ListFeedsByIds", "ids");
+    return Object.freeze({
+        kind: "many",
+        name: "ListFeedsByIds",
+        sql: d1_values.expandSlices(listFeedsByIdsQuery, "ListFeedsByIds", [["/*SLICE:ids*/?", d1_slice_ids.length]]),
+        params: Object.freeze([...d1_slice_ids]),
+        parse: parseListFeedsByIdsRow
+    }) as unknown as QueryDescriptor<ListFeedsByIdsRow[]>;
+}
+
+const getFirstFeedByIdsQuery = "SELECT id, user_id, type, title, link, authors, description, created_at, updated_at, deleted_at\nFROM feeds\nWHERE id IN (/*SLICE:ids*/?)\nORDER BY id\nLIMIT 1";
+
+export interface GetFirstFeedByIdsArgs {
+    "ids": ReadonlyArray<string>;
+}
+
+export interface GetFirstFeedByIdsRow {
+    "id": string;
+    "userId": string;
+    "type": string;
+    "title": string;
+    "link": string;
+    "authors": string;
+    "description": string;
+    "createdAt": number;
+    "updatedAt": number;
+    "deletedAt": number | null;
+}
+
+function parseGetFirstFeedByIdsRow(row: Record<string, unknown>, ctx: d1_Context): GetFirstFeedByIdsRow {
+    return {
+        "id": d1_values.rowText(row, "id", "id", ctx),
+        "userId": d1_values.rowText(row, "user_id", "userId", ctx),
+        "type": d1_values.rowText(row, "type", "type", ctx),
+        "title": d1_values.rowText(row, "title", "title", ctx),
+        "link": d1_values.rowText(row, "link", "link", ctx),
+        "authors": d1_values.rowText(row, "authors", "authors", ctx),
+        "description": d1_values.rowText(row, "description", "description", ctx),
+        "createdAt": d1_values.rowInteger(row, "created_at", "createdAt", ctx),
+        "updatedAt": d1_values.rowInteger(row, "updated_at", "updatedAt", ctx),
+        "deletedAt": d1_values.rowIntegerOrNull(row, "deleted_at", "deletedAt", ctx)
+    };
+}
+
+export function getFirstFeedByIds(args: GetFirstFeedByIdsArgs): QueryDescriptor<GetFirstFeedByIdsRow | null> {
+    d1_values.requireArgs(args, "GetFirstFeedByIds");
+    const d1_slice_ids = d1_values.argSlice(args["ids"], d1_values.argText, "GetFirstFeedByIds", "ids");
+    return Object.freeze({
+        kind: "one",
+        name: "GetFirstFeedByIds",
+        sql: d1_values.expandSlices(getFirstFeedByIdsQuery, "GetFirstFeedByIds", [["/*SLICE:ids*/?", d1_slice_ids.length]]),
+        params: Object.freeze([...d1_slice_ids]),
+        parse: parseGetFirstFeedByIdsRow
+    }) as unknown as QueryDescriptor<GetFirstFeedByIdsRow | null>;
+}
+
+const touchFeedsByIdsQuery = "UPDATE feeds\nSET updated_at = ?\nWHERE id IN (/*SLICE:ids*/?)";
+
+export interface TouchFeedsByIdsArgs {
+    "updatedAt": number;
+    "ids": ReadonlyArray<string>;
+}
+
+export function touchFeedsByIds(args: TouchFeedsByIdsArgs): QueryDescriptor<void> {
+    d1_values.requireArgs(args, "TouchFeedsByIds");
+    const d1_slice_ids = d1_values.argSlice(args["ids"], d1_values.argText, "TouchFeedsByIds", "ids");
+    return Object.freeze({
+        kind: "exec",
+        name: "TouchFeedsByIds",
+        sql: d1_values.expandSlices(touchFeedsByIdsQuery, "TouchFeedsByIds", [["/*SLICE:ids*/?", d1_slice_ids.length]]),
+        params: Object.freeze([d1_values.argInteger(args["updatedAt"], "TouchFeedsByIds", "updatedAt"), ...d1_slice_ids])
+    }) as unknown as QueryDescriptor<void>;
+}
+
+const deleteFeedsByIdsForUserQuery = "DELETE\nFROM feeds\nWHERE user_id = ?\n  AND id IN (/*SLICE:ids*/?)";
+
+export interface DeleteFeedsByIdsForUserArgs {
+    "userId": string;
+    "ids": ReadonlyArray<string>;
+}
+
+export function deleteFeedsByIdsForUser(args: DeleteFeedsByIdsForUserArgs): QueryDescriptor<number> {
+    d1_values.requireArgs(args, "DeleteFeedsByIdsForUser");
+    const d1_slice_ids = d1_values.argSlice(args["ids"], d1_values.argText, "DeleteFeedsByIdsForUser", "ids");
+    return Object.freeze({
+        kind: "exec-rows",
+        name: "DeleteFeedsByIdsForUser",
+        sql: d1_values.expandSlices(deleteFeedsByIdsForUserQuery, "DeleteFeedsByIdsForUser", [["/*SLICE:ids*/?", d1_slice_ids.length]]),
+        params: Object.freeze([d1_values.argText(args["userId"], "DeleteFeedsByIdsForUser", "userId"), ...d1_slice_ids])
+    }) as unknown as QueryDescriptor<number>;
+}
+
+const deleteSamplesByTextValuesQuery = "DELETE\nFROM samples\nWHERE text_value IN (/*SLICE:values*/?)\nRETURNING id, int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null, json_value, json_null, any_value, any_null";
+
+export interface DeleteSamplesByTextValuesArgs {
+    "values": ReadonlyArray<string>;
+}
+
+export function deleteSamplesByTextValues(args: DeleteSamplesByTextValuesArgs): QueryDescriptor<D1Result<Record<string, unknown>>> {
+    d1_values.requireArgs(args, "DeleteSamplesByTextValues");
+    const d1_slice_values = d1_values.argSlice(args["values"], d1_values.argText, "DeleteSamplesByTextValues", "values");
+    return Object.freeze({
+        kind: "exec-result",
+        name: "DeleteSamplesByTextValues",
+        sql: d1_values.expandSlices(deleteSamplesByTextValuesQuery, "DeleteSamplesByTextValues", [["/*SLICE:values*/?", d1_slice_values.length]]),
+        params: Object.freeze([...d1_slice_values])
+    }) as unknown as QueryDescriptor<D1Result<Record<string, unknown>>>;
+}
+
+const copySampleForTextValuesQuery = "INSERT INTO samples\n(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,\n json_value, json_null, any_value, any_null)\nSELECT s.int_value,\n       s.int_null,\n       s.num_value,\n       s.num_null,\n       ?,\n       s.text_null,\n       s.bool_value,\n       s.bool_null,\n       s.blob_value,\n       s.blob_null,\n       s.json_value,\n       s.json_null,\n       s.any_value,\n       s.any_null\nFROM samples s\nWHERE s.text_value IN (/*SLICE:values*/?)\nORDER BY s.id\nLIMIT 1";
+
+export interface CopySampleForTextValuesArgs {
+    "textValue": string;
+    "values": ReadonlyArray<string>;
+}
+
+export function copySampleForTextValues(args: CopySampleForTextValuesArgs): QueryDescriptor<number> {
+    d1_values.requireArgs(args, "CopySampleForTextValues");
+    const d1_slice_values = d1_values.argSlice(args["values"], d1_values.argText, "CopySampleForTextValues", "values");
+    return Object.freeze({
+        kind: "exec-lastid",
+        name: "CopySampleForTextValues",
+        sql: d1_values.expandSlices(copySampleForTextValuesQuery, "CopySampleForTextValues", [["/*SLICE:values*/?", d1_slice_values.length]]),
+        params: Object.freeze([d1_values.argText(args["textValue"], "CopySampleForTextValues", "textValue"), ...d1_slice_values])
+    }) as unknown as QueryDescriptor<number>;
+}
