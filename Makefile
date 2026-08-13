@@ -12,17 +12,18 @@ ROOT_TESTS := \
 	test/generator/sqlite-types.test.ts test/generator/emission-plan.test.ts \
 	test/generator/embeds.test.ts test/generator/source.test.ts \
 	test/verification-contracts.test.ts test/candidate-scripts.test.ts \
-	test/compatibility-scripts.test.ts
+	test/compatibility-scripts.test.ts test/release-scripts.test.ts
 ROOT_SCRIPTS := \
 	scripts/compatibility-config.mjs scripts/check-compatibility.mjs \
 	scripts/verify-sqlc-compatibility.mjs scripts/check-upstream-compatibility.mjs \
-	scripts/write-compatibility-evidence.mjs
+	scripts/write-compatibility-evidence.mjs scripts/release-contract.mjs \
+	scripts/github-run-artifacts.mjs
 ROOT_DIST := \
 	test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs \
 	test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs \
 	test/dist/generator-embeds.test.cjs test/dist/generator-source.test.cjs \
 	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
-	test/dist/compatibility-scripts.test.cjs
+	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs
 
 build: build/plugin.wasm
 
@@ -57,6 +58,12 @@ test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json ver
 	npx tsc -p test/tsconfig.json --noEmit
 	node test/build.mjs $(ROOT_TESTS)
 	node --test $(ROOT_DIST)
+
+.PHONY: test-release-contract
+test-release-contract: node_modules $(ROOT_SCRIPTS) verification/release-manifest.schema.json
+	npx tsc -p test/tsconfig.json --noEmit
+	node test/build.mjs test/release-scripts.test.ts test/verification-contracts.test.ts
+	node --test test/dist/release-scripts.test.cjs test/dist/verification-contracts.test.cjs
 
 .PHONY: test-compatibility-config
 test-compatibility-config: node_modules
