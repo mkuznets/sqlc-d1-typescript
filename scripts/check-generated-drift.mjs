@@ -32,16 +32,16 @@ export async function clearGeneratedDirectory(directory, staticFiles = []) {
   for (const path of await listFiles(directory)) if (!preserved.has(path)) await rm(resolve(directory, path), { force: true });
 }
 
-export async function checkGeneratedDrift({ candidate, sha256, root = process.cwd(), mode = "mirror" }) {
+export async function checkGeneratedDrift({ candidate, sha256, root = process.cwd(), mode = "mirror", sqlc = "sqlc" }) {
   if (!(["mirror", "worktree"].includes(mode))) throw usageError("--mode must be mirror or worktree");
   const retained = await readCandidate(candidate, sha256);
   const repository = resolve(root);
   return mode === "worktree"
-    ? checkWorktree(retained, repository)
-    : checkMirror(retained, repository);
+    ? checkWorktree(retained, repository, sqlc)
+    : checkMirror(retained, repository, sqlc);
 }
 
-async function checkMirror(retained, repository) {
+async function checkMirror(retained, repository, sqlc) {
   const mirror = await mkdtemp(resolve(tmpdir(), "sqlc-d1-generated-drift-"));
   let primaryError;
   try {
@@ -51,7 +51,7 @@ async function checkMirror(retained, repository) {
       const copy = resolve(mirror, fixture.directory);
       await cp(source, copy, { recursive: true, filter: (path) => !path.includes("node_modules") && !path.includes(".wrangler") });
       await clearGeneratedDirectory(resolve(copy, fixture.generatedDirectory), fixture.staticFiles);
-      await withRetainedCandidate(retained, (candidate) => generateCandidate({ candidate, sha256: retained.sha256, config: fixture.config, cwd: copy }));
+      await withRetainedCandidate(retained, (candidate) => generateCandidate({ candidate, sha256: retained.sha256, config: fixture.config, cwd: copy, sqlc }));
       const differences = await compareGeneratedTrees(resolve(source, fixture.generatedDirectory), resolve(copy, fixture.generatedDirectory), fixture.staticFiles);
       changed.push(...differences.map(({ kind, path }) => `${kind} ${fixture.directory}/${fixture.generatedDirectory}/${path}`));
     }
@@ -62,7 +62,7 @@ async function checkMirror(retained, repository) {
   if (primaryError || cleanupErrors.length) throw combinedError(primaryError, cleanupErrors, "generated drift mirror cleanup failed");
 }
 
-async function checkWorktree(retained, repository) {
+async function checkWorktree(retained, repository, sqlc) {
   const directory = await mkdtemp(resolve(tmpdir(), "sqlc-d1-clean-worktree-"));
   await rm(directory, { recursive: true, force: true });
   let added = false;
@@ -72,7 +72,7 @@ async function checkWorktree(retained, repository) {
     added = true;
     for (const fixture of fixtures) {
       await clearGeneratedDirectory(resolve(directory, fixture.directory, fixture.generatedDirectory), fixture.staticFiles);
-      await withRetainedCandidate(retained, (candidate) => generateCandidate({ candidate, sha256: retained.sha256, config: fixture.config, cwd: resolve(directory, fixture.directory) }));
+      await withRetainedCandidate(retained, (candidate) => generateCandidate({ candidate, sha256: retained.sha256, config: fixture.config, cwd: resolve(directory, fixture.directory), sqlc }));
     }
     const paths = fixtures.map(({ directory: path, generatedDirectory }) => `${path}/${generatedDirectory}`);
     const output = await capture("git", ["status", "--porcelain", "--untracked-files=all", "--", ...paths], directory);
