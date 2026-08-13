@@ -70,6 +70,9 @@ export const DEFAULT_FAKE_META: Readonly<Record<string, unknown>> = Object.freez
 
 export class FakeExecutor {
   readonly bound: BoundStatement[] = [];
+  readonly prepared: string[] = [];
+  readonly batches: FakeStatement[][] = [];
+  nativeBatchCompleted = false;
   // Every result object handed back to the runtime, so identity passthrough is assertable.
   readonly produced: Record<string, unknown>[] = [];
   rows: unknown[] = [];
@@ -80,15 +83,19 @@ export class FakeExecutor {
   failure: unknown;
 
   prepare(sql: string): FakeStatement {
+    this.prepared.push(sql);
     return new FakeStatement(this, sql);
   }
 
   async batch(statements: FakeStatement[]): Promise<Record<string, unknown>[]> {
+    this.batches.push(statements);
     this.throwFailure();
-    return statements.map((_, index) => this.produce(
+    const results = statements.map((_, index) => this.produce(
       [...(this.batchRows?.[index] ?? this.rows)],
       this.batchMetas === undefined ? this.meta : this.batchMetas[index],
     ));
+    this.nativeBatchCompleted = true;
+    return results;
   }
 
   produce(results: unknown[], meta: unknown): Record<string, unknown> {
@@ -100,5 +107,32 @@ export class FakeExecutor {
 
   throwFailure(): void {
     if (this.failure !== undefined) throw this.failure;
+  }
+}
+
+export class FakeSession extends FakeExecutor {
+  bookmark: string | null = null;
+  bookmarkAfterBatch: string | null | undefined;
+
+  override async batch(statements: FakeStatement[]): Promise<Record<string, unknown>[]> {
+    const results = await super.batch(statements);
+    if (this.bookmarkAfterBatch !== undefined) this.bookmark = this.bookmarkAfterBatch;
+    return results;
+  }
+
+  getBookmark(): string | null {
+    return this.bookmark;
+  }
+}
+
+export class FakeDatabase extends FakeExecutor {
+  readonly sessionArguments: unknown[][] = [];
+  readonly sessions: FakeSession[] = [];
+
+  withSession(...args: unknown[]): FakeSession {
+    this.sessionArguments.push(args);
+    const session = new FakeSession();
+    this.sessions.push(session);
+    return session;
   }
 }
