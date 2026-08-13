@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	DB,
 	QueryResultError,
@@ -9,10 +9,7 @@ import {
 } from "../src/runtime";
 import { createQuirk } from "../src/queries_sql";
 
-beforeAll(async () => {
-	const schemaQueries = JSON.parse(env.TEST_SCHEMA_QUERIES) as string[];
-	for (const query of schemaQueries) await env.DB.prepare(query).run();
-});
+
 
 async function caught(run: () => Promise<unknown>): Promise<unknown> {
 	try {
@@ -51,7 +48,7 @@ const missingTable = (): QueryDescriptor<Record<string, unknown> | null> => desc
 });
 
 describe("native batch boundary against isolated Miniflare D1", () => {
-	it("rejects an unsafe empty batch synchronously before D1", () => {
+	it("miniflare/batch-empty - rejects an unsafe empty batch synchronously before D1", () => {
 		const db = new DB(env.DB);
 		const unsafeBatch = db.batch as unknown as () => Promise<[]>;
 		expect(() => unsafeBatch.call(db)).toThrowError(expect.objectContaining({
@@ -63,7 +60,7 @@ describe("native batch boundary against isolated Miniflare D1", () => {
 		expect(() => unsafeBatch.call(db)).toThrow(QueryUsageError);
 	});
 
-	it("passes a native failure through and observes local native rollback", async () => {
+	it("miniflare/batch-native-rollback - passes a native failure through and observes local native rollback", async () => {
 		const db = new DB(env.DB);
 		const failure = await caught(() => db.batch(
 			exec("RollbackProbe", "INSERT INTO quirks (id, flag) VALUES (3600, 1)"),
@@ -78,7 +75,7 @@ describe("native batch boundary against isolated Miniflare D1", () => {
 		expect(stored).toBeNull();
 	});
 
-	it("maps only after native success, exposes no tuple, and cannot roll back effects", async () => {
+	it("miniflare/batch-post-success-mapping - maps only after native success, exposes no tuple, and cannot roll back effects", async () => {
 		const db = new DB(env.DB);
 		const failure = await caught(() => db.batch(
 			exec("CommittedFirst", "INSERT INTO quirks (id, flag) VALUES (3601, 1)"),
@@ -102,7 +99,7 @@ describe("native batch boundary against isolated Miniflare D1", () => {
 });
 
 describe("session executors and bookmarks against isolated Miniflare D1", () => {
-	it("accepts every starting form and exposes inherited execute and batch APIs", async () => {
+	it("miniflare/session-starts - accepts every starting form and exposes inherited execute and batch APIs", async () => {
 		const db = new DB(env.DB);
 		const sessions = [
 			db.withSession(),
@@ -122,7 +119,7 @@ describe("session executors and bookmarks against isolated Miniflare D1", () => 
 		}
 	});
 
-	it("transfers an opaque native bookmark locally when Miniflare provides one", async () => {
+	it("miniflare/session-bookmark-transfer - transfers an opaque native bookmark locally when Miniflare provides one", async () => {
 		const db = new DB(env.DB);
 		const first = db.withSession("first-primary");
 		await first.execute(exec("SessionWrite", "INSERT INTO quirks (id, flag) VALUES (3610, 1)"));
@@ -142,7 +139,7 @@ describe("session executors and bookmarks against isolated Miniflare D1", () => 
 		}
 	});
 
-	it("keeps bookmark delegation usable after post-success mapping failure", async () => {
+	it("miniflare/session-bookmark-after-failure - keeps bookmark delegation usable after post-success mapping failure", async () => {
 		const session = new DB(env.DB).withSession("first-primary");
 		const before = session.getBookmark();
 		const failure = await caught(() => session.execute(createQuirk({ id: 3620 })));

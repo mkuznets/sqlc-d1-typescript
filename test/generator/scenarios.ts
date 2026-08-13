@@ -2833,6 +2833,18 @@ const embedBoundary: GeneratorScenario = {
   },
 };
 
+export function createPublicTypesRequest(): GenerateRequest {
+  const base = createCommandsRequest();
+  const argumentsRequest = createArgumentsRequest();
+  const valuesRequest = createCheckedValuesRequest();
+  const embedsRequest = createEmbedsRequest();
+  return new GenerateRequest({
+    ...base,
+    catalog: embedsRequest.catalog,
+    queries: [...base.queries, ...argumentsRequest.queries, ...valuesRequest.queries, ...embedsRequest.queries],
+  });
+}
+
 export const generatorScenarios = [
   currentCommands,
   commandSemantics,

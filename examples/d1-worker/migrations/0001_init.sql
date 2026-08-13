@@ -1,1 +1,5 @@
-../../schema.sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  nickname TEXT
+) STRICT;

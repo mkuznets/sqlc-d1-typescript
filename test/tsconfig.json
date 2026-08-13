@@ -6,6 +6,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["./**/*.ts", "../src/**/*.ts"],
-  "exclude": ["../src/runtime.d1.ts"]
+  "include": ["./generator/**/*.ts", "./types/**/*.ts", "./catalog.ts", "./verification-contracts.test.ts", "./candidate-scripts.test.ts", "../scripts/*.d.mts", "../src/**/*.ts"],
+  "exclude": ["../src/runtime.d1.ts", "./miniflare"]
 }

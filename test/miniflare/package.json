@@ -1,11 +1,9 @@
 {
-	"name": "sqlc-d1-users-example",
+	"name": "sqlc-d1-miniflare-fixture",
 	"type": "module",
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"typecheck": "tsc --noEmit",
 		"typecheck:test": "tsc -p test/tsconfig.json --noEmit",

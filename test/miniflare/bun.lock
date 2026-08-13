@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "sqlc-d1-users-example",
+      "name": "sqlc-d1-miniflare-fixture",
       "devDependencies": {
         "@cloudflare/vitest-pool-workers": "^0.12.10",
         "@types/node": "^25.2.1",

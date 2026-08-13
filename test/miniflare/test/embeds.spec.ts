@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DB } from "../src/runtime";
 import {
 	createFeed,
@@ -15,12 +15,7 @@ import {
 	type GetFeedAndItemEmbedRow,
 } from "../src/queries_sql";
 
-beforeAll(async () => {
-	const schemaQueries = JSON.parse(env.TEST_SCHEMA_QUERIES) as string[];
-	for (const query of schemaQueries) {
-		await env.DB.prepare(query).run();
-	}
-});
+
 
 const now = 1_760_000_000_000;
 
@@ -72,7 +67,7 @@ const note = async (itemId: string, text: string, rating: number): Promise<void>
 };
 
 describe("embed reconstruction against real D1", () => {
-	it("two embedded tables with colliding column names each keep their own values", async () => {
+	it("miniflare/embed-reconstruction - two embedded tables with colliding column names each keep their own values", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_emb1", "user_emb", "Embedded feed")));
 		await db.execute(createFile(fileArgs("file_emb1", "user_emb")));
@@ -105,7 +100,7 @@ describe("embed reconstruction against real D1", () => {
 		]);
 	});
 
-	it("an outer-join embed with no matching row is an object of nulls, never null", async () => {
+	it("miniflare/embed-outer-join - an outer-join embed with no matching row is an object of nulls, never null", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_emb2", "user_emb2")));
 		await db.execute(createFile(fileArgs("file_emb2", "user_emb2")));
@@ -130,7 +125,7 @@ describe("embed reconstruction against real D1", () => {
 		expect(rows[0].itemNotes).not.toBe(rows[1].itemNotes);
 	});
 
-	it("an embed composes with sqlc.slice expansion, for one element and for several", async () => {
+	it("miniflare/interaction-slice-embed - an embed composes with sqlc.slice expansion, for one element and for several", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_emb3", "user_emb3")));
 		await db.execute(createFile(fileArgs("file_emb3", "user_emb3")));
@@ -152,7 +147,7 @@ describe("embed reconstruction against real D1", () => {
 		expect(three.every((row) => row.items.userId === "user_emb3")).toBe(true);
 	});
 
-	it("a batch mixes embed and exec-family descriptors and resolves them positionally", async () => {
+	it("miniflare/interaction-embed-batch - a batch mixes embed and exec-family descriptors and resolves them positionally", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_emb4", "user_emb4")));
 		await db.execute(createFile(fileArgs("file_emb4", "user_emb4")));
@@ -172,7 +167,7 @@ describe("embed reconstruction against real D1", () => {
 		expect(removed).toBe(1);
 	});
 
-	it("the SQL that reaches D1 carries the private aliases the parser reads", async () => {
+	it("miniflare/embed-private-aliases - the SQL that reaches D1 carries the private aliases the parser reads", async () => {
 		const db = new DB(env.DB);
 		await db.execute(createFeed(feedArgs("feed_emb5", "user_emb5")));
 		await db.execute(createFile(fileArgs("file_emb5", "user_emb5")));
