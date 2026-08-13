@@ -28,7 +28,7 @@ jobs:
       sqlc-matrix: ${{ steps.config.outputs.sqlc-matrix }}
       sqlc-ceiling-install: ${{ steps.config.outputs.sqlc-ceiling-install }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - id: config
         name: Read authoritative compatibility inputs
         run: |
@@ -48,7 +48,7 @@ jobs:
     needs: config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.config.outputs.npm }}
@@ -67,7 +67,7 @@ jobs:
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
@@ -80,7 +80,7 @@ jobs:
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
@@ -93,7 +93,7 @@ jobs:
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}" }
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -108,7 +108,7 @@ jobs:
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}" }
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -123,7 +123,7 @@ jobs:
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}" }
       - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
@@ -142,7 +142,7 @@ jobs:
       matrix:
         sqlc: ${{ fromJSON(needs.config.outputs.sqlc-matrix) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -168,7 +168,7 @@ jobs:
     needs: config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci

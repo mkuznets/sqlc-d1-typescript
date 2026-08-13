@@ -37,7 +37,7 @@ jobs:
       sqlc-matrix: ${{ steps.export.outputs.sqlc-matrix }}
       sqlc-ceiling-install: ${{ steps.export.outputs.sqlc-ceiling-install }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with: { fetch-depth: 0 }
       - name: Fetch default branch for ancestry proof
         run: git fetch --no-tags origin "+refs/heads/${{ github.event.repository.default_branch }}:refs/remotes/origin/${{ github.event.repository.default_branch }}"
@@ -82,7 +82,7 @@ jobs:
       wasm-filename: ${{ steps.outputs.outputs.wasm-filename }}
       candidate-reused: ${{ steps.lookup.outputs.mode == 'reuse' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Reconstruct validated intent
         env: { VERSION: "${{ needs.intent.outputs.version }}", TAG: "${{ needs.intent.outputs.tag }}", SHA: "${{ needs.intent.outputs.source-commit }}", BRANCH: "${{ github.event.repository.default_branch }}", DRY: "${{ needs.intent.outputs.dry-run }}", RUN: "${{ github.run_id }}", URL: "${{ needs.intent.outputs.workflow-url }}" }
         run: node -e 'const fs=require("fs");const e=process.env;fs.writeFileSync("intent.json",JSON.stringify({version:e.VERSION,tag:e.TAG||null,sourceCommit:e.SHA,defaultBranch:e.BRANCH,dryRun:e.DRY==="true",workflowRunId:e.RUN,workflowUrl:e.URL}))'
@@ -138,7 +138,7 @@ jobs:
     needs: [intent, candidate]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -165,7 +165,7 @@ jobs:
       matrix:
         sqlc: ${{ fromJSON(needs.intent.outputs.sqlc-matrix) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.intent.outputs.npm }} && npm ci
@@ -210,7 +210,7 @@ jobs:
     needs: [intent, candidate, local-verification, sqlc-compatibility]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.intent.outputs.npm }} && npm ci
@@ -252,7 +252,7 @@ jobs:
       manifest-filename: ${{ steps.outputs.outputs.manifest-filename }}
       dry-run: ${{ needs.intent.outputs.dry-run }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "${{ needs.intent.outputs.node }}", cache: npm }
       - run: npm install --global npm@${{ needs.intent.outputs.npm }} && npm ci
