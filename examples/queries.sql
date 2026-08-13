@@ -177,3 +177,69 @@ DELETE
 FROM samples
 WHERE text_value = ?
 RETURNING *;
+
+-- name: GetFeedByIdAndUser :one
+SELECT *
+FROM feeds
+WHERE id = sqlc.arg(id)
+  AND (user_id = sqlc.arg(user_id) OR sqlc.arg(user_id) = '');
+
+-- name: ListFeedsByOptionalTitle :many
+SELECT *
+FROM feeds
+WHERE title = sqlc.narg(title)
+   OR sqlc.narg(title) IS NULL
+ORDER BY id;
+
+-- name: ListFeedsByIds :many
+SELECT *
+FROM feeds
+WHERE id IN (sqlc.slice(ids))
+ORDER BY id;
+
+-- name: GetFirstFeedByIds :one
+SELECT *
+FROM feeds
+WHERE id IN (sqlc.slice(ids))
+ORDER BY id
+LIMIT 1;
+
+-- name: TouchFeedsByIds :exec
+UPDATE feeds
+SET updated_at = ?
+WHERE id IN (sqlc.slice(ids));
+
+-- name: DeleteFeedsByIdsForUser :execrows
+DELETE
+FROM feeds
+WHERE user_id = ?
+  AND id IN (sqlc.slice(ids));
+
+-- name: DeleteSamplesByTextValues :execresult
+DELETE
+FROM samples
+WHERE text_value IN (sqlc.slice(values))
+RETURNING *;
+
+-- name: CopySampleForTextValues :execlastid
+INSERT INTO samples
+(int_value, int_null, num_value, num_null, text_value, text_null, bool_value, bool_null, blob_value, blob_null,
+ json_value, json_null, any_value, any_null)
+SELECT s.int_value,
+       s.int_null,
+       s.num_value,
+       s.num_null,
+       ?,
+       s.text_null,
+       s.bool_value,
+       s.bool_null,
+       s.blob_value,
+       s.blob_null,
+       s.json_value,
+       s.json_null,
+       s.any_value,
+       s.any_null
+FROM samples s
+WHERE s.text_value IN (sqlc.slice(values))
+ORDER BY s.id
+LIMIT 1;

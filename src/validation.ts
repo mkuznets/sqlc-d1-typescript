@@ -196,6 +196,7 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     ));
   }
 
+  const parameterValidationStart = diagnostics.length;
   const priorBinds = new Map<number, { column: Column; index: number }>();
   query.params.forEach((parameter, parameterIndex) => {
     if (!parameter.column) {
@@ -218,6 +219,7 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     }
   });
 
+  const parametersValid = diagnostics.length === parameterValidationStart;
   const sliceValidationStart = diagnostics.length;
   if (query.text) validateSlices(query, queryIndex, diagnostics);
   const sliceMetadataValid = query.text !== "" && diagnostics.length === sliceValidationStart;
@@ -247,11 +249,71 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     });
   }
 
-  if (sliceMetadataValid && query.params.some((parameter) => parameter.column?.isSqlcSlice)) {
-    diagnostics.push(error("EMISSION", "UNIMPLEMENTED_SLICE", "sqlc slice parameters are recognized but not yet renderable", context({ fieldPath: "params" })));
-  }
+  const hasSlice = query.params.some((parameter) => parameter.column?.isSqlcSlice);
+  if (parametersValid && sliceMetadataValid) validateBindShape(query, hasSlice, context, diagnostics);
+
   if (embedMetadataValid && query.columns.some((column) => column.embedTable !== undefined)) {
     diagnostics.push(error("EMISSION", "UNIMPLEMENTED_EMBED", "sqlc embed columns are recognized but not yet renderable", context({ fieldPath: "columns" })));
+  }
+}
+
+// A numbered placeholder is "?" followed by a digit. Deliberately conservative: a "?1"
+// inside a string literal of a slice query fails loudly instead of binding wrongly.
+const NUMBERED_PLACEHOLDER = /\?\d/;
+
+// sqlc's bind numbering is not always reproducible as a SQLite binding, because SQLite
+// gives a bare "?" one index past the largest one used so far and D1 requires exactly
+// as many bindings as the statement's highest index.
+function validateBindShape(
+  query: Query,
+  hasSlice: boolean,
+  context: (extra?: Partial<Diagnostic>) => Partial<Diagnostic>,
+  diagnostics: Diagnostic[],
+): void {
+  const slots: Array<{ number: number; parameterIndex: number }> = [];
+  const seen = new Set<number>();
+  query.params.forEach((parameter, parameterIndex) => {
+    if (seen.has(parameter.number)) return;
+    seen.add(parameter.number);
+    slots.push({ number: parameter.number, parameterIndex });
+  });
+  if (slots.length === 0) return;
+
+  const highest = Math.max(...slots.map((slot) => slot.number));
+  if (highest !== slots.length) {
+    diagnostics.push(error(
+      "QUERY",
+      "BIND_NUMBER_GAP",
+      `bind numbers must cover 1 through ${slots.length} without gaps; the highest received number is ${highest}`,
+      context({ fieldPath: "params" }),
+    ));
+    return;
+  }
+
+  // A slice query binds in text order, so its numbers carry no order; but expanding a
+  // slice shifts every later placeholder, which a numbered one cannot survive.
+  if (hasSlice) {
+    if (NUMBERED_PLACEHOLDER.test(query.text)) {
+      diagnostics.push(error(
+        "QUERY",
+        "SLICE_BIND_MIXTURE",
+        "a query with a sqlc.slice parameter cannot also use numbered placeholders, because expanding the slice moves every later placeholder; replace sqlc.arg and named parameters with plain ? placeholders",
+        context({ fieldPath: "params" }),
+      ));
+    }
+    return;
+  }
+
+  for (let index = 0; index < slots.length; index++) {
+    const slot = slots[index];
+    if (slot.number === index + 1) continue;
+    diagnostics.push(error(
+      "QUERY",
+      "UNSUPPORTED_BIND_ORDER",
+      `the parameter in position ${slot.parameterIndex + 1} has bind number ${slot.number}; sqlc's numbering for queries that mix named and positional parameters cannot be reproduced as a SQLite binding; use a named parameter for every value`,
+      context({ fieldPath: `params[${slot.parameterIndex}]`, fieldIndex: slot.parameterIndex }),
+    ));
+    return;
   }
 }
 

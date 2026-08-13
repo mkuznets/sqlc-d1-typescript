@@ -1,6 +1,6 @@
 import { File, GenerateRequest, GenerateResponse } from "./gen/plugin/codegen_pb";
 import { Driver as D1Driver } from "./d1";
-import { planEmission, RUNTIME_VALUE_ALIAS, type QueryPlan, type ValueFieldPlan } from "./emission-plan";
+import { planEmission, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type ValueFieldPlan } from "./emission-plan";
 import { validateGenerateRequest, type ValidatedGeneration } from "./validation";
 
 type Options = ValidatedGeneration["options"];
@@ -8,7 +8,7 @@ type Options = ValidatedGeneration["options"];
 interface Driver {
   runtimeCode(): string;
   resultContextDecl(): string;
-  argumentType(field: ValueFieldPlan): string;
+  argumentType(field: ArgumentFieldPlan): string;
   rowType(field: ValueFieldPlan): string;
   parseFnDecl(funcName: string, returnIface: string, fields: QueryPlan["rowFields"]): string;
   factoryDecl(plan: QueryPlan): string;

@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DECLARED_TYPE_KINDS,
+  RUNTIME_TYPE_IMPORT_ORDER,
+  VALUE_KINDS,
   normalizeDeclaredTypeName,
   valueKindForColumn,
+  type ValueKind,
 } from "../../src/sqlite-types";
 import { Column, Identifier } from "../../src/gen/plugin/codegen_pb";
 
@@ -80,6 +83,32 @@ test("lowering is ASCII only so normalization is engine independent", () => {
   assert.equal(valueKindForColumn(declared("İNTEGER")), "unknown");
   assert.equal(normalizeDeclaredTypeName(new Identifier({ name: "TEXTÉ" })), "textÉ");
   assert.equal(valueKindForColumn(declared("TEXTÉ")), "unknown");
+});
+
+test("the value-kind table is the exhaustive, self-consistent dispatch site", () => {
+  // Written out so the table is checked against the union's members, not against a
+  // second derived list: a kind added to ValueKind fails to compile at VALUE_KINDS,
+  // and a kind added to VALUE_KINDS fails here.
+  const kinds: readonly ValueKind[] = ["integer", "number", "text", "boolean", "blob", "json", "unknown"];
+  assert.deepEqual(Object.keys(VALUE_KINDS).slice().sort(), kinds.slice().sort());
+  // Every kind a declared type can normalize to has a spelling.
+  for (const kind of DECLARED_TYPE_KINDS.values()) assert.ok(kinds.includes(kind), kind);
+
+  const suffixes = Object.values(VALUE_KINDS).map((spelling) => spelling.codecSuffix);
+  assert.equal(new Set(suffixes).size, suffixes.length);
+  for (const suffix of suffixes) assert.match(suffix, /^[A-Z][A-Za-z]*$/);
+
+  // An import is declared exactly where the spelling names a runtime type.
+  const runtimeTypes: ReadonlySet<string> = new Set<string>(RUNTIME_TYPE_IMPORT_ORDER);
+  for (const [kind, spelling] of Object.entries(VALUE_KINDS)) {
+    for (const [type, required] of [
+      [spelling.argumentType, spelling.argumentImport],
+      [spelling.nullableArgumentType, spelling.nullableArgumentImport],
+    ] as const) {
+      const base = type.replace(/ \| null$/, "");
+      assert.equal(required, runtimeTypes.has(base) ? base : undefined, `${kind} ${type}`);
+    }
+  }
 });
 
 test("the allow-list contains only normalized lowercase ASCII names", () => {
