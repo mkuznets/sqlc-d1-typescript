@@ -35,6 +35,12 @@ export function verifyManagedD1(options: {
   run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }>;
   now?: () => Date;
   stageImpl?: (options: any) => Promise<string>;
+  createDatabaseImpl?: (options: {
+    accountId: string;
+    token: string;
+    name: string;
+    fetchImpl: typeof fetch;
+  }) => Promise<string>;
   registerSignal?: (handler: () => Promise<void>) => () => void;
   authToken?: () => string;
   maskSecret?: (secret: string) => void;
