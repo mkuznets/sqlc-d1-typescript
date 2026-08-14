@@ -55,7 +55,7 @@ test("verification/managed-name-contract - formats and strictly parses complete 
     attempt: "2",
     randomHex: "deadbeef",
   });
-  assert.equal(name, "sqlc-d1-ci-20260205T120000Z-123-2-deadbeef");
+  assert.equal(name, "sqlc-d1-ci-20260205t120000z-123-2-deadbeef");
   assert.equal(parseManagedResourceName(name)?.runId, "123");
   for (const invalid of [
     "sqlc-d1-ci-20260230T120000Z-1-1-deadbeef",

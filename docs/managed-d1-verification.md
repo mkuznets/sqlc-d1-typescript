@@ -36,7 +36,7 @@ Workers Routes, Custom Domains, KV, R2, Queues, zone permissions, Global API key
 Resources use the complete reserved grammar:
 
 ```text
-sqlc-d1-ci-YYYYMMDDTHHMMSSZ-<run-id>-<attempt>-<8-lower-hex>
+sqlc-d1-ci-yyyymmddthhmmssz-<run-id>-<attempt>-<8-lower-hex>
 ```
 
 The D1 UUID and exact Worker script name are persisted immediately. Primary cleanup runs even after test failure and verifies exact deletion. Primary cleanup failure remains a failed release gate even if emergency recovery succeeds. A weekly independent reaper deletes only complete reserved names strictly older than 24 hours.
