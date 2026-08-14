@@ -41,6 +41,13 @@ export function verifyManagedD1(options: {
     name: string;
     fetchImpl: typeof fetch;
   }) => Promise<string>;
+  initializeDatabaseImpl?: (options: {
+    accountId: string;
+    token: string;
+    databaseId: string;
+    schema: string;
+    fetchImpl: typeof fetch;
+  }) => Promise<void>;
   registerSignal?: (handler: () => Promise<void>) => () => void;
   authToken?: () => string;
   maskSecret?: (secret: string) => void;

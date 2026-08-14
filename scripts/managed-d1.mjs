@@ -70,6 +70,21 @@ async function createManagedD1Database({ accountId, token, name, fetchImpl }) {
   return parseD1CreateJson(await response.text());
 }
 
+async function initializeManagedD1Database({ accountId, token, databaseId, schema, fetchImpl }) {
+  const response = await fetchImpl(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sql: schema }),
+    },
+  );
+  if (!response.ok) throw new Error(`D1 schema setup failed with HTTP ${response.status}`);
+  const body = await response.json();
+  if (!body.success || !Array.isArray(body.result) || body.result.some((result) => result?.success !== true))
+    throw new Error("D1 schema setup did not succeed");
+}
+
 export async function stageManagedD1({
   candidate,
   sha256,
@@ -187,6 +202,7 @@ export async function verifyManagedD1(options) {
     now = () => new Date(),
     stageImpl = stageManagedD1,
     createDatabaseImpl = createManagedD1Database,
+    initializeDatabaseImpl = initializeManagedD1Database,
     registerSignal = defaultRegisterSignal,
     authToken = () => randomBytes(32).toString("base64url"),
     maskSecret = (secret) => {
@@ -259,9 +275,7 @@ export async function verifyManagedD1(options) {
     const configPath = resolve(stage, "test/managed-d1/wrangler.jsonc");
     await writeFile(configPath, wrangler, { mode: 0o600 });
     const schema = await readFile(resolve(stage, "test/miniflare/schema.sql"), "utf8");
-    await run(wranglerBin, ["d1", "execute", name, "--remote", "--command", schema, "--json", "--config", configPath], {
-      cwd: stage,
-    });
+    await initializeDatabaseImpl({ accountId, token, databaseId, schema, fetchImpl });
     checkpoint();
 
     await provision(async () => {
