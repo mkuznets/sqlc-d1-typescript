@@ -25,16 +25,29 @@ const SECRET_ATTEMPTS = 60;
 const SECRET_CONSISTENT_RUNS = 5;
 const DATA_CHANNEL_ATTEMPTS = 30;
 const POLL_INTERVAL_MS = 1_000;
-const STREAK_INTERVAL_MS = 300;
-
-class ProtocolBreach extends Error {
-  constructor(detail) {
-    super("scenario protocol breach");
-    this.detail = detail;
-  }
-}
+const STREAK_INTERVAL_MS = 1_000;
 
 const brief = (text) => (text.length > 160 ? `${text.slice(0, 160)}…` : text);
+
+// The scenario Worker always answers JSON. Cloudflare's edge answers HTML - a "Page not
+// found" page while the workers.dev route is still propagating, an error page when it is
+// unhealthy - so anything that is not JSON never reached the Worker and is always a race.
+async function probeScenarioEndpoint(fetchImpl, endpoint, init) {
+  try {
+    const response = await fetchImpl(endpoint, init);
+    const text = await response.text();
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = undefined;
+    }
+    const reached = typeof payload === "object" && payload !== null;
+    return { reached, status: response.status, payload, body: brief(text.trim().replace(/\s+/g, " ")) };
+  } catch (error) {
+    return { reached: false, status: "unreachable", body: brief(String(error?.message ?? error)) };
+  }
+}
 
 export function tailLines(text, limit = OUTPUT_TAIL_LINES) {
   const trimmed = String(text ?? "").trimEnd();
@@ -404,90 +417,94 @@ export async function verifyManagedD1(options) {
     let routeLive = false,
       lastRoute = "no attempt was made";
     for (let attempt = 1; attempt <= ROUTE_ATTEMPTS; attempt++) {
-      let status, body;
-      try {
-        const unauthorized = await fetchImpl(endpoint, { method: "POST" });
-        status = unauthorized.status;
-        // A live route that serves an unauthenticated request is a protocol breach, never a race.
-        if (status === 200) throw new ProtocolBreach(await excerptResponse(unauthorized));
-        body = status === 401 ? "" : brief(await excerptResponse(unauthorized));
-      } catch (error) {
-        if (error instanceof ProtocolBreach)
-          throw new Error(`scenario endpoint served an unauthenticated request with HTTP 200: ${error.detail}`);
-        status = "unreachable";
-        body = brief(String(error?.message ?? error));
+      const probe = await probeScenarioEndpoint(fetchImpl, endpoint, { method: "POST" });
+      if (probe.reached) {
+        // The Worker answered, so every protocol assertion applies strictly from here.
+        if (probe.status === 401) {
+          note(`attempt ${attempt}: HTTP 401 from the Worker — the route is live and closed`);
+          routeLive = true;
+          break;
+        }
+        throw new Error(
+          `the scenario Worker answered HTTP ${probe.status} to an unauthenticated POST, expected 401: ${probe.body}`,
+        );
       }
-      if (status === 401) {
-        note(`attempt ${attempt}: HTTP 401 — the route is live and closed`);
-        routeLive = true;
-        break;
-      }
-      lastRoute = `${status}: ${body}`;
-      if (attempt <= 2 || attempt % 10 === 0) note(`attempt ${attempt}/${ROUTE_ATTEMPTS}: ${lastRoute} — not live yet`);
+      lastRoute = `${probe.status}: ${probe.body}`;
+      if (attempt <= 2 || attempt % 10 === 0)
+        note(`attempt ${attempt}/${ROUTE_ATTEMPTS}: ${lastRoute} — the edge answered, the route is not live yet`);
       await delay(POLL_INTERVAL_MS);
     }
     if (!routeLive)
       throw new Error(
-        `the workers.dev route never answered 401 after ${ROUTE_ATTEMPTS} attempts; last response was ${lastRoute}. The route did not become live, or it answers something other than the scenario protocol`,
+        `the workers.dev route never reached the Worker within ${ROUTE_ATTEMPTS} attempts; the last answer came from the Cloudflare edge with ${lastRoute}`,
       );
 
-    // `wrangler secret put` rolls out a new Worker version gradually, so a single 404 only
-    // proves one instance has the secret. Requests keep landing on pre-secret instances -
-    // which answer 401 - until the rollout finishes, so wait for a run of consistent answers.
+    // Two things are still settling here. `wrangler secret put` rolls out a new Worker
+    // version gradually, so requests keep landing on pre-secret instances - which answer
+    // 401 - until it finishes; and the workers.dev route itself can still flap back to the
+    // edge. Wait for a run of consistent answers from the Worker rather than one lucky probe.
     enter(
       "secret-propagation",
-      `Waiting for the secret to reach every Worker instance: ${SECRET_CONSISTENT_RUNS} consecutive authenticated probes must answer 404`,
+      `Waiting for the secret to reach every Worker instance: ${SECRET_CONSISTENT_RUNS} consecutive authenticated probes must answer 404 from the Worker`,
     );
     const authenticatedHeaders = { authorization: `Bearer ${auth}`, "content-type": "application/json" };
+    const unknownScenario = { method: "POST", headers: authenticatedHeaders, body: '{"scenario":"unknown"}' };
     let secretReady = false,
       streak = 0,
       lastSecret = "no attempt was made";
     for (let attempt = 1; attempt <= SECRET_ATTEMPTS; attempt++) {
-      const response = await fetchImpl(endpoint, {
-        method: "POST",
-        headers: authenticatedHeaders,
-        body: '{"scenario":"unknown"}',
-      });
-      if (response.status === 404) {
+      const probe = await probeScenarioEndpoint(fetchImpl, endpoint, unknownScenario);
+      if (probe.reached && probe.status === 404) {
         streak++;
         if (streak >= SECRET_CONSISTENT_RUNS) {
-          note(`attempt ${attempt}: ${streak} consecutive 404s — the secret has reached every instance`);
+          note(`attempt ${attempt}: ${streak} consecutive answers from the Worker — the secret has reached it`);
           secretReady = true;
           break;
         }
         await delay(STREAK_INTERVAL_MS);
         continue;
       }
-      lastSecret = `HTTP ${response.status}: ${brief(await excerptResponse(response))}`;
-      if (streak > 0)
-        note(`attempt ${attempt}: ${lastSecret} after a run of ${streak}; the rollout is still in progress`);
+      if (probe.reached && probe.status !== 401)
+        throw new Error(
+          `the scenario Worker answered HTTP ${probe.status} to an unknown scenario, expected 404: ${probe.body}`,
+        );
+      lastSecret = probe.reached
+        ? `HTTP 401 from the Worker: a pre-secret instance is still serving`
+        : `${probe.status} from the edge: the route flapped (${probe.body})`;
+      if (streak > 0) note(`attempt ${attempt}: ${lastSecret}, after a run of ${streak}; still settling`);
       else if (attempt <= 2 || attempt % 10 === 0) note(`attempt ${attempt}/${SECRET_ATTEMPTS}: ${lastSecret}`);
       streak = 0;
       await delay(POLL_INTERVAL_MS);
     }
     if (!secretReady)
       throw new Error(
-        `the Worker secret never answered ${SECRET_CONSISTENT_RUNS} consecutive probes within ${SECRET_ATTEMPTS} attempts; last rejection was ${lastSecret}`,
+        `the endpoint never answered ${SECRET_CONSISTENT_RUNS} consecutive probes from the Worker within ${SECRET_ATTEMPTS} attempts; last answer was ${lastSecret}`,
       );
 
     enter("data-channel-probe", "Probing with a prohibited data field; the Worker must reject it with 400");
     let dataChannelClosed = false,
       lastProhibited = "no attempt was made";
     for (let attempt = 1; attempt <= DATA_CHANNEL_ATTEMPTS; attempt++) {
-      const prohibited = await fetchImpl(endpoint, {
+      const probe = await probeScenarioEndpoint(fetchImpl, endpoint, {
         method: "POST",
         headers: authenticatedHeaders,
         body: '{"scenario":"managed-d1/batch-success","sql":"x"}',
       });
-      if (prohibited.status === 400) {
-        note(`attempt ${attempt}: HTTP 400 — the data channel is closed`);
+      if (probe.reached && probe.status === 400) {
+        note(`attempt ${attempt}: HTTP 400 from the Worker — the data channel is closed`);
         dataChannelClosed = true;
         break;
       }
-      lastProhibited = `HTTP ${prohibited.status}: ${brief(await excerptResponse(prohibited))}`;
-      // Only a 401 is a leftover pre-secret instance; anything else is a real protocol failure.
-      if (prohibited.status !== 401) break;
-      note(`attempt ${attempt}/${DATA_CHANNEL_ATTEMPTS}: ${lastProhibited}; a pre-secret instance is still serving`);
+      // A 401 is a leftover pre-secret instance and a non-JSON answer is the edge; both
+      // still settle. Any other answer from the Worker is a real protocol failure.
+      if (probe.reached && probe.status !== 401) {
+        lastProhibited = `HTTP ${probe.status} from the Worker: ${probe.body}`;
+        break;
+      }
+      lastProhibited = probe.reached
+        ? "HTTP 401 from the Worker: a pre-secret instance is still serving"
+        : `${probe.status} from the edge: the route flapped (${probe.body})`;
+      note(`attempt ${attempt}/${DATA_CHANNEL_ATTEMPTS}: ${lastProhibited}`);
       await delay(POLL_INTERVAL_MS);
     }
     if (!dataChannelClosed)
@@ -506,10 +523,17 @@ export async function verifyManagedD1(options) {
           body: JSON.stringify({ scenario: scenario.id }),
           signal: controller.signal,
         });
-        // A 401 here is a pre-secret instance answering, not a scenario that genuinely failed.
+        const text = await response.text();
+        let body;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          // Not JSON: the edge answered, so the request never reached the Worker at all.
+          throw new Error(`the Cloudflare edge answered with HTTP ${response.status}; the route flapped mid-run`);
+        }
+        // A 401 is a pre-secret instance answering, not a scenario that genuinely failed.
         if (response.status === 401)
           throw new Error("the Worker rejected the scenario token; a pre-secret instance served the request");
-        const body = await response.json();
         scenario.status = response.ok && body.status === "passed" ? "passed" : "failed";
         if (scenario.status === "passed") note(`${scenario.id}: passed`);
         else {

@@ -10,8 +10,19 @@ const reaper = () => import("../scripts/reap-managed-d1.mjs");
 const lifecycle = () => import("../scripts/managed-d1.mjs");
 
 // The route probe must see 401, then the secret gate needs a run of consecutive 404s,
-// then the data-channel probe must see 400.
+// then the data-channel probe must see 400. Every one of these is the Worker answering
+// JSON; EDGE marks an answer from the Cloudflare edge, which is HTML and reached nothing.
 const PROTOCOL_PROBES = [401, 404, 404, 404, 404, 404, 400];
+const EDGE = "edge-404",
+  EDGE_SERVER_ERROR = "edge-522";
+
+const endpointResponse = (probe: number | string | undefined) => {
+  if (probe === EDGE) return new Response("<!DOCTYPE html><title>Page not found</title>", { status: 404 });
+  if (probe === EDGE_SERVER_ERROR) return new Response("<!DOCTYPE html><title>Error 522</title>", { status: 522 });
+  return probe === undefined
+    ? new Response('{"status":"passed"}')
+    : new Response('{"status":"rejected"}', { status: probe as number });
+};
 
 const digest = "a".repeat(64),
   sourceCommit = "b".repeat(40),
@@ -487,15 +498,13 @@ test("verification/managed-route-propagation - waits for the workers.dev route b
 
   const fixture = await lifecycleFixture();
   try {
-    // The edge answers 404, then 522, until the route is live; the probe must wait, not fail.
-    const protocol = [404, 522, ...PROTOCOL_PROBES];
+    // The edge serves its HTML "Page not found" until the route is live - including a 404,
+    // which must not be mistaken for the Worker's own 404. The probe must wait, not fail.
+    const protocol = [EDGE, EDGE_SERVER_ERROR, ...PROTOCOL_PROBES];
     let probes = 0;
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
-      if (url.includes("workers.dev")) {
-        const status = protocol[probes++];
-        return status ? new Response("{}", { status }) : new Response('{"status":"passed"}');
-      }
+      if (url.includes("workers.dev")) return endpointResponse(protocol[probes++]);
       if (init?.method === "DELETE") return new Response("{}");
       return new Response("{}", { status: 404 });
     };
@@ -505,7 +514,7 @@ test("verification/managed-route-propagation - waits for the workers.dev route b
       fetchImpl: fetchImpl as typeof fetch,
       delay: async () => {},
     });
-    assert.equal(probes, protocol.length + 8, "three unauthenticated attempts, then the full protocol and scenarios");
+    assert.equal(probes, protocol.length + 8, "two edge answers, then the full protocol and every scenario");
     assert.equal(result.test.status, "passed");
     assert.equal(result.failure, undefined);
     assert.equal(result.cleanup.status, "confirmed");
@@ -528,7 +537,7 @@ test("verification/managed-route-propagation - waits for the workers.dev route b
       delay: async () => {},
     });
     assert.equal(result.failure.phase, "authorization-probe");
-    assert.match(result.failure.detail, /unauthenticated request with HTTP 200/);
+    assert.match(result.failure.detail, /answered HTTP 200 to an unauthenticated POST/);
     assert.equal(result.test.status, "failed");
     assert.deepEqual(
       result.scenarios.map(({ status }: { status: string }) => status),
@@ -549,16 +558,14 @@ test("verification/managed-secret-rollout - survives a non-monotonic secret roll
 
   const fixture = await lifecycleFixture();
   try {
-    // A pre-secret instance answers 401 in the middle of the run of 404s, and again on the
-    // data-channel probe; both are the rollout finishing, not a protocol failure.
-    const protocol = [401, 404, 404, 401, 404, 404, 404, 404, 404, 401, 400];
+    // A pre-secret instance answers 401 in the middle of the run of 404s, the route flaps
+    // back to the edge, and the data-channel probe catches a pre-secret instance too. All
+    // three are the rollout finishing, not protocol failures.
+    const protocol = [401, 404, 404, 401, 404, EDGE, 404, 404, 404, 404, 404, 401, 400];
     let probes = 0;
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
-      if (url.includes("workers.dev")) {
-        const status = protocol[probes++];
-        return status ? new Response('{"status":"rejected"}', { status }) : new Response('{"status":"passed"}');
-      }
+      if (url.includes("workers.dev")) return endpointResponse(protocol[probes++]);
       if (init?.method === "DELETE") return new Response("{}");
       return new Response("{}", { status: 404 });
     };
@@ -578,14 +585,11 @@ test("verification/managed-secret-rollout - survives a non-monotonic secret roll
   const stale = await lifecycleFixture();
   try {
     // The gate passed, then a pre-secret instance served a scenario: that is ambiguous, not failed.
-    const protocol = [401, 404, 404, 404, 404, 404, 400];
     let probes = 0;
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
-      if (url.includes("workers.dev")) {
-        const status = protocol[probes++];
-        return new Response('{"status":"rejected"}', { status: status ?? 401 });
-      }
+      if (url.includes("workers.dev"))
+        return endpointResponse(probes < PROTOCOL_PROBES.length ? PROTOCOL_PROBES[probes++] : 401);
       if (init?.method === "DELETE") return new Response("{}");
       return new Response("{}", { status: 404 });
     };
@@ -602,6 +606,30 @@ test("verification/managed-secret-rollout - survives a non-monotonic secret roll
     assert.equal(result.cleanup.status, "confirmed");
   } finally {
     await rm(stale.root, { recursive: true, force: true });
+  }
+
+  const flapped = await lifecycleFixture();
+  try {
+    // The route dropped back to the edge mid-run: also ambiguous, and named as the edge.
+    let probes = 0;
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
+      if (url.includes("workers.dev"))
+        return endpointResponse(probes < PROTOCOL_PROBES.length ? PROTOCOL_PROBES[probes++] : EDGE);
+      if (init?.method === "DELETE") return new Response("{}");
+      return new Response("{}", { status: 404 });
+    };
+    const result = await verifyManagedD1({
+      ...lifecycleOptions(flapped),
+      run,
+      fetchImpl: fetchImpl as typeof fetch,
+      delay: async () => {},
+    });
+    assert.equal(result.scenarios[0].status, "ambiguous");
+    assert.match(result.failure.detail, /edge answered with HTTP 404; the route flapped/);
+    assert.equal(result.cleanup.status, "confirmed");
+  } finally {
+    await rm(flapped.root, { recursive: true, force: true });
   }
 });
 
