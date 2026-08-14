@@ -76,16 +76,23 @@ async function initializeManagedD1Database({ accountId, token, databaseId, schem
     .split(";")
     .map((statement) => statement.trim())
     .filter(Boolean);
-  for (const sql of statements) {
+  for (const [index, sql] of statements.entries()) {
     const response = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ sql }),
     });
-    if (!response.ok) throw new Error(`D1 schema setup failed with HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`D1 schema setup failed with HTTP ${response.status}`);
+      error.managedPhase = `database-schema-${index + 1}`;
+      throw error;
+    }
     const body = await response.json();
-    if (!body.success || !Array.isArray(body.result) || body.result.some((result) => result?.success !== true))
-      throw new Error("D1 schema setup did not succeed");
+    if (!body.success || !Array.isArray(body.result) || body.result.some((result) => result?.success !== true)) {
+      const error = new Error("D1 schema setup did not succeed");
+      error.managedPhase = `database-schema-${index + 1}`;
+      throw error;
+    }
   }
 }
 
@@ -343,7 +350,9 @@ export async function verifyManagedD1(options) {
     }
     if (mode === "simulate-test-failure" && scenarios.every(({ status }) => status === "passed"))
       scenarios[scenarios.length - 1].status = "failed";
-  } catch {
+  } catch (error) {
+    if (typeof error?.managedPhase === "string")
+      console.error(`managed verification failed during ${error.managedPhase}`);
     const pending = scenarios.find(({ attempts }) => attempts === 0);
     if (scenarioStarted && pending) {
       pending.attempts = 1;
