@@ -394,7 +394,8 @@ test("verification/managed-lifecycle-attempts - records ambiguity once, stops su
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
       if (url.includes("workers.dev")) {
-        if (probes++ < 3) return new Response("{}", { status: 400 });
+        const status = [401, 404, 400][probes++];
+        if (status) return new Response("{}", { status });
         scenarioBodies.push(String(init?.body));
         throw new Error("timeout");
       }
@@ -437,7 +438,8 @@ test("verification/managed-lifecycle-timeout - aborts one hung stateful request 
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
       if (url.includes("workers.dev")) {
-        if (requests++ < 3) return new Response("{}", { status: 400 });
+        const status = [401, 404, 400][requests++];
+        if (status) return new Response("{}", { status });
         return await new Promise<Response>((_resolve, reject) =>
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
         );
