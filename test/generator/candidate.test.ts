@@ -28,10 +28,7 @@ test("candidate/digest-validation rejects missing, malformed, uppercase, and mis
     candidateSha256 === "0".repeat(64) ? "1".repeat(64) : "0".repeat(64),
   ];
   for (const digest of attempts) {
-    await assert.rejects(
-      createCandidateHarness({ bytes: candidateBytes }, digest as string),
-      /candidate SHA-256/,
-    );
+    await assert.rejects(createCandidateHarness({ bytes: candidateBytes }, digest as string), /candidate SHA-256/);
   }
 });
 

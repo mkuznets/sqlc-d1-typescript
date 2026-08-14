@@ -38,6 +38,7 @@ type _BlobRow = Expect<Equal<GetSampleRow["blobValue"], Uint8Array>>;
 
 declare const binding: D1Database;
 const db = new DB(binding);
+
 const one: Promise<GetFeedRow | null> = db.execute(getFeed({ id: 1 }));
 const inserted: Promise<CreateFeedRow | null> = db.execute(createFeed({ title: "x" }));
 const many: Promise<ListFeedsRow[]> = db.execute(listFeeds());
@@ -46,6 +47,7 @@ const changed: Promise<number> = db.execute(deleteFeedsByUser({ userId: "u" }));
 const sliceChanged: Promise<number> = db.execute(deleteUsersByIds({ ids: [1, 2] }));
 const lastId: Promise<number> = db.execute(insertFeedId({ title: "x" }));
 const native: Promise<D1Result<Record<string, unknown>>> = db.execute(purgeFeeds({ userId: "u" }));
+
 const tuple = db.batch(getFeed({id:1}), createFeed({title:"x"}), listFeeds(), touchFeed({title:"x",id:1}), deleteFeedsByUser({userId:"u"}), insertFeedId({title:"x"}), purgeFeeds({userId:"u"}));
 type _BatchTuple = Expect<Equal<Awaited<typeof tuple>, [GetFeedRow | null, CreateFeedRow | null, ListFeedsRow[], void, number, number, D1Result<Record<string, unknown>>]>>;
 const sideEffects: QueryDescriptor<void>[] = [touchFeed({title:"updated",id:1})];
@@ -53,6 +55,7 @@ const typedHeadAndTail = db.batch(getFeed({id:1}), ...sideEffects);
 type _TypedHeadAndTail = Expect<Equal<Awaited<typeof typedHeadAndTail>, [GetFeedRow | null, ...void[]]>>;
 const [typedHead] = await typedHeadAndTail;
 type _TypedHead = Expect<Equal<typeof typedHead, GetFeedRow | null>>;
+
 const session = db.withSession("bookmark");
 const directExecutor: QueryExecutor = db;
 const sessionExecutor: QueryExecutor = session;
@@ -60,17 +63,21 @@ const directResult: Promise<GetFeedRow | null> = directExecutor.execute(getFeed(
 const sessionResult: Promise<GetFeedRow | null> = sessionExecutor.execute(getFeed({id:1}));
 const sessionTuple: Promise<[GetFeedRow | null, ListFeedsRow[]]> = session.batch(getFeed({id:1}), listFeeds());
 const bookmark: string | null = session.getBookmark();
+
 const values: D1NonNullValue[] = [true, 1, "x", new Uint8Array()];
 const nullable: D1Value = null;
 const json: JsonValue = { nested: [null, true, 1, "x"] };
+
 const complete: CreateSampleArgs = { intValue:1,intNull:null,numValue:1.5,numNull:null,textValue:"x",textNull:null,boolValue:true,boolNull:null,blobValue:new Uint8Array(),blobNull:null,jsonValue:{x:true},jsonNull:null,anyValue:"opaque",anyNull:null };
 const sampleOne: Promise<CreateSampleRow | null> = db.execute(createSample(complete));
 const sampleRead: Promise<GetSampleRow | null> = db.execute(getSample({intValue:1}));
 const sampleMany: Promise<ListSamplesRow[]> = db.execute(listSamples());
+
 const context: SqlcD1ErrorContext = { operation:"execute", queryName:"GetFeed", batchIndex:0, rowIndex:0, path:"id", expected:"safe integer", received:"string", cause:new Error("cause") };
 const errors: SqlcD1Error[] = [new QueryArgumentError("x", context), new QueryUsageError("x", context), new QueryResultError("x", context)];
 const operation: "construct" | "execute" | "batch" | "withSession" = errors[0].operation;
 const fields: (string | number | unknown | undefined)[] = [errors[0].queryName, errors[0].batchIndex, errors[0].rowIndex, errors[0].path, errors[0].expected, errors[0].received, errors[0].cause];
+
 void [one,inserted,many,nothing,changed,sliceChanged,lastId,native,tuple,typedHead,directResult,sessionResult,sessionTuple,bookmark,values,nullable,json,sampleOne,sampleRead,sampleMany,operation,fields,userAndPost({id:1}),embedValues({intValue:1})];
 
 // @ts-expect-error nullable properties remain required
@@ -88,6 +95,7 @@ deleteUsersByIds({ids:["1"]});
 // Empty arrays are type-expressible because the public type is ReadonlyArray<number>;
 // runtime construction owns non-empty validation.
 deleteUsersByIds({ids:[]});
+
 // @ts-expect-error batch must be non-empty
 db.batch();
 const dynamic: QueryDescriptor<unknown>[] = [getFeed({id:1})];
@@ -97,6 +105,7 @@ db.batch(...dynamic);
 void getFeed({id:1}).sql;
 // @ts-expect-error descriptor cannot be structurally constructed
 const forged: QueryDescriptor<GetFeedRow | null> = {};
+
 // @ts-expect-error QueryExecutor cannot be directly constructed
 new QueryExecutor(binding);
 class ExternalExecutor extends QueryExecutor {}
@@ -111,6 +120,7 @@ class ExternalSession extends SessionExecutor {
   }
   getBookmark(): string | null { return null; }
 }
+
 // @ts-expect-error invalid session start
  db.withSession(null);
 // @ts-expect-error invalid session start
@@ -119,5 +129,6 @@ class ExternalSession extends SessionExecutor {
 const wrongResult: Promise<number> = db.execute(getFeed({id:1}));
 // @ts-expect-error positional batch results cannot be swapped
 const wrongTuple: Promise<[ListFeedsRow[], GetFeedRow | null]> = db.batch(getFeed({id:1}), listFeeds());
+
 void [forged, ExternalExecutor, ExternalSession, wrongResult, wrongTuple];
 `;

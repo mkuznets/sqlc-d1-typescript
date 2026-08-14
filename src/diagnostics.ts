@@ -1,11 +1,5 @@
 export type DiagnosticSeverity = "error" | "warning";
-export type DiagnosticCategory =
-  | "PROTOCOL"
-  | "OPTIONS"
-  | "COMPATIBILITY"
-  | "QUERY"
-  | "EMISSION"
-  | "INTERNAL";
+export type DiagnosticCategory = "PROTOCOL" | "OPTIONS" | "COMPATIBILITY" | "QUERY" | "EMISSION" | "INTERNAL";
 
 export interface Diagnostic {
   severity: DiagnosticSeverity;
@@ -47,11 +41,21 @@ export function quoteDiagnosticValue(value: string): string {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index);
     switch (code) {
-      case 0x22: output += '\\"'; break;
-      case 0x5c: output += "\\\\"; break;
-      case 0x0a: output += "\\n"; break;
-      case 0x0d: output += "\\r"; break;
-      case 0x09: output += "\\t"; break;
+      case 0x22:
+        output += '\\"';
+        break;
+      case 0x5c:
+        output += "\\\\";
+        break;
+      case 0x0a:
+        output += "\\n";
+        break;
+      case 0x0d:
+        output += "\\r";
+        break;
+      case 0x09:
+        output += "\\t";
+        break;
       default:
         if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) {
           output += `\\u${code.toString(16).padStart(4, "0")}`;
@@ -74,14 +78,16 @@ function compareOptionalNumber(left?: number, right?: number): number {
 }
 
 export function sortDiagnostics(diagnostics: readonly Diagnostic[]): Diagnostic[] {
-  return [...diagnostics].sort((left, right) =>
-    CATEGORY_RANK[left.category] - CATEGORY_RANK[right.category]
-    || compareText(left.filename, right.filename)
-    || compareText(left.queryName, right.queryName)
-    || compareOptionalNumber(left.queryIndex, right.queryIndex)
-    || compareOptionalNumber(left.fieldIndex, right.fieldIndex)
-    || compareText(left.fieldPath, right.fieldPath)
-    || compareText(left.reason, right.reason));
+  return [...diagnostics].sort(
+    (left, right) =>
+      CATEGORY_RANK[left.category] - CATEGORY_RANK[right.category] ||
+      compareText(left.filename, right.filename) ||
+      compareText(left.queryName, right.queryName) ||
+      compareOptionalNumber(left.queryIndex, right.queryIndex) ||
+      compareOptionalNumber(left.fieldIndex, right.fieldIndex) ||
+      compareText(left.fieldPath, right.fieldPath) ||
+      compareText(left.reason, right.reason),
+  );
 }
 
 function countLabel(count: number, singular: string): string {

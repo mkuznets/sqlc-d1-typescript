@@ -50,18 +50,27 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
+          cache: npm
+
       - run: npm install --global npm@${{ needs.config.outputs.npm }}
       - run: node --version && npm --version && npm ci
+      - run: make fmt-check
       - run: make test-generator
       - run: node scripts/check-compatibility.mjs
       - run: make build
+
       - name: Record candidate identity
         run: |
           sha256sum build/plugin.wasm | awk '{print $1}' > candidate.sha256
           cat candidate.sha256
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: { name: publication-candidate, path: "build/plugin.wasm\ncandidate.sha256", if-no-files-found: error }
+        with:
+          name: publication-candidate
+          path: "build/plugin.wasm\ncandidate.sha256"
+          if-no-files-found: error
 
   exact-candidate:
     needs: [config, baseline-and-build]
@@ -69,10 +78,15 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
+          cache: npm
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: publication-candidate, path: candidate }
+        with:
+          name: publication-candidate
+          path: candidate
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
       - run: make test-candidate CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
@@ -82,10 +96,15 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
+          cache: npm
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: publication-candidate, path: candidate }
+        with:
+          name: publication-candidate
+          path: candidate
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
       - run: make test-types CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
@@ -95,11 +114,16 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}" }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with: { bun-version: "${{ needs.config.outputs.bun }}" }
+        with:
+          bun-version: "${{ needs.config.outputs.bun }}"
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: publication-candidate, path: candidate }
+        with:
+          name: publication-candidate
+          path: candidate
       - run: node --version && npm --version && bun --version
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
       - run: make test-miniflare CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
@@ -110,11 +134,16 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}" }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with: { bun-version: "${{ needs.config.outputs.bun }}" }
+        with:
+          bun-version: "${{ needs.config.outputs.bun }}"
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: publication-candidate, path: candidate }
+        with:
+          name: publication-candidate
+          path: candidate
       - run: node --version && npm --version && bun --version
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
       - run: make test-example CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
@@ -125,11 +154,16 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}" }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
       - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
-        with: { sqlc-version: "${{ needs.config.outputs.sqlc-ceiling-install }}" }
+        with:
+          sqlc-version: "${{ needs.config.outputs.sqlc-ceiling-install }}"
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: publication-candidate, path: candidate }
+        with:
+          name: publication-candidate
+          path: candidate
       - run: node --version && npm --version && sqlc version
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
       - run: make test-generated-drift-worktree CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
@@ -144,16 +178,24 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
+          cache: npm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with: { bun-version: "${{ needs.config.outputs.bun }}" }
+        with:
+          bun-version: "${{ needs.config.outputs.bun }}"
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && npm ci
       - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
-        with: { sqlc-version: "${{ matrix.sqlc.install }}" }
+        with:
+          sqlc-version: "${{ matrix.sqlc.install }}"
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { name: publication-candidate, path: candidate }
+        with:
+          name: publication-candidate
+          path: candidate
       - run: node --version && npm --version && bun --version && sqlc version
       - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
+
       - name: Verify cell and write actual evidence
         run: |
           node scripts/verify-sqlc-compatibility.mjs --candidate "$PWD/candidate/build/plugin.wasm" --sha256 "$(cat candidate/candidate.sha256)" --sqlc-version "${{ matrix.sqlc.version }}" --sqlc "$(command -v sqlc)" --output matrix-result.json
@@ -161,7 +203,10 @@ jobs:
           cat matrix-result.json
           cat compatibility-evidence.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: { name: "compatibility-evidence-${{ matrix.sqlc.version }}", path: compatibility-evidence.json, if-no-files-found: error }
+        with:
+          name: "compatibility-evidence-${{ matrix.sqlc.version }}"
+          path: compatibility-evidence.json
+          if-no-files-found: error
 
   upstream-drift:
     if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'drift')) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -170,8 +215,11 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: "${{ needs.config.outputs.node }}", cache: npm }
+        with:
+          node-version: "${{ needs.config.outputs.node }}"
+          cache: npm
       - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
+
       - name: Check public upstream releases
         shell: bash
         run: |

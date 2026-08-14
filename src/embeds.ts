@@ -62,12 +62,36 @@ export class CatalogIndex {
 
 // Characters that can never occur inside a bare SQL identifier sqlc wrote into a projection.
 const IDENTIFIER_STOPS = new Set([
-  ",", ".", "(", ")", '"', "'", ";", "*", "+", "-", "/", "=", "<", ">", "!", "|", "&", "%", "?",
+  ",",
+  ".",
+  "(",
+  ")",
+  '"',
+  "'",
+  ";",
+  "*",
+  "+",
+  "-",
+  "/",
+  "=",
+  "<",
+  ">",
+  "!",
+  "|",
+  "&",
+  "%",
+  "?",
 ]);
 
 function isWhitespace(character: string): boolean {
-  return character === " " || character === "\t" || character === "\n" || character === "\r"
-    || character === "\f" || character === "\v";
+  return (
+    character === " " ||
+    character === "\t" ||
+    character === "\n" ||
+    character === "\r" ||
+    character === "\f" ||
+    character === "\v"
+  );
 }
 
 function isAsciiLetter(character: string): boolean {

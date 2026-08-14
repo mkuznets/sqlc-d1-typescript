@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  closeSync,
-  mkdtempSync,
-  openSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WASI } from "node:wasi";
@@ -23,9 +16,7 @@ export async function createCandidateHarness(
     throw new Error("candidate SHA-256 must be exactly 64 lowercase hexadecimal characters");
   }
 
-  const retainedBytes = Uint8Array.from(
-    "path" in source ? readFileSync(source.path) : source.bytes,
-  );
+  const retainedBytes = Uint8Array.from("path" in source ? readFileSync(source.path) : source.bytes);
   const actualSha256 = createHash("sha256").update(retainedBytes).digest("hex");
   if (actualSha256 !== expectedSha256) {
     throw new Error(`candidate SHA-256 mismatch: expected ${expectedSha256}, got ${actualSha256}`);
@@ -43,10 +34,7 @@ export async function createCandidateHarness(
   };
 }
 
-async function runCandidate(
-  module: WebAssembly.Module,
-  input: Uint8Array,
-): Promise<GeneratorOutcome> {
+async function runCandidate(module: WebAssembly.Module, input: Uint8Array): Promise<GeneratorOutcome> {
   const directory = mkdtempSync(join(tmpdir(), "sqlc-d1-candidate-"));
   const stdinPath = join(directory, "stdin");
   const stdoutPath = join(directory, "stdout");

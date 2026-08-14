@@ -1,15 +1,12 @@
 import { Column, GenerateRequest, Identifier, Query } from "./gen/plugin/codegen_pb";
 import compatibility from "../verification/compatibility.json";
-import {
-  GenerationDiagnosticError,
-  quoteDiagnosticValue,
-  type Diagnostic,
-} from "./diagnostics";
+import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics";
 
 export const SQLC_COMPATIBILITY_POLICY = Object.freeze({
   supportedFloor: compatibility.sqlc.supportedFloor.replace(/^v/, ""),
   testedCeiling: compatibility.sqlc.testedCeiling.replace(/^v/, ""),
 });
+
 export const MINIMUM_SQLC_VERSION = SQLC_COMPATIBILITY_POLICY.supportedFloor;
 export const TESTED_SQLC_VERSION = SQLC_COMPATIBILITY_POLICY.testedCeiling;
 export const SUPPORTED_COMMANDS = [":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"] as const;
@@ -41,11 +38,13 @@ export function validateGenerateRequest(request: GenerateRequest): ValidatedGene
     diagnostics.push(error("PROTOCOL", "MISSING_SETTINGS", "request settings are required"));
     compatible = false;
   } else if (request.settings.engine !== "sqlite") {
-    diagnostics.push(error(
-      "COMPATIBILITY",
-      "UNSUPPORTED_ENGINE",
-      `engine ${quoteDiagnosticValue(request.settings.engine)} is unsupported; supported engine: ${quoteDiagnosticValue("sqlite")}`,
-    ));
+    diagnostics.push(
+      error(
+        "COMPATIBILITY",
+        "UNSUPPORTED_ENGINE",
+        `engine ${quoteDiagnosticValue(request.settings.engine)} is unsupported; supported engine: ${quoteDiagnosticValue("sqlite")}`,
+      ),
+    );
     compatible = false;
   }
 
@@ -56,18 +55,22 @@ export function validateGenerateRequest(request: GenerateRequest): ValidatedGene
   } else {
     version = parseSemVer(request.sqlcVersion);
     if (!version) {
-      diagnostics.push(error(
-        "COMPATIBILITY",
-        "MALFORMED_SQLC_VERSION",
-        `sqlc version ${quoteDiagnosticValue(request.sqlcVersion)} is not a valid semantic version`,
-      ));
+      diagnostics.push(
+        error(
+          "COMPATIBILITY",
+          "MALFORMED_SQLC_VERSION",
+          `sqlc version ${quoteDiagnosticValue(request.sqlcVersion)} is not a valid semantic version`,
+        ),
+      );
       compatible = false;
     } else if (compareSemVer(version, minimumVersion) < 0) {
-      diagnostics.push(error(
-        "COMPATIBILITY",
-        "UNSUPPORTED_SQLC_VERSION",
-        `sqlc ${quoteDiagnosticValue(request.sqlcVersion)} is older than the minimum supported version v${MINIMUM_SQLC_VERSION}`,
-      ));
+      diagnostics.push(
+        error(
+          "COMPATIBILITY",
+          "UNSUPPORTED_SQLC_VERSION",
+          `sqlc ${quoteDiagnosticValue(request.sqlcVersion)} is older than the minimum supported version v${MINIMUM_SQLC_VERSION}`,
+        ),
+      );
       compatible = false;
     } else if (compareSemVer(version, testedVersion) > 0) {
       diagnostics.push({
@@ -115,34 +118,44 @@ function decodeOptions(bytes: Uint8Array, diagnostics: Diagnostic[]): { interfac
   }
 
   const record = value as Record<string, unknown>;
-  const unknownKeys = Object.keys(record).filter((key) => key !== "interface").sort(compareText);
+  const unknownKeys = Object.keys(record)
+    .filter((key) => key !== "interface")
+    .sort(compareText);
   for (const key of unknownKeys) {
-    diagnostics.push(error(
-      "OPTIONS",
-      "UNKNOWN_OPTION",
-      `option ${quoteDiagnosticValue(key)} is unknown; supported option: ${quoteDiagnosticValue("interface")}`,
-      { fieldPath: key },
-    ));
+    diagnostics.push(
+      error(
+        "OPTIONS",
+        "UNKNOWN_OPTION",
+        `option ${quoteDiagnosticValue(key)} is unknown; supported option: ${quoteDiagnosticValue("interface")}`,
+        { fieldPath: key },
+      ),
+    );
   }
   if (Object.prototype.hasOwnProperty.call(record, "interface") && record.interface !== "workers") {
-    diagnostics.push(error(
-      "OPTIONS",
-      "UNSUPPORTED_INTERFACE",
-      `interface option must be ${quoteDiagnosticValue("workers")}`,
-      { fieldPath: "interface" },
-    ));
+    diagnostics.push(
+      error("OPTIONS", "UNSUPPORTED_INTERFACE", `interface option must be ${quoteDiagnosticValue("workers")}`, {
+        fieldPath: "interface",
+      }),
+    );
   }
-  if (unknownKeys.length > 0 || (Object.prototype.hasOwnProperty.call(record, "interface") && record.interface !== "workers")) {
+  if (
+    unknownKeys.length > 0 ||
+    (Object.prototype.hasOwnProperty.call(record, "interface") && record.interface !== "workers")
+  ) {
     return undefined;
   }
   return { interface: "workers" };
 }
 
 export function parseSemVer(value: string): SemVer | undefined {
-  const match = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
+  const match =
+    /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(
+      value,
+    );
   if (!match) return undefined;
   const prerelease = match[4]?.split(".") ?? [];
-  if (prerelease.some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0"))) return undefined;
+  if (prerelease.some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0")))
+    return undefined;
   return { core: [match[1], match[2], match[3]], prerelease };
 }
 
@@ -151,9 +164,11 @@ export function compareSemVer(left: SemVer, right: SemVer): number {
     const comparison = compareNumericText(left.core[index], right.core[index]);
     if (comparison !== 0) return comparison;
   }
+
   if (left.prerelease.length === 0 || right.prerelease.length === 0) {
     return left.prerelease.length === right.prerelease.length ? 0 : left.prerelease.length === 0 ? 1 : -1;
   }
+
   const length = Math.max(left.prerelease.length, right.prerelease.length);
   for (let index = 0; index < length; index++) {
     const a = left.prerelease[index];
@@ -186,38 +201,62 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
     ...extra,
   });
 
-  if (!query.filename) diagnostics.push(error("QUERY", "MISSING_FILENAME", "query filename is required", context({ fieldPath: "filename" })));
-  if (!query.name) diagnostics.push(error("QUERY", "MISSING_NAME", "query name is required", context({ fieldPath: "name" })));
-  if (!query.cmd) diagnostics.push(error("QUERY", "MISSING_COMMAND", "query command is required", context({ fieldPath: "cmd" })));
-  if (!query.text) diagnostics.push(error("QUERY", "MISSING_SQL", "query SQL is required", context({ fieldPath: "text" })));
+  if (!query.filename)
+    diagnostics.push(
+      error("QUERY", "MISSING_FILENAME", "query filename is required", context({ fieldPath: "filename" })),
+    );
+  if (!query.name)
+    diagnostics.push(error("QUERY", "MISSING_NAME", "query name is required", context({ fieldPath: "name" })));
+  if (!query.cmd)
+    diagnostics.push(error("QUERY", "MISSING_COMMAND", "query command is required", context({ fieldPath: "cmd" })));
+  if (!query.text)
+    diagnostics.push(error("QUERY", "MISSING_SQL", "query SQL is required", context({ fieldPath: "text" })));
 
   const supported = (SUPPORTED_COMMANDS as readonly string[]).includes(query.cmd);
   if (query.cmd && !supported) {
-    diagnostics.push(error(
-      "QUERY",
-      "UNSUPPORTED_COMMAND",
-      `command ${quoteDiagnosticValue(query.cmd)} is unsupported; supported commands: ${SUPPORTED_COMMANDS.map(quoteDiagnosticValue).join(", ")}`,
-      context({ fieldPath: "cmd" }),
-    ));
+    diagnostics.push(
+      error(
+        "QUERY",
+        "UNSUPPORTED_COMMAND",
+        `command ${quoteDiagnosticValue(query.cmd)} is unsupported; supported commands: ${SUPPORTED_COMMANDS.map(quoteDiagnosticValue).join(", ")}`,
+        context({ fieldPath: "cmd" }),
+      ),
+    );
   }
 
   const parameterValidationStart = diagnostics.length;
   const priorBinds = new Map<number, { column: Column; index: number }>();
   query.params.forEach((parameter, parameterIndex) => {
     if (!parameter.column) {
-      diagnostics.push(error("QUERY", "MISSING_PARAMETER_COLUMN", "parameter column metadata is required", context({ fieldPath: `params[${parameterIndex}].column`, fieldIndex: parameterIndex })));
+      diagnostics.push(
+        error(
+          "QUERY",
+          "MISSING_PARAMETER_COLUMN",
+          "parameter column metadata is required",
+          context({ fieldPath: `params[${parameterIndex}].column`, fieldIndex: parameterIndex }),
+        ),
+      );
     }
     if (parameter.number <= 0) {
-      diagnostics.push(error("QUERY", "INVALID_BIND_NUMBER", `bind number ${quoteDiagnosticValue(String(parameter.number))} must be positive`, context({ fieldPath: `params[${parameterIndex}].number`, fieldIndex: parameterIndex })));
+      diagnostics.push(
+        error(
+          "QUERY",
+          "INVALID_BIND_NUMBER",
+          `bind number ${quoteDiagnosticValue(String(parameter.number))} must be positive`,
+          context({ fieldPath: `params[${parameterIndex}].number`, fieldIndex: parameterIndex }),
+        ),
+      );
     } else if (parameter.column) {
       const prior = priorBinds.get(parameter.number);
       if (prior && !columnsEquivalent(prior.column, parameter.column)) {
-        diagnostics.push(error(
-          "QUERY",
-          "CONFLICTING_BIND_NUMBER",
-          `bind number ${quoteDiagnosticValue(String(parameter.number))} has conflicting metadata at parameter positions ${prior.index + 1} and ${parameterIndex + 1}`,
-          context({ fieldPath: `params[${parameterIndex}]`, fieldIndex: parameterIndex }),
-        ));
+        diagnostics.push(
+          error(
+            "QUERY",
+            "CONFLICTING_BIND_NUMBER",
+            `bind number ${quoteDiagnosticValue(String(parameter.number))} has conflicting metadata at parameter positions ${prior.index + 1} and ${parameterIndex + 1}`,
+            context({ fieldPath: `params[${parameterIndex}]`, fieldIndex: parameterIndex }),
+          ),
+        );
       } else if (!prior) {
         priorBinds.set(parameter.number, { column: parameter.column, index: parameterIndex });
       }
@@ -231,8 +270,16 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
   validateEmbeds(query, queryIndex, diagnostics);
 
   if (ROW_COMMANDS.has(query.cmd) && query.columns.length === 0) {
-    diagnostics.push(error("QUERY", "MISSING_RESULT_COLUMNS", `command ${quoteDiagnosticValue(query.cmd)} requires at least one result column`, context({ fieldPath: "columns" })));
+    diagnostics.push(
+      error(
+        "QUERY",
+        "MISSING_RESULT_COLUMNS",
+        `command ${quoteDiagnosticValue(query.cmd)} requires at least one result column`,
+        context({ fieldPath: "columns" }),
+      ),
+    );
   }
+
   // Physical keys only have to be distinguishable where a row parser reads them.
   if (ROW_COMMANDS.has(query.cmd)) {
     const physicalColumns = new Map<string, number>();
@@ -242,12 +289,14 @@ function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic
       if (!column.name || column.embedTable) return;
       const prior = physicalColumns.get(column.name);
       if (prior !== undefined) {
-        diagnostics.push(error(
-          "QUERY",
-          "DUPLICATE_PHYSICAL_COLUMN",
-          `physical result key ${quoteDiagnosticValue(column.name)} is repeated at column positions ${prior + 1} and ${columnIndex + 1}; add a unique SQL alias`,
-          context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex }),
-        ));
+        diagnostics.push(
+          error(
+            "QUERY",
+            "DUPLICATE_PHYSICAL_COLUMN",
+            `physical result key ${quoteDiagnosticValue(column.name)} is repeated at column positions ${prior + 1} and ${columnIndex + 1}; add a unique SQL alias`,
+            context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex }),
+          ),
+        );
       } else {
         physicalColumns.set(column.name, columnIndex);
       }
@@ -282,12 +331,14 @@ function validateBindShape(
 
   const highest = Math.max(...slots.map((slot) => slot.number));
   if (highest !== slots.length) {
-    diagnostics.push(error(
-      "QUERY",
-      "BIND_NUMBER_GAP",
-      `bind numbers must cover 1 through ${slots.length} without gaps; the highest received number is ${highest}`,
-      context({ fieldPath: "params" }),
-    ));
+    diagnostics.push(
+      error(
+        "QUERY",
+        "BIND_NUMBER_GAP",
+        `bind numbers must cover 1 through ${slots.length} without gaps; the highest received number is ${highest}`,
+        context({ fieldPath: "params" }),
+      ),
+    );
     return;
   }
 
@@ -295,12 +346,14 @@ function validateBindShape(
   // slice shifts every later placeholder, which a numbered one cannot survive.
   if (hasSlice) {
     if (NUMBERED_PLACEHOLDER.test(query.text)) {
-      diagnostics.push(error(
-        "QUERY",
-        "SLICE_BIND_MIXTURE",
-        "a query with a sqlc.slice parameter cannot also use numbered placeholders, because expanding the slice moves every later placeholder; replace sqlc.arg and named parameters with plain ? placeholders",
-        context({ fieldPath: "params" }),
-      ));
+      diagnostics.push(
+        error(
+          "QUERY",
+          "SLICE_BIND_MIXTURE",
+          "a query with a sqlc.slice parameter cannot also use numbered placeholders, because expanding the slice moves every later placeholder; replace sqlc.arg and named parameters with plain ? placeholders",
+          context({ fieldPath: "params" }),
+        ),
+      );
     }
     return;
   }
@@ -308,12 +361,14 @@ function validateBindShape(
   for (let index = 0; index < slots.length; index++) {
     const slot = slots[index];
     if (slot.number === index + 1) continue;
-    diagnostics.push(error(
-      "QUERY",
-      "UNSUPPORTED_BIND_ORDER",
-      `the parameter in position ${slot.parameterIndex + 1} has bind number ${slot.number}; sqlc's numbering for queries that mix named and positional parameters cannot be reproduced as a SQLite binding; use a named parameter for every value`,
-      context({ fieldPath: `params[${slot.parameterIndex}]`, fieldIndex: slot.parameterIndex }),
-    ));
+    diagnostics.push(
+      error(
+        "QUERY",
+        "UNSUPPORTED_BIND_ORDER",
+        `the parameter in position ${slot.parameterIndex + 1} has bind number ${slot.number}; sqlc's numbering for queries that mix named and positional parameters cannot be reproduced as a SQLite binding; use a named parameter for every value`,
+        context({ fieldPath: `params[${slot.parameterIndex}]`, fieldIndex: slot.parameterIndex }),
+      ),
+    );
     return;
   }
 }
@@ -328,32 +383,44 @@ function validateSlices(query: Query, queryIndex: number, diagnostics: Diagnosti
     markers.push({ name: match[1], index: markers.length });
   }
   const base = { filename: query.filename || undefined, queryName: query.name || undefined, queryIndex };
+
   for (const slice of slices) {
     if (!slice.column.name) {
-      diagnostics.push(error("QUERY", "SLICE_METADATA_MISMATCH", "slice parameter name is required", { ...base, fieldPath: `params[${slice.index}].column.name`, fieldIndex: slice.index }));
+      diagnostics.push(
+        error("QUERY", "SLICE_METADATA_MISMATCH", "slice parameter name is required", {
+          ...base,
+          fieldPath: `params[${slice.index}].column.name`,
+          fieldIndex: slice.index,
+        }),
+      );
       continue;
     }
     const matchingMarkers = markers.filter((marker) => marker.name === slice.column.name).length;
     const matchingSlices = slices.filter((candidate) => candidate.column.name === slice.column.name).length;
     if (matchingMarkers === 0 || matchingSlices !== 1) {
-      diagnostics.push(error(
-        "QUERY",
-        "SLICE_METADATA_MISMATCH",
-        `slice parameter ${quoteDiagnosticValue(slice.column.name)} must map unambiguously to a SQL slice marker`,
-        { ...base, fieldPath: `params[${slice.index}].column.isSqlcSlice`, fieldIndex: slice.index },
-      ));
+      diagnostics.push(
+        error(
+          "QUERY",
+          "SLICE_METADATA_MISMATCH",
+          `slice parameter ${quoteDiagnosticValue(slice.column.name)} must map unambiguously to a SQL slice marker`,
+          { ...base, fieldPath: `params[${slice.index}].column.isSqlcSlice`, fieldIndex: slice.index },
+        ),
+      );
     }
   }
+
   for (const marker of markers) {
     const matchingSlices = slices.filter((slice) => slice.column.name === marker.name).length;
     const matchingMarkers = markers.filter((candidate) => candidate.name === marker.name).length;
     if (matchingSlices !== 1 || matchingMarkers !== 1) {
-      diagnostics.push(error(
-        "QUERY",
-        "SLICE_METADATA_MISMATCH",
-        `SQL slice marker ${quoteDiagnosticValue(marker.name)} must map unambiguously to one slice parameter`,
-        { ...base, fieldPath: `sliceMarkers[${marker.index}]`, fieldIndex: marker.index },
-      ));
+      diagnostics.push(
+        error(
+          "QUERY",
+          "SLICE_METADATA_MISMATCH",
+          `SQL slice marker ${quoteDiagnosticValue(marker.name)} must map unambiguously to one slice parameter`,
+          { ...base, fieldPath: `sliceMarkers[${marker.index}]`, fieldIndex: marker.index },
+        ),
+      );
     }
   }
 }
@@ -362,29 +429,43 @@ function validateEmbeds(query: Query, queryIndex: number, diagnostics: Diagnosti
   query.columns.forEach((column, columnIndex) => {
     if (!column.embedTable) return;
     if (!column.name || !column.embedTable.name) {
-      diagnostics.push(error(
-        "QUERY",
-        "INVALID_EMBED_METADATA",
-        "embed column requires a logical column name and a nonempty embed table name",
-        {
-          filename: query.filename || undefined,
-          queryName: query.name || undefined,
-          queryIndex,
-          fieldPath: `columns[${columnIndex}].embedTable`,
-          fieldIndex: columnIndex,
-        },
-      ));
+      diagnostics.push(
+        error(
+          "QUERY",
+          "INVALID_EMBED_METADATA",
+          "embed column requires a logical column name and a nonempty embed table name",
+          {
+            filename: query.filename || undefined,
+            queryName: query.name || undefined,
+            queryIndex,
+            fieldPath: `columns[${columnIndex}].embedTable`,
+            fieldIndex: columnIndex,
+          },
+        ),
+      );
     }
   });
 }
 
 function columnsEquivalent(left: Column, right: Column): boolean {
-  const identifier = (value?: Identifier) => value === undefined ? undefined : [value.catalog, value.schema, value.name];
+  const identifier = (value?: Identifier) =>
+    value === undefined ? undefined : [value.catalog, value.schema, value.name];
   const projection = (column: Column) => [
-    column.name, column.notNull, column.isArray, column.length, column.isNamedParam,
-    column.isFuncCall, column.scope, identifier(column.table), column.tableAlias,
-    identifier(column.type), column.isSqlcSlice, identifier(column.embedTable),
-    column.originalName, column.unsigned, column.arrayDims,
+    column.name,
+    column.notNull,
+    column.isArray,
+    column.length,
+    column.isNamedParam,
+    column.isFuncCall,
+    column.scope,
+    identifier(column.table),
+    column.tableAlias,
+    identifier(column.type),
+    column.isSqlcSlice,
+    identifier(column.embedTable),
+    column.originalName,
+    column.unsigned,
+    column.arrayDims,
   ];
   return JSON.stringify(projection(left)) === JSON.stringify(projection(right));
 }

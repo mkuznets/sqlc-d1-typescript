@@ -1,4 +1,44 @@
 export function parseD1CreateJson(source: string): string;
-export function stageManagedD1(options: { candidate: string; sha256: string; sqlc?: string; output: string; root?: string; run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }> }): Promise<string>;
-export function cleanupManagedD1State(options: { statePath: string; reportPath: string; accountId: string; token: string; root?: string; fetchImpl?: typeof fetch; run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }> }): Promise<any>;
-export function verifyManagedD1(options: { candidate: string; sha256: string; sourceCommit: string; runId: string; runAttempt: string; runUrl: string; trigger: "schedule" | "workflow_dispatch" | "release"; accountId: string; token: string; evidencePath: string; statePath: string; sqlc?: string; mode?: "normal" | "simulate-test-failure" | "simulate-cleanup-failure"; root?: string; fetchImpl?: typeof fetch; run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }>; now?: () => Date; stageImpl?: (options: any) => Promise<string>; registerSignal?: (handler: () => Promise<void>) => () => void; authToken?: () => string; maskSecret?: (secret: string) => void; scenarioTimeoutMs?: number; setTimer?: typeof setTimeout; clearTimer?: typeof clearTimeout }): Promise<any>;
+export function stageManagedD1(options: {
+  candidate: string;
+  sha256: string;
+  sqlc?: string;
+  output: string;
+  root?: string;
+  run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }>;
+}): Promise<string>;
+export function cleanupManagedD1State(options: {
+  statePath: string;
+  reportPath: string;
+  accountId: string;
+  token: string;
+  root?: string;
+  fetchImpl?: typeof fetch;
+  run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }>;
+}): Promise<any>;
+export function verifyManagedD1(options: {
+  candidate: string;
+  sha256: string;
+  sourceCommit: string;
+  runId: string;
+  runAttempt: string;
+  runUrl: string;
+  trigger: "schedule" | "workflow_dispatch" | "release";
+  accountId: string;
+  token: string;
+  evidencePath: string;
+  statePath: string;
+  sqlc?: string;
+  mode?: "normal" | "simulate-test-failure" | "simulate-cleanup-failure";
+  root?: string;
+  fetchImpl?: typeof fetch;
+  run?: (command: string, args: string[], options?: any) => Promise<{ stdout: string; stderr: string }>;
+  now?: () => Date;
+  stageImpl?: (options: any) => Promise<string>;
+  registerSignal?: (handler: () => Promise<void>) => () => void;
+  authToken?: () => string;
+  maskSecret?: (secret: string) => void;
+  scenarioTimeoutMs?: number;
+  setTimer?: typeof setTimeout;
+  clearTimer?: typeof clearTimeout;
+}): Promise<any>;

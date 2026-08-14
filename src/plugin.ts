@@ -20,12 +20,14 @@ export function runPlugin(input: Uint8Array): PluginRunResult {
   try {
     request = GenerateRequest.fromBinary(input);
   } catch {
-    return failure([{
-      severity: "error",
-      category: "PROTOCOL",
-      reason: "MALFORMED_REQUEST",
-      message: "Plugin input is not a valid sqlc GenerateRequest",
-    }]);
+    return failure([
+      {
+        severity: "error",
+        category: "PROTOCOL",
+        reason: "MALFORMED_REQUEST",
+        message: "Plugin input is not a valid sqlc GenerateRequest",
+      },
+    ]);
   }
 
   try {

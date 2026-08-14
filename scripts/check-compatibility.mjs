@@ -8,5 +8,12 @@ export async function checkCompatibility(root = process.cwd()) {
   return renderCompatibilityFacts(config);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  void (async () => { try { console.log(await checkCompatibility()); } catch (error) { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; } })();
+  void (async () => {
+    try {
+      console.log(await checkCompatibility());
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  })();
 }

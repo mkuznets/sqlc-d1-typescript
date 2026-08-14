@@ -45,6 +45,14 @@ src/gen/plugin/codegen_pb.ts: buf.gen.yaml | $(BUF)
 build/plugin.wasm: build/out.js | $(JAVY)
 	$(JAVY) build build/out.js -o build/plugin.wasm -C source=omitted
 
+.PHONY: fmt
+fmt: node_modules
+	npx prettier --write .
+
+.PHONY: fmt-check
+fmt-check: node_modules
+	npx prettier --check .
+
 .PHONY: validate-candidate
 validate-candidate:
 	@test -n "$(CANDIDATE_WASM)" || (echo "CANDIDATE_WASM is required" >&2; exit 2)

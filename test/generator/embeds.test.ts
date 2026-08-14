@@ -21,12 +21,14 @@ const spanTexts = (text: string, columnNames: readonly string[]): string[] =>
   spans(text, columnNames).map((span) => text.slice(span.start, span.end));
 
 test("the expansion scanner locates every shape sqlc emits for sqlc.embed", () => {
-  const twoEmbeds = "SELECT users.id, users.name, posts.id, posts.user_id, posts.title FROM users JOIN posts ON posts.user_id = users.id";
+  const twoEmbeds =
+    "SELECT users.id, users.name, posts.id, posts.user_id, posts.title FROM users JOIN posts ON posts.user_id = users.id";
   assert.deepEqual(spanTexts(twoEmbeds, ["id", "name"]), ["users.id, users.name"]);
   assert.deepEqual(spanTexts(twoEmbeds, ["id", "user_id", "title"]), ["posts.id, posts.user_id, posts.title"]);
 
   // Ordinary columns before and after an expansion do not disturb it.
-  const around = "SELECT users.id AS uid, posts.id, posts.user_id, posts.title, posts.title AS t FROM users JOIN posts ON posts.user_id = users.id";
+  const around =
+    "SELECT users.id AS uid, posts.id, posts.user_id, posts.title, posts.title AS t FROM users JOIN posts ON posts.user_id = users.id";
   assert.deepEqual(spanTexts(around, ["id", "user_id", "title"]), ["posts.id, posts.user_id, posts.title"]);
 
   // A self-join embeds one table twice, so one column list matches two runs.
@@ -56,12 +58,14 @@ test("the projection guard keeps predicates and clauses out of the expansion", (
     spanTexts("SELECT users.id, users.name FROM users WHERE users.id = ? AND users.name = ?", ["id", "name"]),
     ["users.id, users.name"],
   );
+  assert.deepEqual(spanTexts("SELECT users.id, users.name FROM users ORDER BY users.id, users.name", ["id", "name"]), [
+    "users.id, users.name",
+  ]);
   assert.deepEqual(
-    spanTexts("SELECT users.id, users.name FROM users ORDER BY users.id, users.name", ["id", "name"]),
-    ["users.id, users.name"],
-  );
-  assert.deepEqual(
-    spanTexts("SELECT users.id, users.name FROM users GROUP BY users.id, users.name HAVING users.id > 0", ["id", "name"]),
+    spanTexts("SELECT users.id, users.name FROM users GROUP BY users.id, users.name HAVING users.id > 0", [
+      "id",
+      "name",
+    ]),
     ["users.id, users.name"],
   );
   // An expansion that does not start a select-list item is not located at all.
@@ -116,7 +120,8 @@ test("the projection rewrite inserts aliases and moves no other byte", () => {
   assert.equal(rewriteProjection(text, []), text);
 
   // Two embeds are rewritten in one pass, in ascending text order.
-  const twoEmbeds = "SELECT users.id, users.name, posts.id, posts.title FROM users JOIN posts ON posts.user_id = users.id";
+  const twoEmbeds =
+    "SELECT users.id, users.name, posts.id, posts.title FROM users JOIN posts ON posts.user_id = users.id";
   const first = spans(twoEmbeds, ["id", "name"])[0];
   const second = spans(twoEmbeds, ["id", "title"])[0];
   const both = [
@@ -140,9 +145,19 @@ test("the catalog index resolves embedded tables by exact identifier", () => {
     ],
   });
   const index = new CatalogIndex(catalog);
-  assert.deepEqual(index.resolve(identifier("users"))?.map((column) => column.name), ["id", "name"]);
-  assert.deepEqual(index.resolve(identifier("users", "main"))?.map((column) => column.name), ["id", "name"]);
-  assert.deepEqual(index.resolve(identifier("users", "other"))?.map((column) => column.name), ["other_id"]);
+  assert.deepEqual(
+    index.resolve(identifier("users"))?.map((column) => column.name),
+    ["id", "name"],
+  );
+  assert.deepEqual(
+    index.resolve(identifier("users", "main"))?.map((column) => column.name),
+    ["id", "name"],
+  );
+  assert.deepEqual(
+    index.resolve(identifier("users", "other"))?.map((column) => column.name),
+    ["other_id"],
+  );
+
   assert.equal(index.resolve(identifier("absent")), undefined);
   assert.equal(index.resolve(identifier("users", "missing")), undefined);
   assert.equal(index.resolve(identifier("users", "", "elsewhere")), undefined);

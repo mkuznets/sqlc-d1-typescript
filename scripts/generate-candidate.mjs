@@ -14,6 +14,7 @@ export async function generateCandidate({ candidate, sha256, config, cwd, sqlc =
   const token = randomUUID();
   const temporaryConfig = resolve(dirname(configPath), `.${basename(configPath)}.candidate-${token}.yaml`);
   const temporaryCandidate = resolve(dirname(configPath), `.plugin.candidate-${token}.wasm`);
+
   let primaryError;
   try {
     await writeFile(temporaryCandidate, retained.bytes, { mode: 0o400 });
@@ -21,24 +22,32 @@ export async function generateCandidate({ candidate, sha256, config, cwd, sqlc =
     const wasmUrl = pathToFileURL(temporaryCandidate).href;
     let replaced = source.replace(/(^\s*url:\s*)\S+/m, (_match, prefix) => `${prefix}${wasmUrl}`);
     if (replaced === source) throw new Error(`config has no Plugin WASM URL: ${configPath}`);
-    if (/^\s*sha256:\s*\S+/m.test(replaced)) replaced = replaced.replace(/(^\s*sha256:\s*)\S+/m, `$1${retained.sha256}`);
+    if (/^\s*sha256:\s*\S+/m.test(replaced))
+      replaced = replaced.replace(/(^\s*sha256:\s*)\S+/m, `$1${retained.sha256}`);
     else replaced = replaced.replace(/^(\s*url:\s*\S+)$/m, `$1\n      sha256: ${retained.sha256}`);
     await writeFile(temporaryConfig, replaced, { mode: 0o600 });
     await run(sqlc, ["-f", temporaryConfig, "generate"], workingDirectory);
   } catch (error) {
     primaryError = error;
   }
+
   const cleanupErrors = [];
   for (const path of [temporaryConfig, temporaryCandidate]) {
-    try { await rm(path, { force: true }); } catch (error) { cleanupErrors.push(error); }
+    try {
+      await rm(path, { force: true });
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
-  if (primaryError || cleanupErrors.length) throw combinedError(primaryError, cleanupErrors, "candidate generation cleanup failed");
+  if (primaryError || cleanupErrors.length)
+    throw combinedError(primaryError, cleanupErrors, "candidate generation cleanup failed");
 }
 
 export function combinedError(primary, cleanupErrors, cleanupLabel) {
   const parts = [];
   if (primary) parts.push(primary instanceof Error ? primary.message : String(primary));
-  for (const error of cleanupErrors) parts.push(`${cleanupLabel}: ${error instanceof Error ? error.message : String(error)}`);
+  for (const error of cleanupErrors)
+    parts.push(`${cleanupLabel}: ${error instanceof Error ? error.message : String(error)}`);
   const combined = new Error(parts.join("\n"));
   if (primary?.exitCode) combined.exitCode = primary.exitCode;
   return combined;
@@ -48,7 +57,9 @@ function run(command, args, cwd) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, { cwd, stdio: "inherit" });
     child.on("error", reject);
-    child.on("exit", (code, signal) => code === 0 ? resolvePromise() : reject(new Error(`${command} exited ${signal ?? code}`)));
+    child.on("exit", (code, signal) =>
+      code === 0 ? resolvePromise() : reject(new Error(`${command} exited ${signal ?? code}`)),
+    );
   });
 }
 

@@ -6,20 +6,26 @@
   "required": ["schemaVersion", "sqlc", "typescript", "cloudflare", "tools"],
   "$defs": {
     "version": { "type": "string", "pattern": "^(?:v)?(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$" },
-    "exact": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$" }
+    "exact": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+    }
   },
   "properties": {
     "schemaVersion": { "const": 1 },
     "sqlc": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["supportedFloor", "testedCeiling", "samples", "knownExceptions"],
       "properties": {
         "supportedFloor": { "$ref": "#/$defs/version" },
         "testedCeiling": { "$ref": "#/$defs/version" },
         "samples": {
-          "type": "array", "minItems": 2,
+          "type": "array",
+          "minItems": 2,
           "items": {
-            "type": "object", "additionalProperties": false,
+            "type": "object",
+            "additionalProperties": false,
             "required": ["version", "role", "rationale"],
             "properties": {
               "version": { "$ref": "#/$defs/version" },
@@ -32,23 +38,44 @@
       }
     },
     "typescript": {
-      "type": "object", "additionalProperties": false, "required": ["floor", "current"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["floor", "current"],
       "properties": { "floor": { "$ref": "#/$defs/exact" }, "current": { "$ref": "#/$defs/exact" } }
     },
     "cloudflare": {
-      "type": "object", "additionalProperties": false,
-      "required": ["workersTypes", "wrangler", "vitestPoolWorkers", "miniflare", "workerd", "compatibilityDate", "compatibilityFlags"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workersTypes",
+        "wrangler",
+        "vitestPoolWorkers",
+        "miniflare",
+        "workerd",
+        "compatibilityDate",
+        "compatibilityFlags"
+      ],
       "properties": {
-        "workersTypes": { "$ref": "#/$defs/exact" }, "wrangler": { "$ref": "#/$defs/exact" },
-        "vitestPoolWorkers": { "$ref": "#/$defs/exact" }, "miniflare": { "$ref": "#/$defs/exact" },
+        "workersTypes": { "$ref": "#/$defs/exact" },
+        "wrangler": { "$ref": "#/$defs/exact" },
+        "vitestPoolWorkers": { "$ref": "#/$defs/exact" },
+        "miniflare": { "$ref": "#/$defs/exact" },
         "workerd": { "$ref": "#/$defs/exact" },
         "compatibilityDate": { "type": "string", "format": "date" },
         "compatibilityFlags": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
       }
     },
     "tools": {
-      "type": "object", "additionalProperties": false, "required": ["node", "npm", "bun", "buf", "javy"],
-      "properties": { "node": { "$ref": "#/$defs/exact" }, "npm": { "$ref": "#/$defs/exact" }, "bun": { "$ref": "#/$defs/exact" }, "buf": { "$ref": "#/$defs/exact" }, "javy": { "$ref": "#/$defs/exact" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "npm", "bun", "buf", "javy"],
+      "properties": {
+        "node": { "$ref": "#/$defs/exact" },
+        "npm": { "$ref": "#/$defs/exact" },
+        "bun": { "$ref": "#/$defs/exact" },
+        "buf": { "$ref": "#/$defs/exact" },
+        "javy": { "$ref": "#/$defs/exact" }
+      }
     }
   }
 }
