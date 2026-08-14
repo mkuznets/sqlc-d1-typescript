@@ -17,8 +17,41 @@ import {
 } from "./managed-d1-contract.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const OUTPUT_TAIL_LINES = 40;
+const BODY_EXCERPT_BYTES = 500;
+const FAILURE_DETAIL_LIMIT = 2000;
+const PROPAGATION_ATTEMPTS = 10;
+const PROPAGATION_DELAY_MS = 1_000;
 
-function commandRunner(command, args, options = {}) {
+export function tailLines(text, limit = OUTPUT_TAIL_LINES) {
+  const trimmed = String(text ?? "").trimEnd();
+  if (!trimmed) return "";
+  const lines = trimmed.split(/\r?\n/);
+  return lines.length > limit
+    ? [`… ${lines.length - limit} earlier lines omitted`, ...lines.slice(-limit)].join("\n")
+    : trimmed;
+}
+
+function describeCommandFailure(command, args, code, stdout, stderr) {
+  const parts = [`${command} ${args.join(" ")} failed with exit ${code}`];
+  const err = tailLines(stderr),
+    out = tailLines(stdout);
+  parts.push(err ? `stderr:\n${err}` : "stderr was empty");
+  if (out) parts.push(`stdout:\n${out}`);
+  return parts.join("\n");
+}
+
+async function excerptResponse(response) {
+  try {
+    const text = await response.text();
+    const trimmed = text.trim().replace(/\s+/g, " ");
+    return trimmed.length > BODY_EXCERPT_BYTES ? `${trimmed.slice(0, BODY_EXCERPT_BYTES)}…` : trimmed;
+  } catch {
+    return "<response body unavailable>";
+  }
+}
+
+export function commandRunner(command, args, options = {}) {
   return new Promise((ok, fail) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -33,10 +66,11 @@ function commandRunner(command, args, options = {}) {
     if (options.stdin !== undefined) {
       child.stdin.end(options.stdin);
     }
-    child.on("error", fail);
-    child.on("exit", (code) =>
-      code === 0 ? ok({ stdout, stderr }) : fail(new Error(`${command} operation failed with exit ${code}`)),
-    );
+    child.on("error", (error) => fail(new Error(`${command} could not be started: ${error.message}`)));
+    child.on("exit", (code) => {
+      if (code === 0) return ok({ stdout, stderr });
+      fail(new Error(describeCommandFailure(command, args, code, stdout, stderr)));
+    });
   });
 }
 
@@ -66,7 +100,8 @@ async function createManagedD1Database({ accountId, token, name, fetchImpl }) {
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  if (!response.ok) throw new Error(`D1 create failed with HTTP ${response.status}`);
+  if (!response.ok)
+    throw new Error(`D1 create failed with HTTP ${response.status}: ${await excerptResponse(response)}`);
   return parseD1CreateJson(await response.text());
 }
 
@@ -83,13 +118,17 @@ async function initializeManagedD1Database({ accountId, token, databaseId, schem
       body: JSON.stringify({ sql }),
     });
     if (!response.ok) {
-      const error = new Error(`D1 schema setup failed with HTTP ${response.status}`);
+      const error = new Error(
+        `D1 schema setup failed with HTTP ${response.status}: ${await excerptResponse(response)}`,
+      );
       error.managedPhase = `database-schema-${index + 1}`;
       throw error;
     }
     const body = await response.json();
     if (!body.success || !Array.isArray(body.result) || body.result.some((result) => result?.success !== true)) {
-      const error = new Error("D1 schema setup did not succeed");
+      const error = new Error(
+        `D1 schema setup did not succeed: ${JSON.stringify(body.errors ?? body).slice(0, BODY_EXCERPT_BYTES)}`,
+      );
       error.managedPhase = `database-schema-${index + 1}`;
       throw error;
     }
@@ -223,7 +262,21 @@ export async function verifyManagedD1(options) {
     setTimer = setTimeout,
     clearTimer = clearTimeout,
     delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds)),
+    logger = (line) => process.stdout.write(`${line}\n`),
   } = options;
+
+  const say = (message) => logger(`==> ${message}`);
+  const note = (message) => {
+    for (const line of String(message).split("\n")) logger(`    ${line}`);
+  };
+  const annotate = (message) =>
+    logger(process.env.GITHUB_ACTIONS ? `::error::${message.replace(/\r?\n/g, "%0A")}` : message);
+
+  let phase = "startup";
+  const enter = (next, message) => {
+    phase = next;
+    say(`[${next}] ${message}`);
+  };
 
   const config = await loadCompatibilityConfig({ root });
   await readCandidate(candidate, sha256);
@@ -234,7 +287,7 @@ export async function verifyManagedD1(options) {
   await writePrivateJson(statePath, state);
   const scenarios = MANAGED_SCENARIO_IDS.map((id) => ({ id, status: "not-run", attempts: 0 }));
 
-  let stage, databaseId;
+  let stage, databaseId, failure;
   let scenarioStarted = false,
     interrupted = false,
     signalCleanupPromise,
@@ -260,6 +313,7 @@ export async function verifyManagedD1(options) {
   };
 
   try {
+    enter("stage", "Staging the candidate: sqlc generate against the fixture, then a tsc typecheck");
     stage = await stageImpl({
       candidate,
       sha256,
@@ -268,15 +322,19 @@ export async function verifyManagedD1(options) {
       root,
       run,
     });
+    note(`stage ready at ${stage}`);
     checkpoint();
 
+    enter("database-create", `Creating disposable D1 database ${name}`);
     await provision(async () => {
       databaseId = await createDatabaseImpl({ accountId, token, name, fetchImpl });
       state = { ...state, database: { status: "created", name, id: databaseId } };
       await writePrivateJson(statePath, state);
     });
+    note(`database id: ${databaseId}`);
     checkpoint();
 
+    enter("wrangler-config", "Rendering the disposable wrangler config from the template");
     const templatePath = resolve(stage, "test/managed-d1/wrangler.template.jsonc");
     let wrangler = await readFile(templatePath, "utf8");
     wrangler = wrangler
@@ -286,16 +344,25 @@ export async function verifyManagedD1(options) {
       .replace("__COMPATIBILITY_FLAGS__", JSON.stringify(config.cloudflare.compatibilityFlags));
     const configPath = resolve(stage, "test/managed-d1/wrangler.jsonc");
     await writeFile(configPath, wrangler, { mode: 0o600 });
+    note(
+      `compatibility date ${config.cloudflare.compatibilityDate}, flags ${JSON.stringify(config.cloudflare.compatibilityFlags)}, wrangler ${config.cloudflare.wrangler}`,
+    );
+
+    enter("database-schema", "Applying the fixture schema to the disposable database");
     const schema = await readFile(resolve(stage, "test/miniflare/schema.sql"), "utf8");
     await initializeDatabaseImpl({ accountId, token, databaseId, schema, fetchImpl });
     checkpoint();
 
+    enter("worker-deploy", `Deploying the scenario Worker ${name}`);
     await provision(async () => {
-      await run(wranglerBin, ["deploy", "--config", configPath], { cwd: stage });
+      const deployed = await run(wranglerBin, ["deploy", "--config", configPath], { cwd: stage });
+      note(tailLines(`${deployed.stdout}${deployed.stderr}`) || "wrangler deploy produced no output");
       state = { ...state, worker: { status: "created", name, id: name } };
       await writePrivateJson(statePath, state);
     });
     checkpoint();
+
+    enter("worker-secret", "Uploading the scenario auth token as a Worker secret");
     const auth = authToken();
     maskSecret(auth);
     await run(wranglerBin, ["secret", "put", "SCENARIO_AUTH_TOKEN", "--config", configPath], {
@@ -304,41 +371,95 @@ export async function verifyManagedD1(options) {
     });
     checkpoint();
 
+    enter("subdomain-discovery", "Discovering the account workers.dev subdomain");
     const subdomainResponse = await fetchImpl(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`,
       { headers: { authorization: `Bearer ${token}` } },
     );
     const subdomainBody = await subdomainResponse.json();
     if (!subdomainResponse.ok || typeof subdomainBody.result?.subdomain !== "string")
-      throw new Error("Workers subdomain discovery failed");
+      throw new Error(
+        `Workers subdomain discovery failed with HTTP ${subdomainResponse.status}: ${JSON.stringify(subdomainBody).slice(0, BODY_EXCERPT_BYTES)}`,
+      );
     const endpoint = `https://${name}.${subdomainBody.result.subdomain}.workers.dev/scenario`;
-    const unauthorized = await fetchImpl(endpoint, { method: "POST" });
-    if (unauthorized.status !== 401)
-      throw new Error("scenario protocol authorization probe returned an invalid status");
+    note(`scenario endpoint: ${endpoint}`);
 
+    enter(
+      "authorization-probe",
+      `Probing the endpoint without credentials until the route is live; it must answer 401 within ${PROPAGATION_ATTEMPTS} attempts`,
+    );
+    let authorized = false,
+      lastUnauthorizedStatus = "none",
+      lastUnauthorizedBody = "";
+    for (let attempt = 0; attempt < PROPAGATION_ATTEMPTS; attempt++) {
+      let status, body;
+      try {
+        const unauthorized = await fetchImpl(endpoint, { method: "POST" });
+        status = unauthorized.status;
+        if (status === 401) {
+          note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered HTTP 401: the route is live and closed`);
+          authorized = true;
+          break;
+        }
+        body = await excerptResponse(unauthorized);
+        // A live route that serves an unauthenticated request is a protocol breach, never a race.
+        if (status === 200)
+          throw new Error(`scenario endpoint served an unauthenticated request with HTTP 200: ${body}`);
+      } catch (error) {
+        const message = String(error?.message ?? error);
+        if (message.startsWith("scenario endpoint served")) throw error;
+        status = "unreachable";
+        body = message;
+      }
+      lastUnauthorizedStatus = String(status);
+      lastUnauthorizedBody = body;
+      note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered ${status}: ${body}; the route is not live yet`);
+      if (attempt < PROPAGATION_ATTEMPTS - 1) await delay(PROPAGATION_DELAY_MS);
+    }
+    if (!authorized)
+      throw new Error(
+        `scenario endpoint never answered 401 after ${PROPAGATION_ATTEMPTS} attempts; last response was ${lastUnauthorizedStatus}: ${lastUnauthorizedBody}. The workers.dev route did not become live, or it answers something other than the scenario protocol`,
+      );
+
+    enter("secret-propagation", "Waiting for the Worker secret to propagate; an unknown scenario must answer 404");
     const authenticatedHeaders = { authorization: `Bearer ${auth}`, "content-type": "application/json" };
-    let ready = false;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    let ready = false,
+      lastStatus = "none",
+      lastBody = "";
+    for (let attempt = 0; attempt < PROPAGATION_ATTEMPTS; attempt++) {
       const response = await fetchImpl(endpoint, {
         method: "POST",
         headers: authenticatedHeaders,
         body: '{"scenario":"unknown"}',
       });
+      lastStatus = String(response.status);
       if (response.status === 404) {
+        note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered HTTP 404: the secret is live`);
         ready = true;
         break;
       }
-      if (attempt < 9) await delay(1_000);
+      lastBody = await excerptResponse(response);
+      note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered HTTP ${response.status}: ${lastBody}`);
+      if (attempt < PROPAGATION_ATTEMPTS - 1) await delay(PROPAGATION_DELAY_MS);
     }
-    if (!ready) throw new Error("scenario authentication did not become ready");
+    if (!ready)
+      throw new Error(
+        `scenario authentication did not become ready after ${PROPAGATION_ATTEMPTS} attempts; last response was HTTP ${lastStatus}: ${lastBody}`,
+      );
 
+    enter("data-channel-probe", "Probing with a prohibited data field; the Worker must reject it with 400");
     const prohibited = await fetchImpl(endpoint, {
       method: "POST",
       headers: authenticatedHeaders,
       body: '{"scenario":"managed-d1/batch-success","sql":"x"}',
     });
-    if (prohibited.status !== 400) throw new Error("scenario protocol data-channel probe returned an invalid status");
+    note(`prohibited-field POST answered HTTP ${prohibited.status}`);
+    if (prohibited.status !== 400)
+      throw new Error(
+        `scenario protocol data-channel probe returned HTTP ${prohibited.status}, expected 400: ${await excerptResponse(prohibited)}`,
+      );
 
+    enter("scenarios", `Running ${scenarios.length} managed scenarios against real D1`);
     scenarioStarted = true;
     for (const scenario of scenarios) {
       scenario.attempts = 1;
@@ -353,14 +474,22 @@ export async function verifyManagedD1(options) {
         });
         const body = await response.json();
         scenario.status = response.ok && body.status === "passed" ? "passed" : "failed";
-        if (
-          scenario.status === "failed" &&
-          typeof body.errorKind === "string" &&
-          ["native", "generated", "result"].includes(body.errorKind)
-        )
-          console.error(`managed scenario ${scenario.id} failed with ${body.errorKind} error`);
-      } catch {
+        if (scenario.status === "passed") note(`${scenario.id}: passed`);
+        else {
+          const kind =
+            typeof body.errorKind === "string" && ["native", "generated", "result"].includes(body.errorKind)
+              ? `${body.errorKind} error`
+              : "no error kind reported";
+          failure = { phase: "scenarios", detail: `${scenario.id} failed with HTTP ${response.status} (${kind})` };
+          annotate(`managed scenario ${failure.detail}`);
+        }
+      } catch (error) {
         scenario.status = "ambiguous";
+        failure = {
+          phase: "scenarios",
+          detail: `${scenario.id} is ambiguous: the request did not complete (${error?.message ?? error}); it may or may not have reached D1`,
+        };
+        annotate(`managed scenario ${failure.detail}`);
         break;
       } finally {
         clearTimer(timeout);
@@ -370,8 +499,10 @@ export async function verifyManagedD1(options) {
     if (mode === "simulate-test-failure" && scenarios.every(({ status }) => status === "passed"))
       scenarios[scenarios.length - 1].status = "failed";
   } catch (error) {
-    if (typeof error?.managedPhase === "string")
-      console.error(`managed verification failed during ${error.managedPhase}`);
+    const where = typeof error?.managedPhase === "string" ? error.managedPhase : phase;
+    const detail = String(error?.message ?? error);
+    failure = { phase: where, detail: detail.slice(0, FAILURE_DETAIL_LIMIT) };
+    annotate(`managed verification failed during ${where}: ${detail}`);
     const pending = scenarios.find(({ attempts }) => attempts === 0);
     if (scenarioStarted && pending) {
       pending.attempts = 1;
@@ -381,6 +512,9 @@ export async function verifyManagedD1(options) {
 
   let evidence;
   await provision(async () => {
+    say(
+      `[cleanup] Deleting every provisioned resource (worker: ${state.worker.status}, database: ${state.database.status})`,
+    );
     let cleanup = signalCleanupPromise
       ? await signalCleanupPromise
       : mode === "simulate-cleanup-failure"
@@ -417,15 +551,24 @@ export async function verifyManagedD1(options) {
       scenarios,
       test: { status: testStatus(scenarios) },
       cleanup,
+      ...(failure && testStatus(scenarios) !== "passed" ? { failure } : {}),
     };
+    note(`cleanup: worker ${cleanup.worker}, database ${cleanup.database} (${cleanup.status})`);
     await validateManagedD1Evidence({ evidence, config });
     await writePrivateJson(evidencePath, evidence);
+    say(`[result] scenarios ${evidence.test.status}, cleanup ${cleanup.status}; evidence written to ${evidencePath}`);
+    for (const scenario of scenarios) note(`${scenario.status.padEnd(9)} ${scenario.id}`);
     if (stage) await rm(stage, { recursive: true, force: true });
   });
 
   if (signalCleanupPromise) await signalCleanupPromise;
   disposeSignals();
   return evidence;
+}
+
+function report(message) {
+  const text = String(message);
+  process.stdout.write(process.env.GITHUB_ACTIONS ? `::error::${text.replace(/\r?\n/g, "%0A")}\n` : `${text}\n`);
 }
 
 async function cli() {
@@ -449,7 +592,13 @@ async function cli() {
       accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
       token: process.env.CLOUDFLARE_API_TOKEN,
     });
-    if (evidence.test.status !== "passed" || evidence.cleanup.status !== "confirmed") process.exitCode = 1;
+    if (evidence.test.status !== "passed" || evidence.cleanup.status !== "confirmed") {
+      const reason = evidence.failure
+        ? `${evidence.failure.phase}: ${evidence.failure.detail}`
+        : `scenarios ${evidence.test.status}, cleanup ${evidence.cleanup.status}`;
+      report(`managed D1 verification did not pass — ${reason}`);
+      process.exitCode = 1;
+    }
   } else if (command === "cleanup")
     await cleanupManagedD1State({
       statePath: args["state-path"],
@@ -461,6 +610,6 @@ async function cli() {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
   void cli().catch((error) => {
-    console.error(error.message);
+    report(`managed D1 lifecycle aborted: ${error?.message ?? error}`);
     process.exitCode = 1;
   });

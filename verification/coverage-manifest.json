@@ -910,6 +910,27 @@
       "file": "test/managed-d1-contracts.test.ts",
       "title": "verification/managed-lifecycle-provision-races",
       "availability": "local"
+    },
+    {
+      "id": "verification/managed-lifecycle-diagnostics",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-lifecycle-diagnostics",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-command-output",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-command-output",
+      "availability": "local"
+    },
+    {
+      "id": "verification/managed-route-propagation",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-route-propagation",
+      "availability": "local"
     }
   ],
   "promises": [

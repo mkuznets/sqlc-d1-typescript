@@ -185,8 +185,15 @@ export async function validateManagedD1Evidence({
     );
   }
 
+  if (value.failure && value.test.status === "passed")
+    fail("managed evidence records a failure but reports passing scenarios");
+
   if (requirePassing && (value.test.status !== "passed" || value.cleanup.status !== "confirmed"))
-    fail("managed evidence does not record passed scenarios and confirmed primary cleanup");
+    fail(
+      value.failure
+        ? `managed evidence records a failure during ${value.failure.phase}: ${value.failure.detail}`
+        : `managed evidence does not record passed scenarios and confirmed primary cleanup (scenarios: ${value.test.status}, cleanup: ${value.cleanup.status})`,
+    );
   return value;
 }
 
@@ -198,6 +205,20 @@ async function cli() {
     fail("usage: managed-d1-contract.mjs validate-evidence --path FILE [--sha256 SHA]");
 
   const config = JSON.parse(await readFile(resolve("verification/compatibility.json"), "utf8"));
+  let evidence;
+  try {
+    evidence = JSON.parse(await readFile(resolve(args.path), "utf8"));
+  } catch {
+    evidence = undefined;
+  }
+  if (evidence) {
+    process.stdout.write(`    scenarios: ${evidence.test?.status}, cleanup: ${evidence.cleanup?.status}\n`);
+    for (const scenario of evidence.scenarios ?? [])
+      process.stdout.write(`    ${String(scenario.status).padEnd(9)} ${scenario.id}\n`);
+    if (evidence.failure)
+      process.stdout.write(`    reported failure during ${evidence.failure.phase}: ${evidence.failure.detail}\n`);
+  }
+
   await validateManagedD1Evidence({
     path: args.path,
     candidateSha256: args.sha256,
@@ -210,6 +231,9 @@ async function cli() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
   void cli().catch((error) => {
-    console.error(error.message);
+    const message = String(error?.message ?? error);
+    process.stdout.write(
+      process.env.GITHUB_ACTIONS ? `::error::${message.replace(/\r?\n/g, "%0A")}\n` : `${message}\n`,
+    );
     process.exitCode = error.exitCode ?? 1;
   });

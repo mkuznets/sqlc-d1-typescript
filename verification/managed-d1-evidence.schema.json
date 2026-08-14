@@ -82,6 +82,15 @@
       "required": ["status"],
       "properties": { "status": { "enum": ["passed", "failed", "ambiguous"] } }
     },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "detail"],
+      "properties": {
+        "phase": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
     "cleanup": {
       "type": "object",
       "additionalProperties": false,

@@ -330,6 +330,7 @@ const lifecycleOptions = (fixture: Awaited<ReturnType<typeof lifecycleFixture>>)
     return () => new Date(1770292800000 + tick++ * 60000);
   })(),
   registerSignal: () => () => {},
+  logger: () => {},
 });
 
 test("verification/managed-lifecycle-failures - cleans persisted D1 after deploy failure and fails before commands on candidate drift", async () => {
@@ -423,6 +424,115 @@ test("verification/managed-lifecycle-attempts - records ambiguity once, stops su
     assert.equal(result.cleanup.status, "confirmed");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("verification/managed-command-output - a failed command reports its exit code and the output that explains it", async () => {
+  const { commandRunner } = await lifecycle();
+  await assert.rejects(
+    commandRunner(process.execPath, [
+      "-e",
+      "process.stderr.write('Authentication error [code: 10000]');process.exit(3)",
+    ]),
+    (error: Error) =>
+      /failed with exit 3/.test(error.message) && /Authentication error \[code: 10000\]/.test(error.message),
+  );
+  await assert.rejects(commandRunner(resolve("no/such/binary"), []), /could not be started/);
+});
+
+test("verification/managed-lifecycle-diagnostics - names the failing phase in the log and in the evidence", async () => {
+  const { verifyManagedD1 } = await lifecycle();
+  const fixture = await lifecycleFixture();
+  try {
+    const lines: string[] = [];
+    const run = async (_command: string, args: string[]) => {
+      if (args[0] === "d1" && args[1] === "create")
+        return { stdout: '{"uuid":"123e4567-e89b-42d3-a456-426614174000"}', stderr: "" };
+      if (args[0] === "secret")
+        throw new Error("wrangler secret put failed with exit 1\nstderr:\nAuthentication error [code: 10000]");
+      return { stdout: "", stderr: "" };
+    };
+    const fetchImpl = async (_url: string, init?: RequestInit) =>
+      init?.method === "DELETE" ? new Response("{}") : new Response("{}", { status: 404 });
+
+    const result = await verifyManagedD1({
+      ...lifecycleOptions(fixture),
+      run,
+      fetchImpl: fetchImpl as typeof fetch,
+      logger: (line: string) => lines.push(line),
+    });
+
+    assert.equal(result.failure.phase, "worker-secret");
+    assert.match(result.failure.detail, /Authentication error \[code: 10000\]/);
+    assert.equal(result.test.status, "failed");
+    assert.equal(result.cleanup.status, "confirmed");
+    assert.ok(lines.some((line) => line.startsWith("==> [worker-deploy]")));
+    assert.ok(lines.some((line) => /managed verification failed during worker-secret/.test(line)));
+    assert.match(await readFile(resolve(fixture.root, "evidence.json"), "utf8"), /worker-secret/);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("verification/managed-route-propagation - waits for the workers.dev route but never accepts an open endpoint", async () => {
+  const { verifyManagedD1 } = await lifecycle();
+  const run = async (_command: string, args: string[]) =>
+    args[0] === "d1" && args[1] === "create"
+      ? { stdout: '{"uuid":"123e4567-e89b-42d3-a456-426614174000"}', stderr: "" }
+      : { stdout: "", stderr: "" };
+
+  const fixture = await lifecycleFixture();
+  try {
+    // The edge answers 404, then 522, until the route is live; the probe must wait, not fail.
+    const protocol = [404, 522, 401, 404, 400];
+    let probes = 0;
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
+      if (url.includes("workers.dev")) {
+        const status = protocol[probes++];
+        return status ? new Response("{}", { status }) : new Response('{"status":"passed"}');
+      }
+      if (init?.method === "DELETE") return new Response("{}");
+      return new Response("{}", { status: 404 });
+    };
+    const result = await verifyManagedD1({
+      ...lifecycleOptions(fixture),
+      run,
+      fetchImpl: fetchImpl as typeof fetch,
+      delay: async () => {},
+    });
+    assert.equal(probes, protocol.length + 8, "three unauthenticated attempts, then the full protocol and scenarios");
+    assert.equal(result.test.status, "passed");
+    assert.equal(result.failure, undefined);
+    assert.equal(result.cleanup.status, "confirmed");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+
+  const open = await lifecycleFixture();
+  try {
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
+      if (url.includes("workers.dev")) return new Response('{"status":"passed"}', { status: 200 });
+      if (init?.method === "DELETE") return new Response("{}");
+      return new Response("{}", { status: 404 });
+    };
+    const result = await verifyManagedD1({
+      ...lifecycleOptions(open),
+      run,
+      fetchImpl: fetchImpl as typeof fetch,
+      delay: async () => {},
+    });
+    assert.equal(result.failure.phase, "authorization-probe");
+    assert.match(result.failure.detail, /unauthenticated request with HTTP 200/);
+    assert.equal(result.test.status, "failed");
+    assert.deepEqual(
+      result.scenarios.map(({ status }: { status: string }) => status),
+      Array(8).fill("not-run"),
+    );
+    assert.equal(result.cleanup.status, "confirmed");
+  } finally {
+    await rm(open.root, { recursive: true, force: true });
   }
 });
 
