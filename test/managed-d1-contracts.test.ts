@@ -324,6 +324,7 @@ const lifecycleOptions = (fixture: Awaited<ReturnType<typeof lifecycleFixture>>)
   root: fixture.root,
   stageImpl: async () => fixture.stage,
   createDatabaseImpl: async () => "123e4567-e89b-42d3-a456-426614174000",
+  initializeDatabaseImpl: async () => {},
   now: (() => {
     let tick = 0;
     return () => new Date(1770292800000 + tick++ * 60000);
@@ -490,6 +491,11 @@ test("verification/managed-lifecycle-signal - signal cleanup uses persisted exac
       ...lifecycleOptions(fixture),
       run,
       fetchImpl: fetchImpl as typeof fetch,
+      initializeDatabaseImpl: async () => {
+        queueMicrotask(() => {
+          void signal?.();
+        });
+      },
       registerSignal: (handler) => {
         signal = handler;
         return () => {};
