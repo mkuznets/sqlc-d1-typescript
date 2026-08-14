@@ -39,6 +39,7 @@ jobs:
         with:
           artifact-ids: "${{ inputs.candidate-artifact-id }}"
           path: retained
+          merge-multiple: true
       - run: node -e 'import("./scripts/candidate-utils.mjs").then(m=>m.readCandidate(`retained/${{ inputs.candidate-filename }}`,`${{ inputs.candidate-sha256 }}`))'
   verify:
     needs: preflight
@@ -65,6 +66,7 @@ jobs:
         with:
           artifact-ids: "${{ inputs.candidate-artifact-id }}"
           path: retained
+          merge-multiple: true
       - id: lookup
         env:
           GITHUB_TOKEN: "${{ github.token }}"

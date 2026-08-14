@@ -23,6 +23,12 @@ async function checkedJson(response, operation) {
   }
 }
 
+async function inventory({ url, headers, fetchImpl, operation, map }) {
+  const body = await checkedJson(await fetchImpl(url, { headers }), operation);
+  if (!Array.isArray(body.result)) throw new Error(`${operation} inventory is invalid`);
+  return body.result.map(map);
+}
+
 async function inventoryPages({ url, headers, fetchImpl, operation, map }) {
   const result = [];
   let page = 1;
@@ -52,7 +58,7 @@ export async function reapManagedD1({ accountId, token, now = new Date(), fetchI
   const headers = { authorization: `Bearer ${token}` };
   const api = `https://api.cloudflare.com/client/v4/accounts/${accountId}`;
 
-  const workersInventory = await inventoryPages({
+  const workersInventory = await inventory({
     url: `${api}/workers/scripts`,
     headers,
     fetchImpl,

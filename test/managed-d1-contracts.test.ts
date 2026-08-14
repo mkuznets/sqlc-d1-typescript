@@ -207,7 +207,7 @@ test("verification/managed-reaper-exact-deletion - logs exact identifiers before
     logs: string[] = [];
   const fake = async (url: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? "GET"} ${url}`);
-    if (!init?.method && url.includes("/workers/scripts?"))
+    if (!init?.method && url.includes("/workers/scripts"))
       return new Response(
         JSON.stringify({ result: [{ id: resource }, { id: "production" }], result_info: { page: 1, total_pages: 1 } }),
       );
@@ -236,24 +236,20 @@ test("verification/managed-reaper-exact-deletion - logs exact identifiers before
   assert.ok(calls.every((line) => !line.includes("production") || line.startsWith("GET")));
 });
 
-test("verification/managed-reaper-pagination - visits every page and rejects malformed identities", async () => {
+test("verification/managed-reaper-pagination - accepts Workers inventory and visits every D1 page", async () => {
   const { reapManagedD1 } = await reaper();
   const seen: string[] = [];
   const fake = async (url: string) => {
     seen.push(url);
-    const page = new URL(url).searchParams.get("page");
     if (url.includes("workers/scripts"))
-      return new Response(
-        JSON.stringify({
-          result: page === "2" ? [] : [{ id: "production" }],
-          result_info: { page: Number(page), total_pages: 2 },
-        }),
-      );
+      return new Response(JSON.stringify({ result: [{ id: "production" }], success: true }));
+    const page = new URL(url).searchParams.get("page");
     return new Response(JSON.stringify({ result: [], result_info: { page: Number(page), total_pages: 2 } }));
   };
   await reapManagedD1({ accountId: "acct", token: "secret", fetchImpl: fake as typeof fetch });
-  assert.ok(seen.every((url) => /[?&]page=[12]/.test(url)));
-  assert.equal(seen.length, 4);
+  assert.equal(seen[0], "https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts");
+  assert.ok(seen.slice(1).every((url) => /[?&]page=[12]/.test(url)));
+  assert.equal(seen.length, 3);
 
   const malformed = async (url: string) =>
     new Response(
