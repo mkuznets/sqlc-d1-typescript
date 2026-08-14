@@ -215,7 +215,7 @@ test("verification/managed-reaper-exact-deletion - logs exact identifiers before
       return new Response(
         JSON.stringify({
           result: [{ name: resource, uuid: "123e4567-e89b-42d3-a456-426614174000" }],
-          result_info: { page: 1, total_pages: 1 },
+          result_info: { page: 1, per_page: 100, total_count: 1 },
         }),
       );
     return new Response("{}");
@@ -244,7 +244,9 @@ test("verification/managed-reaper-pagination - accepts Workers inventory and vis
     if (url.includes("workers/scripts"))
       return new Response(JSON.stringify({ result: [{ id: "production" }], success: true }));
     const page = new URL(url).searchParams.get("page");
-    return new Response(JSON.stringify({ result: [], result_info: { page: Number(page), total_pages: 2 } }));
+    return new Response(
+      JSON.stringify({ result: [], result_info: { page: Number(page), per_page: 100, total_count: 101 } }),
+    );
   };
   await reapManagedD1({ accountId: "acct", token: "secret", fetchImpl: fake as typeof fetch });
   assert.equal(seen[0], "https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts");
@@ -321,6 +323,7 @@ const lifecycleOptions = (fixture: Awaited<ReturnType<typeof lifecycleFixture>>)
   statePath: resolve(fixture.root, "state.json"),
   root: fixture.root,
   stageImpl: async () => fixture.stage,
+  createDatabaseImpl: async () => "123e4567-e89b-42d3-a456-426614174000",
   now: (() => {
     let tick = 0;
     return () => new Date(1770292800000 + tick++ * 60000);
@@ -547,6 +550,15 @@ test("verification/managed-lifecycle-provision-races - waits for in-flight creat
         ...lifecycleOptions(fixture),
         run,
         fetchImpl: fetchImpl as typeof fetch,
+        createDatabaseImpl: async () => {
+          if (race === "create") {
+            queueMicrotask(() => {
+              void signal?.();
+            });
+            await gate;
+          }
+          return "123e4567-e89b-42d3-a456-426614174000";
+        },
         registerSignal: (handler) => {
           signal = handler;
           return () => {};

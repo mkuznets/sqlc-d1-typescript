@@ -38,17 +38,22 @@ async function inventoryPages({ url, headers, fetchImpl, operation, map }) {
       await fetchImpl(`${url}${separator}page=${page}&per_page=100`, { headers }),
       operation,
     );
+    const info = body.result_info;
     if (
       !Array.isArray(body.result) ||
-      !body.result_info ||
-      !Number.isSafeInteger(body.result_info.page) ||
-      !Number.isSafeInteger(body.result_info.total_pages) ||
-      body.result_info.page !== page ||
-      body.result_info.total_pages < page
+      !info ||
+      !Number.isSafeInteger(info.page) ||
+      !Number.isSafeInteger(info.per_page) ||
+      !Number.isSafeInteger(info.total_count) ||
+      info.page !== page ||
+      info.per_page < 1 ||
+      info.total_count < 0
     )
       throw new Error(`${operation} inventory pagination is invalid`);
     for (const item of body.result) result.push(map(item));
-    if (page === body.result_info.total_pages) return result;
+    const totalPages = Math.max(1, Math.ceil(info.total_count / info.per_page));
+    if (page === totalPages) return result;
+    if (page > totalPages) throw new Error(`${operation} inventory pagination is invalid`);
     page++;
   }
 }

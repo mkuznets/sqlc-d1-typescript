@@ -60,6 +60,16 @@ export function parseD1CreateJson(source) {
   return id;
 }
 
+async function createManagedD1Database({ accountId, token, name, fetchImpl }) {
+  const response = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) throw new Error(`D1 create failed with HTTP ${response.status}`);
+  return parseD1CreateJson(await response.text());
+}
+
 export async function stageManagedD1({
   candidate,
   sha256,
@@ -176,6 +186,7 @@ export async function verifyManagedD1(options) {
     run = commandRunner,
     now = () => new Date(),
     stageImpl = stageManagedD1,
+    createDatabaseImpl = createManagedD1Database,
     registerSignal = defaultRegisterSignal,
     authToken = () => randomBytes(32).toString("base64url"),
     maskSecret = (secret) => {
@@ -232,8 +243,7 @@ export async function verifyManagedD1(options) {
     checkpoint();
 
     await provision(async () => {
-      const created = await run(wranglerBin, ["d1", "create", name, "--json"], { cwd: stage });
-      databaseId = parseD1CreateJson(created.stdout);
+      databaseId = await createDatabaseImpl({ accountId, token, name, fetchImpl });
       state = { ...state, database: { status: "created", name, id: databaseId } };
       await writePrivateJson(statePath, state);
     });
