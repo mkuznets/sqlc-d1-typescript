@@ -222,6 +222,7 @@ export async function verifyManagedD1(options) {
     scenarioTimeoutMs = 30_000,
     setTimer = setTimeout,
     clearTimer = clearTimeout,
+    delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds)),
   } = options;
 
   const config = await loadCompatibilityConfig({ root });
@@ -311,20 +312,32 @@ export async function verifyManagedD1(options) {
     if (!subdomainResponse.ok || typeof subdomainBody.result?.subdomain !== "string")
       throw new Error("Workers subdomain discovery failed");
     const endpoint = `https://${name}.${subdomainBody.result.subdomain}.workers.dev/scenario`;
-    for (const probe of [
-      { headers: {} },
-      {
-        headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" },
+    const unauthorized = await fetchImpl(endpoint, { method: "POST" });
+    if (unauthorized.status !== 401)
+      throw new Error("scenario protocol authorization probe returned an invalid status");
+
+    const authenticatedHeaders = { authorization: `Bearer ${auth}`, "content-type": "application/json" };
+    let ready = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: authenticatedHeaders,
         body: '{"scenario":"unknown"}',
-      },
-      {
-        headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" },
-        body: '{"scenario":"managed-d1/batch-success","sql":"x"}',
-      },
-    ]) {
-      const response = await fetchImpl(endpoint, { method: "POST", ...probe });
-      if (response.ok) throw new Error("scenario protocol probe was accepted");
+      });
+      if (response.status === 404) {
+        ready = true;
+        break;
+      }
+      if (attempt < 9) await delay(1_000);
     }
+    if (!ready) throw new Error("scenario authentication did not become ready");
+
+    const prohibited = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: authenticatedHeaders,
+      body: '{"scenario":"managed-d1/batch-success","sql":"x"}',
+    });
+    if (prohibited.status !== 400) throw new Error("scenario protocol data-channel probe returned an invalid status");
 
     scenarioStarted = true;
     for (const scenario of scenarios) {

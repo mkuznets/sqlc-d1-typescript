@@ -54,4 +54,5 @@ export function verifyManagedD1(options: {
   scenarioTimeoutMs?: number;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
+  delay?: (milliseconds: number) => Promise<void>;
 }): Promise<any>;
