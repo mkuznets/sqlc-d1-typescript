@@ -71,18 +71,22 @@ async function createManagedD1Database({ accountId, token, name, fetchImpl }) {
 }
 
 async function initializeManagedD1Database({ accountId, token, databaseId, schema, fetchImpl }) {
-  const response = await fetchImpl(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`,
-    {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`;
+  const statements = schema
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+  for (const sql of statements) {
+    const response = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sql: schema }),
-    },
-  );
-  if (!response.ok) throw new Error(`D1 schema setup failed with HTTP ${response.status}`);
-  const body = await response.json();
-  if (!body.success || !Array.isArray(body.result) || body.result.some((result) => result?.success !== true))
-    throw new Error("D1 schema setup did not succeed");
+      body: JSON.stringify({ sql }),
+    });
+    if (!response.ok) throw new Error(`D1 schema setup failed with HTTP ${response.status}`);
+    const body = await response.json();
+    if (!body.success || !Array.isArray(body.result) || body.result.some((result) => result?.success !== true))
+      throw new Error("D1 schema setup did not succeed");
+  }
 }
 
 export async function stageManagedD1({
