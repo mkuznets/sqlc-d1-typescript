@@ -18,22 +18,26 @@ concurrency:
   cancel-in-progress: false
 jobs:
   default-branch:
+    name: Guard branch and resolve pinned toolchain
     runs-on: ubuntu-latest
     outputs:
       node: ${{ steps.config.outputs.node }}
       npm: ${{ steps.config.outputs.npm }}
-      sqlc: ${{ steps.config.outputs.sqlc }}
+      sqlc: ${{ steps.config.outputs.sqlc-ceiling-install }}
     steps:
-      - if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
-        run: echo "managed verification must run from the default branch" >&2; exit 1
-
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - id: config
+      - name: Refuse to spend Cloudflare resources from a non-default branch
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
         run: |
-          echo "node=$(node -p "require('./verification/compatibility.json').tools.node")" >> "$GITHUB_OUTPUT"
-          echo "npm=$(node -p "require('./verification/compatibility.json').tools.npm")" >> "$GITHUB_OUTPUT"
-          echo "sqlc=$(node -p "require('./verification/compatibility.json').sqlc.testedCeiling.slice(1)")" >> "$GITHUB_OUTPUT"
+          echo "::error::managed verification must run from ${{ github.event.repository.default_branch }}, but this run is on ${{ github.ref }}; it provisions real Cloudflare resources and is only trusted from the default branch"
+          exit 1
+
+      - name: Check out the default branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - id: config
+        name: Read authoritative compatibility inputs
+        run: node scripts/workflows/emit-compatibility-outputs.mjs
   build-candidate:
+    name: Build the candidate under managed verification
     needs: default-branch
     runs-on: ubuntu-latest
     outputs:
@@ -41,17 +45,34 @@ jobs:
       filename: plugin.wasm
       sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - name: Check out the default branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "${{ needs.default-branch.outputs.node }}"
           cache: npm
-      - run: npm install --global npm@${{ needs.default-branch.outputs.npm }} && npm ci && rm -f build/out.js build/plugin.wasm && make build
+      - name: Install dependencies and build from a clean tree
+        run: |
+          echo "==> Installing npm@${{ needs.default-branch.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.default-branch.outputs.npm }}
+          bash scripts/workflows/report-toolchain.sh node npm
+          npm ci
+          echo "==> Removing any stale build output so the candidate is built from source"
+          rm -f build/out.js build/plugin.wasm
+          make build
 
       - id: digest
-        run: echo "sha256=$(shasum -a 256 build/plugin.wasm | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+        name: Record candidate identity
+        run: |
+          sha256="$(shasum -a 256 build/plugin.wasm | awk '{print $1}')"
+          echo "==> Built candidate build/plugin.wasm"
+          echo "    size   $(wc -c <build/plugin.wasm | tr -d ' ') bytes"
+          echo "    sha256 $sha256"
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
 
       - id: upload
+        name: Retain the candidate for the credentialed job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: "managed-d1-candidate-${{ github.run_id }}"
@@ -59,6 +80,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
   managed-d1:
+    name: Managed D1 verification
     needs: build-candidate
     uses: ./.github/workflows/_managed-d1.yml
     with:
@@ -70,24 +92,36 @@ jobs:
       mode: ${{ inputs.mode || 'normal' }}
     secrets: inherit
   reap-stale-managed-d1:
+    name: Reap stale managed resources
     needs: default-branch
     if: ${{ always() && needs.default-branch.result == 'success' }}
     runs-on: ubuntu-latest
     environment: managed-d1
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - name: Check out the default branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "${{ needs.default-branch.outputs.node }}"
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          echo "==> Installing dependencies for the reaper"
+          npm ci
 
-      - run: node scripts/reap-managed-d1.mjs reap --output managed-d1-reaper-report.json
+      - name: Delete managed resources left behind by earlier runs
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN is empty; the managed-d1 environment secret is missing"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID is empty; the repository variable is missing"; exit 1; }
+          echo "==> Reaping managed D1 resources left behind by earlier runs; the report lists everything deleted"
+          node scripts/reap-managed-d1.mjs reap --output managed-d1-reaper-report.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
-      - if: ${{ always() }}
+      - name: Upload the reaper report (also when reaping failed)
+        if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: "managed-d1-reaper-${{ github.run_id }}-${{ github.run_attempt }}"
