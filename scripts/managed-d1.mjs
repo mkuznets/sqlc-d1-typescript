@@ -258,20 +258,10 @@ export async function verifyManagedD1(options) {
       .replace("__COMPATIBILITY_FLAGS__", JSON.stringify(config.cloudflare.compatibilityFlags));
     const configPath = resolve(stage, "test/managed-d1/wrangler.jsonc");
     await writeFile(configPath, wrangler, { mode: 0o600 });
-    await run(
-      wranglerBin,
-      [
-        "d1",
-        "execute",
-        name,
-        "--remote",
-        "--file",
-        resolve(stage, "test/miniflare/schema.sql"),
-        "--config",
-        configPath,
-      ],
-      { cwd: stage },
-    );
+    const schema = await readFile(resolve(stage, "test/miniflare/schema.sql"), "utf8");
+    await run(wranglerBin, ["d1", "execute", name, "--remote", "--command", schema, "--json", "--config", configPath], {
+      cwd: stage,
+    });
     checkpoint();
 
     await provision(async () => {
