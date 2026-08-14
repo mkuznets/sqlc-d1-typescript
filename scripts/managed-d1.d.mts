@@ -1,4 +1,10 @@
 export function parseD1CreateJson(source: string): string;
+export function tailLines(text: string, limit?: number): string;
+export function commandRunner(
+  command: string,
+  args: string[],
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv; stdin?: string },
+): Promise<{ stdout: string; stderr: string }>;
 export function stageManagedD1(options: {
   candidate: string;
   sha256: string;
@@ -55,4 +61,5 @@ export function verifyManagedD1(options: {
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
   delay?: (milliseconds: number) => Promise<void>;
+  logger?: (line: string) => void;
 }): Promise<any>;
