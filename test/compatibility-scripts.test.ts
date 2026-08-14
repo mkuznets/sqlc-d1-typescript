@@ -186,6 +186,10 @@ test("verification/ci-security-contract preserves one uncredentialed publication
   const { loadCompatibilityConfig } = await compatibility();
   const config = await loadCompatibilityConfig();
   const workflow = await readFile(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+  const configScript = await readFile(
+    resolve(process.cwd(), "scripts/workflows/emit-compatibility-outputs.mjs"),
+    "utf8",
+  );
   assert.match(workflow, /permissions:\s*\n\s+contents: read/);
   assert.doesNotMatch(
     workflow,
@@ -194,14 +198,15 @@ test("verification/ci-security-contract preserves one uncredentialed publication
   assert.equal((workflow.match(/make build/g) ?? []).length, 1);
   assert.match(workflow, /sqlc:\s*\$\{\{ fromJSON\(needs\.config\.outputs\.sqlc-matrix\) \}\}/);
 
-  assert.match(workflow, /config\.tools\.node/);
-  assert.match(workflow, /config\.tools\.npm/);
-  assert.match(workflow, /config\.tools\.bun/);
-  assert.match(
-    workflow,
-    /config\.sqlc\.samples\.map\(\(\{ version \}\) => \(\{ version, install: version\.replace\(\/\^v\//,
-  );
-  assert.match(workflow, /sqlc-ceiling-install=.*testedCeiling\.replace\(\/\^v\//);
+  // Toolchain pins are derived in one extracted script; the workflow only invokes it.
+  assert.match(workflow, /run: node scripts\/workflows\/emit-compatibility-outputs\.mjs/);
+  assert.match(configScript, /const tools = config\.tools/);
+  for (const tool of ["node", "npm", "bun"]) assert.match(configScript, new RegExp(`${tool}: tools\\.${tool}`));
+  assert.match(configScript, /config\.sqlc\?\.samples/);
+  assert.match(configScript, /install: version\.replace\(\/\^v\/, ""\)/);
+  assert.match(configScript, /config\.sqlc\?\.testedCeiling/);
+  assert.match(configScript, /"sqlc-ceiling-install": ceiling\.replace\(\/\^v\/, ""\)/);
+  assert.doesNotMatch(configScript, /\d+\.\d+\.\d+/);
   assert.match(workflow, /sqlc-version: "\$\{\{ matrix\.sqlc\.install \}\}"/);
   assert.match(workflow, /--sqlc-version "\$\{\{ matrix\.sqlc\.version \}\}"/);
 
@@ -238,8 +243,11 @@ test("verification/ci-security-contract preserves one uncredentialed publication
     const section = workflow.slice(start, next < 0 ? undefined : next);
     assert.match(section, /baseline-and-build/);
     assert.match(section, /download-artifact/);
-    assert.match(section, /sha256sum candidate\/build\/plugin\.wasm/);
+    assert.match(section, /verify-candidate-digest\.sh candidate\/build\/plugin\.wasm candidate\/candidate\.sha256/);
   }
+  const digestScript = await readFile(resolve(process.cwd(), "scripts/workflows/verify-candidate-digest.sh"), "utf8");
+  assert.match(digestScript, /sha256sum "\$wasm"/);
+  assert.match(digestScript, /test "\$actual" = "\$expected" \|\|\n\s+fail /);
 
   for (const version of config.sqlc.samples.map(({ version }) => version))
     assert.doesNotMatch(workflow, new RegExp(`sqlc: \\[.*${version.replace(/\./g, "\\.")}`));

@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   config:
+    name: Resolve pinned toolchain
     runs-on: ubuntu-latest
     outputs:
       node: ${{ steps.config.outputs.node }}
@@ -28,147 +29,202 @@ jobs:
       sqlc-matrix: ${{ steps.config.outputs.sqlc-matrix }}
       sqlc-ceiling-install: ${{ steps.config.outputs.sqlc-ceiling-install }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - id: config
         name: Read authoritative compatibility inputs
-        run: |
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const config = JSON.parse(fs.readFileSync('verification/compatibility.json', 'utf8'));
-          const output = process.env.GITHUB_OUTPUT;
-          fs.appendFileSync(output, `node=${config.tools.node}\n`);
-          fs.appendFileSync(output, `npm=${config.tools.npm}\n`);
-          fs.appendFileSync(output, `bun=${config.tools.bun}\n`);
-          fs.appendFileSync(output, `sqlc-matrix=${JSON.stringify(config.sqlc.samples.map(({ version }) => ({ version, install: version.replace(/^v/, '') })))}\n`);
-          fs.appendFileSync(output, `sqlc-ceiling-install=${config.sqlc.testedCeiling.replace(/^v/, '')}\n`);
-          NODE
+        run: node scripts/workflows/emit-compatibility-outputs.mjs
 
   baseline-and-build:
+    name: Baseline checks and candidate build
     if: github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'verification')
     needs: config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
           cache: npm
 
-      - run: npm install --global npm@${{ needs.config.outputs.npm }}
-      - run: node --version && npm --version && npm ci
-      - run: make fmt-check
-      - run: make test-generator
-      - run: node scripts/check-compatibility.mjs
-      - run: make build
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.config.outputs.npm }} pinned by verification/compatibility.json"
+          npm install --global npm@${{ needs.config.outputs.npm }}
+          bash scripts/workflows/report-toolchain.sh node npm
+          echo "==> Installing dependencies from package-lock.json"
+          npm ci
+
+      - name: Check formatting (Prettier owns formatting; run make fmt to fix)
+        run: make fmt-check
+      - name: Run generator unit tests
+        run: make test-generator
+      - name: Check the compatibility contract is internally consistent
+        run: node scripts/check-compatibility.mjs
+      - name: Build the publication candidate
+        run: make build
 
       - name: Record candidate identity
         run: |
-          sha256sum build/plugin.wasm | awk '{print $1}' > candidate.sha256
-          cat candidate.sha256
+          sha256sum build/plugin.wasm | awk '{print $1}' >candidate.sha256
+          echo "==> Built candidate build/plugin.wasm"
+          echo "    size   $(wc -c <build/plugin.wasm | tr -d ' ') bytes"
+          echo "    sha256 $(cat candidate.sha256)"
+          echo "    every downstream job verifies this digest before testing"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Upload the candidate for every verification job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: publication-candidate
           path: "build/plugin.wasm\ncandidate.sha256"
           if-no-files-found: error
 
   exact-candidate:
+    name: Candidate generator tests
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
           cache: npm
-      - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.config.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.config.outputs.npm }}
+          bash scripts/workflows/report-toolchain.sh node npm
+          npm ci
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download the candidate built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: publication-candidate
           path: candidate
-      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
-      - run: make test-candidate CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
+      - name: Verify the downloaded candidate is the exact built wasm
+        run: bash scripts/workflows/verify-candidate-digest.sh candidate/build/plugin.wasm candidate/candidate.sha256
+      - name: Run generator tests against the candidate
+        run: make test-candidate CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
   public-types:
+    name: Public type surface
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
           cache: npm
-      - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.config.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.config.outputs.npm }}
+          bash scripts/workflows/report-toolchain.sh node npm
+          npm ci
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download the candidate built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: publication-candidate
           path: candidate
-      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
-      - run: make test-types CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
+      - name: Verify the downloaded candidate is the exact built wasm
+        run: bash scripts/workflows/verify-candidate-digest.sh candidate/build/plugin.wasm candidate/candidate.sha256
+      - name: Type-check the generated public surface
+        run: make test-types CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
   miniflare:
+    name: Miniflare integration
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install the pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "${{ needs.config.outputs.bun }}"
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download the candidate built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: publication-candidate
           path: candidate
-      - run: node --version && npm --version && bun --version
-      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
-      - run: make test-miniflare CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
+      - name: Report the toolchain
+        run: bash scripts/workflows/report-toolchain.sh node npm bun
+      - name: Verify the downloaded candidate is the exact built wasm
+        run: bash scripts/workflows/verify-candidate-digest.sh candidate/build/plugin.wasm candidate/candidate.sha256
+      - name: Run the Miniflare suite against the candidate
+        run: make test-miniflare CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
   canonical-example:
+    name: Canonical example worker
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install the pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "${{ needs.config.outputs.bun }}"
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download the candidate built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: publication-candidate
           path: candidate
-      - run: node --version && npm --version && bun --version
-      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
-      - run: make test-example CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
+      - name: Report the toolchain
+        run: bash scripts/workflows/report-toolchain.sh node npm bun
+      - name: Verify the downloaded candidate is the exact built wasm
+        run: bash scripts/workflows/verify-candidate-digest.sh candidate/build/plugin.wasm candidate/candidate.sha256
+      - name: Run the example worker suite against the candidate
+        run: make test-example CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
   generated-drift:
+    name: Committed generated output drift
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
-      - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+      - name: Install sqlc at the tested ceiling
+        uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
         with:
           sqlc-version: "${{ needs.config.outputs.sqlc-ceiling-install }}"
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download the candidate built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: publication-candidate
           path: candidate
-      - run: node --version && npm --version && sqlc version
-      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
-      - run: make test-generated-drift-worktree CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
+      - name: Report the toolchain
+        run: bash scripts/workflows/report-toolchain.sh node npm sqlc
+      - name: Verify the downloaded candidate is the exact built wasm
+        run: bash scripts/workflows/verify-candidate-digest.sh candidate/build/plugin.wasm candidate/candidate.sha256
+      - name: Regenerate in a worktree and compare against committed output
+        run: make test-generated-drift-worktree CANDIDATE_WASM="$PWD/candidate/build/plugin.wasm" CANDIDATE_SHA256="$(cat candidate/candidate.sha256)"
 
   sqlc-compatibility:
+    name: sqlc ${{ matrix.sqlc.version }}
     needs: [config, baseline-and-build]
     runs-on: ubuntu-latest
     strategy:
@@ -176,52 +232,76 @@ jobs:
       matrix:
         sqlc: ${{ fromJSON(needs.config.outputs.sqlc-matrix) }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
           cache: npm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install the pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "${{ needs.config.outputs.bun }}"
-      - run: npm install --global npm@${{ needs.config.outputs.npm }} && npm ci
-      - uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.config.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.config.outputs.npm }}
+          npm ci
+      - name: Install the sqlc version under test
+        uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
         with:
           sqlc-version: "${{ matrix.sqlc.install }}"
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download the candidate built by this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: publication-candidate
           path: candidate
-      - run: node --version && npm --version && bun --version && sqlc version
-      - run: test "$(sha256sum candidate/build/plugin.wasm | awk '{print $1}')" = "$(cat candidate/candidate.sha256)"
+      - name: Report the toolchain
+        run: bash scripts/workflows/report-toolchain.sh node npm bun sqlc
+      - name: Verify the downloaded candidate is the exact built wasm
+        run: bash scripts/workflows/verify-candidate-digest.sh candidate/build/plugin.wasm candidate/candidate.sha256
 
       - name: Verify cell and write actual evidence
         run: |
+          echo "==> Verifying the candidate against sqlc ${{ matrix.sqlc.version }}"
           node scripts/verify-sqlc-compatibility.mjs --candidate "$PWD/candidate/build/plugin.wasm" --sha256 "$(cat candidate/candidate.sha256)" --sqlc-version "${{ matrix.sqlc.version }}" --sqlc "$(command -v sqlc)" --output matrix-result.json
+          echo "==> Recording the versions actually observed on this runner as evidence"
           node scripts/write-compatibility-evidence.mjs result=matrix-result.json output=compatibility-evidence.json node="$(node --version | sed 's/^v//')" npm="$(npm --version)" bun="$(bun --version)"
+          echo "==> Matrix result for sqlc ${{ matrix.sqlc.version }}:"
           cat matrix-result.json
-          cat compatibility-evidence.json >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          cat compatibility-evidence.json >>"$GITHUB_STEP_SUMMARY"
+      - name: Upload the evidence for this cell
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: "compatibility-evidence-${{ matrix.sqlc.version }}"
           path: compatibility-evidence.json
           if-no-files-found: error
 
   upstream-drift:
+    name: Upstream release drift discovery
     if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'drift')) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     needs: config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Check out the source under verification
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "${{ needs.config.outputs.node }}"
           cache: npm
-      - run: npm install --global npm@${{ needs.config.outputs.npm }} && node --version && npm --version && npm ci
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.config.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.config.outputs.npm }}
+          bash scripts/workflows/report-toolchain.sh node npm
+          npm ci
 
       - name: Check public upstream releases
         shell: bash
         run: |
+          echo "==> Comparing verification/compatibility.json against published upstream releases"
           set -o pipefail
           node scripts/check-upstream-compatibility.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"

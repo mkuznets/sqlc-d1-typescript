@@ -146,17 +146,17 @@ test("release workflow is an exact-artifact managed-D1-gated non-publishing spin
   ])
     assert.match(workflow, new RegExp(`  ${job}:`));
 
-  assert.match(workflow, /local-verification:\s*\n\s+needs: \[intent, candidate\]/);
-  assert.match(workflow, /sqlc-compatibility:\s*\n\s+needs: \[intent, candidate\]/);
+  // A job may carry a human-readable `name:` before its `needs:`.
+  const dependsOn = (job: string, needs: string) =>
+    new RegExp(`${job}:\\s*\\n(?:\\s+name: .*\\n)?\\s+needs: \\[${needs}\\]`);
+  assert.match(workflow, dependsOn("local-verification", "intent, candidate"));
+  assert.match(workflow, dependsOn("sqlc-compatibility", "intent, candidate"));
   assert.match(
     workflow,
-    /uncredentialed-gates:\s*\n\s+needs: \[intent, candidate, local-verification, sqlc-compatibility\]/,
+    dependsOn("uncredentialed-gates", "intent, candidate, local-verification, sqlc-compatibility"),
   );
-  assert.match(workflow, /managed-d1:\s*\n\s+needs: \[intent, candidate, uncredentialed-gates\]/);
-  assert.match(
-    workflow,
-    /release-spine-complete:\s*\n\s+needs: \[intent, candidate, uncredentialed-gates, managed-d1\]/,
-  );
+  assert.match(workflow, dependsOn("managed-d1", "intent, candidate, uncredentialed-gates"));
+  assert.match(workflow, dependsOn("release-spine-complete", "intent, candidate, uncredentialed-gates, managed-d1"));
   assert.doesNotMatch(workflow, /make verify-local|make test(?:\s|$)/);
   assert.match(workflow, /make verify-candidate/);
 
@@ -199,9 +199,18 @@ test("verification/managed-workflow-security - isolates credentials and exact ca
   assert.equal((reusable.match(/make build/g) ?? []).length, 0);
   assert.match(reusable, /managed-d1-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.match(reusable, /--prefix "managed-d1-evidence-\$\{\{ github\.run_id \}\}-"/);
-  assert.match(reusable, /SELECTED_ID/);
   assert.match(reusable, /retention-days: 30/);
   assert.match(reusable, /if: \$\{\{ always\(\)/);
+
+  // The outcome of the credentialed job is decided in one extracted script.
+  const finalize = readFileSync(resolve(process.cwd(), "scripts/workflows/finalize-managed-evidence.sh"), "utf8");
+  assert.match(reusable, /run: bash scripts\/workflows\/finalize-managed-evidence\.sh/);
+  assert.match(reusable, /REUSED_ARTIFACT_ID: "\$\{\{ steps\.lookup\.outputs\.artifact-id \}\}"/);
+  assert.match(reusable, /CREATED_ARTIFACT_ID: "\$\{\{ steps\.upload\.outputs\.artifact-id \}\}"/);
+  assert.match(reusable, /VERIFY_OUTCOME: "\$\{\{ steps\.execute\.outcome \}\}"/);
+  assert.match(finalize, /validate-evidence/);
+  assert.match(finalize, /\^\[0-9\]\+\$/);
+  assert.match(finalize, /"\$LOOKUP_MODE" != reuse && test "\$\{VERIFY_OUTCOME:-\}" != success/);
 
   assert.match(entry, /schedule:/);
   assert.match(entry, /workflow_dispatch:/);
