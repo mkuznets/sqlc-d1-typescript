@@ -68,6 +68,7 @@ Both files are generated. Do not edit them: change the schema, query, or sqlc co
 Use the generated public API in a Worker:
 
 <!-- compile: first-query -->
+
 ```ts
 import { DB } from "./runtime";
 import { getUser } from "./queries_sql";

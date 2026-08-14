@@ -18,8 +18,7 @@ import { compileGeneratedResponse } from "./compile";
 import { DEFAULT_FAKE_META, FakeDatabase, FakeExecutor, loadGeneratedModules } from "./evaluate";
 
 export type GeneratorScenarioInput =
-  | { kind: "request"; request: GenerateRequest }
-  | { kind: "bytes"; bytes: Uint8Array };
+  { kind: "request"; request: GenerateRequest } | { kind: "bytes"; bytes: Uint8Array };
 
 export interface GeneratorScenario {
   id: string;
@@ -31,8 +30,7 @@ export interface GeneratorScenario {
 const encoder = new TextEncoder();
 const options = encoder.encode('{"interface":"workers"}');
 const type = (name: string) => new Identifier({ name });
-const column = (name: string, typeName: string, notNull = true) =>
-  new Column({ name, type: type(typeName), notNull });
+const column = (name: string, typeName: string, notNull = true) => new Column({ name, type: type(typeName), notNull });
 const parameter = (number: number, value: Column) => new Parameter({ number, column: value });
 const queryInput = (request: GenerateRequest): GeneratorScenarioInput => ({ kind: "request", request });
 
@@ -50,10 +48,40 @@ export function createCurrentCommandsRequest(): GenerateRequest {
   const id = column("id", "integer");
   return validRequest({
     queries: [
-      new Query({ filename: "queries.sql", name: "UpdateName", cmd: ":exec", text: "UPDATE users SET name = ? WHERE id = ?;", params: [parameter(1, name), parameter(2, id)] }),
-      new Query({ filename: "queries.sql", name: "GetUser", cmd: ":one", text: "SELECT id, nickname FROM users LIMIT 1;", columns: [id, column("nickname", "text", false)] }),
-      new Query({ filename: "queries.sql", name: "CreateUser", cmd: ":one", text: "INSERT INTO users (name) VALUES (?) RETURNING id;", params: [parameter(1, name)], columns: [id], insertIntoTable: new Identifier({ name: "users" }) }),
-      new Query({ filename: "queries.sql", name: "ListUsers", cmd: ":many", text: "SELECT id, name FROM users;", columns: [id, name] }),
+      new Query({
+        filename: "queries.sql",
+        name: "UpdateName",
+        cmd: ":exec",
+        text: "UPDATE users SET name = ? WHERE id = ?;",
+        params: [parameter(1, name), parameter(2, id)],
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "GetUser",
+        cmd: ":one",
+        text: "SELECT id, nickname FROM users LIMIT 1;",
+        columns: [id, column("nickname", "text", false)],
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "CreateUser",
+        cmd: ":one",
+        text: "INSERT INTO users (name) VALUES (?) RETURNING id;",
+        params: [parameter(1, name)],
+        columns: [id],
+        insertIntoTable: new Identifier({ name: "users" }),
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "ListUsers",
+        cmd: ":many",
+        text: "SELECT id, name FROM users;",
+        columns: [id, name],
+      }),
+
       new Query({ filename: "audit.sql", name: "ClearAuditLog", cmd: ":exec", text: "DELETE FROM audit_log;" }),
     ],
   });
@@ -185,7 +213,10 @@ const currentCommands: GeneratorScenario = {
     assert.ok(outcome.response);
     const response = outcome.response;
     assert.equal(response.files.length, 3);
-    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "audit_sql.ts", "queries_sql.ts"]);
+    assert.deepEqual(
+      response.files.map((file) => file.name),
+      ["runtime.ts", "audit_sql.ts", "queries_sql.ts"],
+    );
     const actual = new TextDecoder().decode(response.files[2].contents);
     const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/current-output.ts.txt"), "utf8");
     assert.equal(actual, expected);
@@ -206,16 +237,13 @@ const currentCommands: GeneratorScenario = {
     const runtimeExports: Record<string, unknown> = {};
     new Function("exports", "module", runtimeJavaScript)(runtimeExports, { exports: runtimeExports });
     const sessionExecutor = runtimeExports.SessionExecutor as abstract new (...args: unknown[]) => unknown;
-    assert.throws(
-      () => Reflect.construct(sessionExecutor, [{}, Symbol("wrong capability")]),
-      {
-        name: "QueryUsageError",
-        message: "SessionExecutor must be created by DB.withSession",
-        operation: "withSession",
-        expected: "the private DB.withSession capability",
-        received: "an invalid capability",
-      },
-    );
+    assert.throws(() => Reflect.construct(sessionExecutor, [{}, Symbol("wrong capability")]), {
+      name: "QueryUsageError",
+      message: "SessionExecutor must be created by DB.withSession",
+      operation: "withSession",
+      expected: "the private DB.withSession capability",
+      received: "an invalid capability",
+    });
     for (const compiler of ["typescript-5-2", "typescript"] as const) {
       compileGeneratedResponse(response, {
         compiler,
@@ -223,9 +251,11 @@ const currentCommands: GeneratorScenario = {
       });
     }
     for (const unsafePath of ["../consumer.ts", "/consumer.ts", "tsconfig.json", "queries_sql.ts"]) {
-      assert.throws(() => compileGeneratedResponse(response, {
-        additionalFiles: { [unsafePath]: "" },
-      }));
+      assert.throws(() =>
+        compileGeneratedResponse(response, {
+          additionalFiles: { [unsafePath]: "" },
+        }),
+      );
     }
   },
 };
@@ -240,15 +270,77 @@ export function createCommandsRequest(): GenerateRequest {
   const feeds = new Identifier({ name: "feeds" });
   return validRequest({
     queries: [
-      new Query({ filename: "queries.sql", name: "GetFeed", cmd: ":one", text: "SELECT id, title FROM feeds WHERE id = ?;", params: [parameter(1, id)], columns: [id, title] }),
-      new Query({ filename: "queries.sql", name: "CreateFeed", cmd: ":one", text: "INSERT INTO feeds (title) VALUES (?) RETURNING id, title;", params: [parameter(1, title)], columns: [id, title], insertIntoTable: feeds }),
-      new Query({ filename: "queries.sql", name: "ListFeeds", cmd: ":many", text: "SELECT id, title FROM feeds;", columns: [id, title] }),
-      new Query({ filename: "queries.sql", name: "TouchFeed", cmd: ":exec", text: "UPDATE feeds SET title = ? WHERE id = ?;", params: [parameter(1, title), parameter(2, id)] }),
-      new Query({ filename: "queries.sql", name: "DeleteFeedsByUser", cmd: ":execrows", text: "DELETE FROM feeds WHERE user_id = ? RETURNING id, id;", params: [parameter(1, userId)], columns: [id, id] }),
+      new Query({
+        filename: "queries.sql",
+        name: "GetFeed",
+        cmd: ":one",
+        text: "SELECT id, title FROM feeds WHERE id = ?;",
+        params: [parameter(1, id)],
+        columns: [id, title],
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "CreateFeed",
+        cmd: ":one",
+        text: "INSERT INTO feeds (title) VALUES (?) RETURNING id, title;",
+        params: [parameter(1, title)],
+        columns: [id, title],
+        insertIntoTable: feeds,
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "ListFeeds",
+        cmd: ":many",
+        text: "SELECT id, title FROM feeds;",
+        columns: [id, title],
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "TouchFeed",
+        cmd: ":exec",
+        text: "UPDATE feeds SET title = ? WHERE id = ?;",
+        params: [parameter(1, title), parameter(2, id)],
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "DeleteFeedsByUser",
+        cmd: ":execrows",
+        text: "DELETE FROM feeds WHERE user_id = ? RETURNING id, id;",
+        params: [parameter(1, userId)],
+        columns: [id, id],
+      }),
+
       // An INSERT target never turns a metadata command into a row command.
-      new Query({ filename: "queries.sql", name: "InsertFeedId", cmd: ":execlastid", text: "INSERT INTO feeds (title) VALUES (?);", params: [parameter(1, title)], insertIntoTable: feeds }),
-      new Query({ filename: "queries.sql", name: "PurgeFeeds", cmd: ":execresult", text: "DELETE FROM feeds WHERE user_id = ? RETURNING *;", params: [parameter(1, userId)], columns: [id, id, title] }),
-      new Query({ filename: "bare.sql", name: "PurgeAll", cmd: ":execresult", text: "DELETE FROM feeds;", columns: [id] }),
+      new Query({
+        filename: "queries.sql",
+        name: "InsertFeedId",
+        cmd: ":execlastid",
+        text: "INSERT INTO feeds (title) VALUES (?);",
+        params: [parameter(1, title)],
+        insertIntoTable: feeds,
+      }),
+
+      new Query({
+        filename: "queries.sql",
+        name: "PurgeFeeds",
+        cmd: ":execresult",
+        text: "DELETE FROM feeds WHERE user_id = ? RETURNING *;",
+        params: [parameter(1, userId)],
+        columns: [id, id, title],
+      }),
+
+      new Query({
+        filename: "bare.sql",
+        name: "PurgeAll",
+        cmd: ":execresult",
+        text: "DELETE FROM feeds;",
+        columns: [id],
+      }),
+
       new Query({ filename: "bare.sql", name: "CountAll", cmd: ":execrows", text: "DELETE FROM audit;" }),
     ],
   });
@@ -335,7 +427,10 @@ const commandSemantics: GeneratorScenario = {
     assert.equal(outcome.diagnostics, "");
     assert.ok(outcome.response);
     const response = outcome.response;
-    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "bare_sql.ts", "queries_sql.ts"]);
+    assert.deepEqual(
+      response.files.map((file) => file.name),
+      ["runtime.ts", "bare_sql.ts", "queries_sql.ts"],
+    );
     const sources = new Map(response.files.map((file) => [file.name, new TextDecoder().decode(file.contents)]));
     const queries = sources.get("queries_sql.ts")!;
     const bare = sources.get("bare_sql.ts")!;
@@ -348,7 +443,11 @@ const commandSemantics: GeneratorScenario = {
       ["insertFeedId", "exec-lastid", "number"],
       ["purgeFeeds", "exec-result", "D1Result<Record<string, unknown>>"],
     ] as const) {
-      assert.match(queries, new RegExp(`export function ${factory}\\(args: \\w+\\): QueryDescriptor<${escapeRegExp(result)}> \\{`), factory);
+      assert.match(
+        queries,
+        new RegExp(`export function ${factory}\\(args: \\w+\\): QueryDescriptor<${escapeRegExp(result)}> \\{`),
+        factory,
+      );
       assert.match(queries, new RegExp(`kind: "${kind}"`), kind);
     }
     // No dead row artifacts survive for the exec family, even though it carries columns.
@@ -376,14 +475,22 @@ const commandSemantics: GeneratorScenario = {
 
 const fileGrouping: GeneratorScenario = {
   id: "generator/file-grouping",
-  createInput: () => queryInput(validRequest({ queries: [
-    new Query({ filename: "one.sql", name: "First", cmd: ":exec", text: "DELETE FROM one;" }),
-    new Query({ filename: "one.sql", name: "Second", cmd: ":exec", text: "DELETE FROM two;" }),
-    new Query({ filename: "two.sql", name: "Third", cmd: ":exec", text: "DELETE FROM three;" }),
-  ] })),
+  createInput: () =>
+    queryInput(
+      validRequest({
+        queries: [
+          new Query({ filename: "one.sql", name: "First", cmd: ":exec", text: "DELETE FROM one;" }),
+          new Query({ filename: "one.sql", name: "Second", cmd: ":exec", text: "DELETE FROM two;" }),
+          new Query({ filename: "two.sql", name: "Third", cmd: ":exec", text: "DELETE FROM three;" }),
+        ],
+      }),
+    ),
   assert(outcome) {
     assert.equal(outcome.exitCode, 0, outcome.diagnostics);
-    assert.deepEqual(outcome.response?.files.map((file) => file.name), ["runtime.ts", "one_sql.ts", "two_sql.ts"]);
+    assert.deepEqual(
+      outcome.response?.files.map((file) => file.name),
+      ["runtime.ts", "one_sql.ts", "two_sql.ts"],
+    );
   },
 };
 
@@ -392,7 +499,10 @@ const optionsBoundary: GeneratorScenario = {
   createInput: () => queryInput(validRequest({ pluginOptions: encoder.encode('{"interfaces":"workers"}') })),
   assert(outcome) {
     assertFailure(outcome);
-    assert.match(outcome.diagnostics, /^sqlc-d1-typescript: generation failed with 1 error\n\nErrors:\n\[OPTIONS\/UNKNOWN_OPTION\]/);
+    assert.match(
+      outcome.diagnostics,
+      /^sqlc-d1-typescript: generation failed with 1 error\n\nErrors:\n\[OPTIONS\/UNKNOWN_OPTION\]/,
+    );
     assert.doesNotMatch(outcome.diagnostics, /\{"interfaces"/);
   },
 };
@@ -402,12 +512,15 @@ const protocolBoundary: GeneratorScenario = {
   createInput: () => ({ kind: "bytes", bytes: new Uint8Array([0x0a, 0x05, 0x01]) }),
   assert(outcome) {
     assertFailure(outcome);
-    assert.equal(outcome.diagnostics, `sqlc-d1-typescript: generation failed with 1 error
+    assert.equal(
+      outcome.diagnostics,
+      `sqlc-d1-typescript: generation failed with 1 error
 
 Errors:
 [PROTOCOL/MALFORMED_REQUEST]
 Plugin input is not a valid sqlc GenerateRequest
-`);
+`,
+    );
     assertNoStack(outcome.diagnostics);
   },
 };
@@ -431,21 +544,36 @@ const compatibility: GeneratorScenario = {
     assert.equal(outcome.exitCode, 0, outcome.diagnostics);
     assert.ok(outcome.response);
     assert.ok(outcome.stdout.length > 0);
-    assert.equal(outcome.diagnostics, `sqlc-d1-typescript: generation completed with 1 warning
+    assert.equal(
+      outcome.diagnostics,
+      `sqlc-d1-typescript: generation completed with 1 warning
 
 Warnings:
 [COMPATIBILITY/UNTESTED_SQLC_VERSION]
 sqlc "v1.32.0" is newer than the tested ceiling v1.31.1; generation will continue
-`);
+`,
+    );
   },
 };
 
 const queryBoundary: GeneratorScenario = {
   id: "generator/query-boundary",
-  createInput: () => queryInput(validRequest({ queries: [
-    new Query({ filename: "queries.sql", name: "Unsupported", cmd: ":copyfrom", text: "COPY secret" }),
-    new Query({ filename: "queries.sql", name: "Duplicate", cmd: ":many", text: "SELECT secret", columns: [column("id", "integer"), column("id", "integer")] }),
-  ] })),
+  createInput: () =>
+    queryInput(
+      validRequest({
+        queries: [
+          new Query({ filename: "queries.sql", name: "Unsupported", cmd: ":copyfrom", text: "COPY secret" }),
+
+          new Query({
+            filename: "queries.sql",
+            name: "Duplicate",
+            cmd: ":many",
+            text: "SELECT secret",
+            columns: [column("id", "integer"), column("id", "integer")],
+          }),
+        ],
+      }),
+    ),
   assert(outcome) {
     assertFailure(outcome);
     assert.match(outcome.diagnostics, /\[QUERY\/UNSUPPORTED_COMMAND\]/);
@@ -459,18 +587,26 @@ const queryBoundary: GeneratorScenario = {
 // being mistaken for an unsupported command.
 const emissionReadiness: GeneratorScenario = {
   id: "generator/emission-readiness",
-  createInput: () => queryInput(validRequest({ queries: [
-    new Query({
-      filename: "queries.sql",
-      name: "GetUserWithProfile",
-      cmd: ":one",
-      text: "SELECT users.*, profiles.* FROM users JOIN profiles ON profiles.user_id = users.id",
-      columns: [new Column({ name: "profile", embedTable: new Identifier({ name: "profiles" }) })],
-    }),
-  ] })),
+  createInput: () =>
+    queryInput(
+      validRequest({
+        queries: [
+          new Query({
+            filename: "queries.sql",
+            name: "GetUserWithProfile",
+            cmd: ":one",
+            text: "SELECT users.*, profiles.* FROM users JOIN profiles ON profiles.user_id = users.id",
+            columns: [new Column({ name: "profile", embedTable: new Identifier({ name: "profiles" }) })],
+          }),
+        ],
+      }),
+    ),
   assert(outcome) {
     assertFailure(outcome);
-    assert.match(outcome.diagnostics, /\[EMISSION\/UNKNOWN_EMBED_TABLE\] file "queries\.sql", query "GetUserWithProfile", field "columns\[0\]\.embedTable", position 1:\n/);
+    assert.match(
+      outcome.diagnostics,
+      /\[EMISSION\/UNKNOWN_EMBED_TABLE\] file "queries\.sql", query "GetUserWithProfile", field "columns\[0\]\.embedTable", position 1:\n/,
+    );
     assert.doesNotMatch(outcome.diagnostics, /UNIMPLEMENTED_/);
     assert.doesNotMatch(outcome.diagnostics, /\[QUERY\/UNSUPPORTED_COMMAND\]/);
     assert.doesNotMatch(outcome.diagnostics, /SELECT users/);
@@ -493,26 +629,37 @@ export function createArgumentsRequest(): GenerateRequest {
     queries: [
       // One Parameter for two occurrences of ?1: one property, one bind slot.
       new Query({
-        filename: "queries.sql", name: "GetUserByName", cmd: ":one",
+        filename: "queries.sql",
+        name: "GetUserByName",
+        cmd: ":one",
         text: "SELECT id, name FROM users WHERE name = ?1 AND nickname = ?1;",
         params: [parameter(1, namedColumn("name", "text"))],
         columns: [id, column("name", "text")],
       }),
+
       // sqlc.narg differs from sqlc.arg only by not_null.
       new Query({
-        filename: "queries.sql", name: "SearchByNickname", cmd: ":many",
+        filename: "queries.sql",
+        name: "SearchByNickname",
+        cmd: ":many",
         text: "SELECT id, name FROM users WHERE nickname = ?1;",
         params: [parameter(1, namedColumn("nick", "text", false))],
         columns: [id, column("name", "text")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "DeleteUsersByIds", cmd: ":execrows",
+        filename: "queries.sql",
+        name: "DeleteUsersByIds",
+        cmd: ":execrows",
         text: "DELETE FROM users WHERE id IN (/*SLICE:ids*/?);",
         params: [parameter(1, sliceColumn("ids", "integer"))],
       }),
+
       // params is text order; the bind numbers a slice query carries are not that order.
       new Query({
-        filename: "queries.sql", name: "SearchFeeds", cmd: ":many",
+        filename: "queries.sql",
+        name: "SearchFeeds",
+        cmd: ":many",
         text: "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (/*SLICE:ids*/?) LIMIT ?;",
         params: [
           parameter(1, column("user_id", "text")),
@@ -521,39 +668,57 @@ export function createArgumentsRequest(): GenerateRequest {
         ],
         columns: [id, title],
       }),
+
       new Query({
-        filename: "queries.sql", name: "PurgeByTags", cmd: ":execresult",
+        filename: "queries.sql",
+        name: "PurgeByTags",
+        cmd: ":execresult",
         text: "DELETE FROM feeds WHERE tag IN (/*SLICE:tags*/?) OR label IN (/*SLICE:labels*/?) RETURNING *;",
         params: [parameter(1, sliceColumn("tags", "text")), parameter(2, sliceColumn("labels", "text"))],
       }),
+
       new Query({
-        filename: "queries.sql", name: "TouchAll", cmd: ":exec",
+        filename: "queries.sql",
+        name: "TouchAll",
+        cmd: ":exec",
         text: "UPDATE feeds SET title = ? WHERE id IN (/*SLICE:ids*/?);",
         params: [parameter(1, column("title", "text")), parameter(2, sliceColumn("ids", "integer"))],
       }),
+
       new Query({
-        filename: "queries.sql", name: "InsertTagged", cmd: ":execlastid",
+        filename: "queries.sql",
+        name: "InsertTagged",
+        cmd: ":execlastid",
         text: "INSERT INTO tagged (tag) SELECT tag FROM tags WHERE tag IN (/*SLICE:tags*/?);",
         params: [parameter(1, sliceColumn("tags", "text"))],
         insertIntoTable: tagged,
       }),
+
       new Query({
-        filename: "queries.sql", name: "CreateTagged", cmd: ":one",
+        filename: "queries.sql",
+        name: "CreateTagged",
+        cmd: ":one",
         text: "INSERT INTO tagged (tag) SELECT tag FROM tags WHERE tag IN (/*SLICE:tags*/?) RETURNING id, title;",
         params: [parameter(1, sliceColumn("tags", "text"))],
         columns: [id, title],
         insertIntoTable: tagged,
       }),
+
       // Distinct normalized names stay independently expressible.
       new Query({
-        filename: "queries.sql", name: "MixedNames", cmd: ":one",
+        filename: "queries.sql",
+        name: "MixedNames",
+        cmd: ":one",
         text: "SELECT id FROM users WHERE user_id = ?1 AND owner = ?2;",
         params: [parameter(1, namedColumn("user_id", "text")), parameter(2, namedColumn("userID", "text"))],
         columns: [id],
       }),
+
       // One slice per non-scalar value kind, plus a nullable element type.
       new Query({
-        filename: "queries.sql", name: "MatchValues", cmd: ":many",
+        filename: "queries.sql",
+        name: "MatchValues",
+        cmd: ":many",
         text: "SELECT id FROM samples WHERE payload IN (/*SLICE:payloads*/?) AND settings IN (/*SLICE:settings*/?) AND token IN (/*SLICE:tokens*/?) AND label IN (/*SLICE:labels*/?);",
         params: [
           parameter(1, sliceColumn("payloads", "BLOB")),
@@ -658,7 +823,10 @@ const argumentModel: GeneratorScenario = {
     assert.equal(outcome.diagnostics, "");
     assert.ok(outcome.response);
     const response = outcome.response;
-    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "queries_sql.ts"]);
+    assert.deepEqual(
+      response.files.map((file) => file.name),
+      ["runtime.ts", "queries_sql.ts"],
+    );
     const source = new TextDecoder().decode(response.files[1].contents);
 
     const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/arguments-output.ts.txt"), "utf8");
@@ -682,7 +850,10 @@ const argumentModel: GeneratorScenario = {
     // The repeated named argument is one property and one bind expression.
     const getUserByName = /export function getUserByName[\s\S]*?\n\}/.exec(source)![0];
     assert.equal((getUserByName.match(/args\["name"\]/g) ?? []).length, 1);
-    assert.match(getUserByName, /params: Object\.freeze\(\[d1_values\.argText\(args\["name"\], "GetUserByName", "name"\)\]\)/);
+    assert.match(
+      getUserByName,
+      /params: Object\.freeze\(\[d1_values\.argText\(args\["name"\], "GetUserByName", "name"\)\]\)/,
+    );
     assert.match(source, /^export interface GetUserByNameArgs \{\n    "name": string;\n\}$/m);
     assert.match(source, /^    "userId": string;\n    "userId_2": string;$/m);
 
@@ -699,10 +870,19 @@ const argumentModel: GeneratorScenario = {
       assert.equal((body.match(/d1_values\.expandSlices\(/g) ?? []).length, 1, factory);
       assert.ok(body.includes(marker), factory);
     }
-    assert.match(source, /const d1_slice_ids = d1_values\.argSlice\(args\["ids"\], d1_values\.argInteger, "DeleteUsersByIds", "ids"\);/);
-    assert.match(source, /params: Object\.freeze\(\[d1_values\.argText\(args\["userId"\], "SearchFeeds", "userId"\), \.\.\.d1_slice_ids, d1_values\.argInteger\(args\["limit"\], "SearchFeeds", "limit"\)\]\)/);
+    assert.match(
+      source,
+      /const d1_slice_ids = d1_values\.argSlice\(args\["ids"\], d1_values\.argInteger, "DeleteUsersByIds", "ids"\);/,
+    );
+    assert.match(
+      source,
+      /params: Object\.freeze\(\[d1_values\.argText\(args\["userId"\], "SearchFeeds", "userId"\), \.\.\.d1_slice_ids, d1_values\.argInteger\(args\["limit"\], "SearchFeeds", "limit"\)\]\)/,
+    );
     // Two slices in one query expand together, in text order.
-    assert.match(source, /sql: d1_values\.expandSlices\(purgeByTagsQuery, "PurgeByTags", \[\["\/\*SLICE:tags\*\/\?", d1_slice_tags\.length\], \["\/\*SLICE:labels\*\/\?", d1_slice_labels\.length\]\]\)/);
+    assert.match(
+      source,
+      /sql: d1_values\.expandSlices\(purgeByTagsQuery, "PurgeByTags", \[\["\/\*SLICE:tags\*\/\?", d1_slice_tags\.length\], \["\/\*SLICE:labels\*\/\?", d1_slice_labels\.length\]\]\)/,
+    );
     // Non-slice queries neither expand nor snapshot anything.
     for (const factory of ["getUserByName", "searchByNickname", "mixedNames"]) {
       const body = new RegExp(`export function ${factory}\\([\\s\\S]*?\\n\\}`).exec(source)![0];
@@ -794,7 +974,12 @@ const argumentValues: GeneratorScenario = {
     assert.equal(values.params[2], "opaque");
     assert.equal(values.params[3], null);
     assert.deepEqual(
-      matchValues({ payloads: [new Uint8Array([7])], settings: [null, [1], "s"], tokens: [true, 1.5, "t"], labels: ["l", null] }).params.slice(1),
+      matchValues({
+        payloads: [new Uint8Array([7])],
+        settings: [null, [1], "s"],
+        tokens: [true, 1.5, "t"],
+        labels: ["l", null],
+      }).params.slice(1),
       ["null", "[1]", '"s"', true, 1.5, "t", "l", null],
     );
 
@@ -821,12 +1006,24 @@ const argumentValues: GeneratorScenario = {
     };
 
     // An empty slice is rejected synchronously: no NULL substitution, no D1 call.
-    rejects(() => deleteUsersByIds({ ids: [] }), { path: "ids", expected: "a non-empty array", received: "an empty array" });
-    rejects(() => searchFeeds({ userId: "u", ids: [], limit: 1 }), { path: "ids", expected: "a non-empty array", received: "an empty array" });
+    rejects(() => deleteUsersByIds({ ids: [] }), {
+      path: "ids",
+      expected: "a non-empty array",
+      received: "an empty array",
+    });
+    rejects(() => searchFeeds({ userId: "u", ids: [], limit: 1 }), {
+      path: "ids",
+      expected: "a non-empty array",
+      received: "an empty array",
+    });
     const batchExecutor = new FakeExecutor();
     let batchCaught: unknown;
     try {
-      void new DB(batchExecutor).batch(touchAll({ title: "t", ids: [1] }), deleteUsersByIds({ ids: [] }), insertTagged({ tags: ["a"] }));
+      void new DB(batchExecutor).batch(
+        touchAll({ title: "t", ids: [1] }),
+        deleteUsersByIds({ ids: [] }),
+        insertTagged({ tags: ["a"] }),
+      );
     } catch (error) {
       batchCaught = error;
     }
@@ -835,18 +1032,31 @@ const argumentValues: GeneratorScenario = {
     assert.equal(batchExecutor.bound.length, 0);
 
     for (const [value, received] of [
-      [null, "null"], [undefined, "undefined"], ["abc", "string"], [7, "number"],
-      [new Uint8Array([1]), "Uint8Array"], [{ length: 2 }, "object"],
+      [null, "null"],
+      [undefined, "undefined"],
+      ["abc", "string"],
+      [7, "number"],
+      [new Uint8Array([1]), "Uint8Array"],
+      [{ length: 2 }, "object"],
     ] as const) {
       rejects(() => deleteUsersByIds({ ids: value }), { path: "ids", expected: "a non-empty array", received });
     }
-    rejects(() => deleteUsersByIds({ ids: [1, 2, "three"] }), { path: "ids[2]", expected: "a safe integer", received: "string" });
+    rejects(() => deleteUsersByIds({ ids: [1, 2, "three"] }), {
+      path: "ids[2]",
+      expected: "a safe integer",
+      received: "string",
+    });
     rejects(() => matchValues({ payloads: [new Uint8Array()], settings: [1], tokens: ["t"], labels: [1] }), {
-      path: "labels[0]", expected: "a string or null", received: "number",
+      path: "labels[0]",
+      expected: "a string or null",
+      received: "number",
     });
 
     // Every command executes a slice descriptor and resolves its decided result.
-    const executeWith = async (query: unknown, rows: unknown[] = []): Promise<{ executor: FakeExecutor; result: unknown }> => {
+    const executeWith = async (
+      query: unknown,
+      rows: unknown[] = [],
+    ): Promise<{ executor: FakeExecutor; result: unknown }> => {
       const executor = new FakeExecutor();
       executor.rows = rows;
       executor.meta = { changes: 3, last_row_id: 77 };
@@ -855,7 +1065,9 @@ const argumentValues: GeneratorScenario = {
     const feedRow = (id: number): Record<string, unknown> => ({ id, title: `Feed ${id}` });
 
     assert.equal((await executeWith(deleteUsersByIds({ ids: [1, 2] }))).result, 3);
-    assert.deepEqual((await executeWith(searchFeeds({ userId: "u", ids: ["a"], limit: 5 }), [feedRow(1)])).result, [feedRow(1)]);
+    assert.deepEqual((await executeWith(searchFeeds({ userId: "u", ids: ["a"], limit: 5 }), [feedRow(1)])).result, [
+      feedRow(1),
+    ]);
     assert.equal((await executeWith(touchAll({ title: "t", ids: [1] }))).result, undefined);
     assert.equal((await executeWith(insertTagged({ tags: ["a"] }))).result, 77);
     assert.deepEqual((await executeWith(createTagged({ tags: ["a"] }), [feedRow(2)])).result, feedRow(2));
@@ -863,14 +1075,21 @@ const argumentValues: GeneratorScenario = {
     assert.equal(nativeRun.result, nativeRun.executor.produced[0]);
     // Each statement was prepared with its own expanded SQL.
     const executed = await executeWith(searchFeeds({ userId: "u", ids: ["a", "b", "c"], limit: 5 }));
-    assert.equal(executed.executor.bound[0].sql, "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (?,?,?) LIMIT ?;");
+    assert.equal(
+      executed.executor.bound[0].sql,
+      "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (?,?,?) LIMIT ?;",
+    );
     assert.deepEqual(executed.executor.bound[0].params, ["u", "a", "b", "c", 5]);
 
     // One heterogeneous batch: two slice descriptors of different lengths, three without.
     const mixedExecutor = new FakeExecutor();
     mixedExecutor.batchRows = [[feedRow(1)], [], [], [], []];
     mixedExecutor.batchMetas = [
-      DEFAULT_FAKE_META, { changes: 2, last_row_id: 0 }, DEFAULT_FAKE_META, { changes: 1, last_row_id: 9 }, DEFAULT_FAKE_META,
+      DEFAULT_FAKE_META,
+      { changes: 2, last_row_id: 0 },
+      DEFAULT_FAKE_META,
+      { changes: 1, last_row_id: 9 },
+      DEFAULT_FAKE_META,
     ];
     const mixed = await new DB(mixedExecutor).batch(
       searchFeeds({ userId: "u", ids: ["a", "b"], limit: 5 }),
@@ -880,9 +1099,10 @@ const argumentValues: GeneratorScenario = {
       getUserByName({ name: "Ada" }),
     );
     assert.deepEqual(mixed.slice(0, 4), [[feedRow(1)], 2, [], 9]);
-    assert.deepEqual(mixedExecutor.bound.map((statement) => statement.params), [
-      ["u", "a", "b", 5], [1, 2, 3], [null], ["x"], ["Ada"],
-    ]);
+    assert.deepEqual(
+      mixedExecutor.bound.map((statement) => statement.params),
+      [["u", "a", "b", 5], [1, 2, 3], [null], ["x"], ["Ada"]],
+    );
     assert.equal(mixedExecutor.bound[0].sql, "SELECT id, title FROM feeds WHERE user_id = ? AND id IN (?,?) LIMIT ?;");
     assert.equal(mixedExecutor.bound[1].sql, "DELETE FROM users WHERE id IN (?,?,?);");
     assert.equal(mixedExecutor.bound[4].sql, "SELECT id, name FROM users WHERE name = ?1 AND nickname = ?1;");
@@ -916,28 +1136,42 @@ export function createArgumentBoundaryRequest(): GenerateRequest {
   return validRequest({
     queries: [
       new Query({
-        filename: "gap.sql", name: "NumberGap", cmd: ":exec",
+        filename: "gap.sql",
+        name: "NumberGap",
+        cmd: ":exec",
         text: "DELETE FROM users WHERE id = ?1 AND owner_id = ?3",
         params: [parameter(1, namedColumn("id")), parameter(3, namedColumn("owner_id"))],
       }),
+
       new Query({
-        filename: "order.sql", name: "NamedThenPositional", cmd: ":exec",
+        filename: "order.sql",
+        name: "NamedThenPositional",
+        cmd: ":exec",
         text: "DELETE FROM users WHERE name = ?2 AND age = ?",
         params: [parameter(2, namedColumn("nm", "text")), parameter(1, column("age", "integer"))],
       }),
+
       new Query({
-        filename: "mixture.sql", name: "SliceWithNumbered", cmd: ":exec",
+        filename: "mixture.sql",
+        name: "SliceWithNumbered",
+        cmd: ":exec",
         text: "DELETE FROM users WHERE name IN (/*SLICE:names*/?) AND nickname = ?2",
         params: [parameter(1, sliceColumn("names", "text")), parameter(2, namedColumn("nickname", "text"))],
       }),
+
       new Query({
-        filename: "metadata.sql", name: "SliceMetadata", cmd: ":exec",
+        filename: "metadata.sql",
+        name: "SliceMetadata",
+        cmd: ":exec",
         text: "DELETE FROM users WHERE id IN (?) AND tag IN (/*SLICE:tags*/?)",
         params: [parameter(1, sliceColumn("ids")), parameter(2, column("tag", "text"))],
       }),
+
       // A reproducible slice query in the same request contributes no diagnostic.
       new Query({
-        filename: "valid.sql", name: "DeleteByIds", cmd: ":exec",
+        filename: "valid.sql",
+        name: "DeleteByIds",
+        cmd: ":exec",
         text: "DELETE FROM users WHERE id IN (/*SLICE:ids*/?) LIMIT ?",
         params: [parameter(2, sliceColumn("ids")), parameter(1, column("limit", "integer"))],
       }),
@@ -982,10 +1216,14 @@ const UNSUPPORTED_COMMAND_CASES: readonly (readonly [string, string, string])[] 
 
 const unsupportedCommands: GeneratorScenario = {
   id: "generator/unsupported-commands",
-  createInput: () => queryInput(validRequest({
-    queries: UNSUPPORTED_COMMAND_CASES.map(([filename, name, cmd]) =>
-      new Query({ filename, name, cmd, text: `SELECT secret_${name} FROM classified;` })),
-  })),
+  createInput: () =>
+    queryInput(
+      validRequest({
+        queries: UNSUPPORTED_COMMAND_CASES.map(
+          ([filename, name, cmd]) => new Query({ filename, name, cmd, text: `SELECT secret_${name} FROM classified;` }),
+        ),
+      }),
+    ),
   assert(outcome) {
     assertFailure(outcome);
     assert.match(outcome.diagnostics, /generation failed with 5 errors\n/);
@@ -993,7 +1231,9 @@ const unsupportedCommands: GeneratorScenario = {
     for (const [filename, name, cmd] of UNSUPPORTED_COMMAND_CASES) {
       assert.match(
         outcome.diagnostics,
-        new RegExp(`\\[QUERY/UNSUPPORTED_COMMAND\\] file "${filename}", query "${name}", field "cmd":\\ncommand "${cmd}" is unsupported; supported commands: ${escapeRegExp('":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"')}\\n`),
+        new RegExp(
+          `\\[QUERY/UNSUPPORTED_COMMAND\\] file "${filename}", query "${name}", field "cmd":\\ncommand "${cmd}" is unsupported; supported commands: ${escapeRegExp('":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"')}\\n`,
+        ),
         cmd,
       );
     }
@@ -1004,18 +1244,26 @@ const unsupportedCommands: GeneratorScenario = {
 
 const diagnosticAggregation: GeneratorScenario = {
   id: "generator/diagnostic-aggregation",
-  createInput: () => queryInput(validRequest({
-    pluginOptions: encoder.encode("{"),
-    sqlcVersion: "v1.32.0",
-    queries: [
-      new Query({ filename: "z.sql", name: "Zed", cmd: ":one", text: "SELECT z" }),
-      new Query({ filename: "a.sql", name: "Alpha", cmd: ":future", text: "SELECT a" }),
-    ],
-  })),
+  createInput: () =>
+    queryInput(
+      validRequest({
+        pluginOptions: encoder.encode("{"),
+        sqlcVersion: "v1.32.0",
+        queries: [
+          new Query({ filename: "z.sql", name: "Zed", cmd: ":one", text: "SELECT z" }),
+          new Query({ filename: "a.sql", name: "Alpha", cmd: ":future", text: "SELECT a" }),
+        ],
+      }),
+    ),
   assert(outcome) {
     assertFailure(outcome);
     assert.match(outcome.diagnostics, /generation failed with 3 errors and 1 warning/);
-    const identifiers = ["[OPTIONS/MALFORMED_JSON]", "[QUERY/UNSUPPORTED_COMMAND]", "[QUERY/MISSING_RESULT_COLUMNS]", "[COMPATIBILITY/UNTESTED_SQLC_VERSION]"];
+    const identifiers = [
+      "[OPTIONS/MALFORMED_JSON]",
+      "[QUERY/UNSUPPORTED_COMMAND]",
+      "[QUERY/MISSING_RESULT_COLUMNS]",
+      "[COMPATIBILITY/UNTESTED_SQLC_VERSION]",
+    ];
     let position = -1;
     for (const identifier of identifiers) {
       const next = outcome.diagnostics.indexOf(identifier);
@@ -1028,12 +1276,37 @@ const diagnosticAggregation: GeneratorScenario = {
 export function createSafeEmissionRequest(): GenerateRequest {
   const hostileSql = "SELECT '\"\\\\` ${notSource}' AS user_id\r\n-- \0\u2028\u2029";
   const repeated = column("default", "text");
-  return validRequest({ queries: [
-    new Query({ filename: "z.root.sql", name: "GetURL", cmd: ":one", text: hostileSql, params: [parameter(1, repeated), parameter(1, repeated), parameter(2, column("", "text"))], columns: [column("user_id", "text"), column("userID", "text"), column("USER_ID", "text"), column("", "text")] }),
-    new Query({ filename: "admin/a.b.sql", name: "CreateItem", cmd: ":one", text: "INSERT RETURNING", columns: [column("default", "text")], insertIntoTable: new Identifier({ name: "items" }) }),
-    new Query({ filename: "admin/a.b.sql", name: "ListItems", cmd: ":many", text: "SELECT", columns: [column("created_at_2", "text")] }),
-    new Query({ filename: "deep/audit.log.sql", name: "ClearLog", cmd: ":exec", text: "DELETE" }),
-  ] });
+  return validRequest({
+    queries: [
+      new Query({
+        filename: "z.root.sql",
+        name: "GetURL",
+        cmd: ":one",
+        text: hostileSql,
+        params: [parameter(1, repeated), parameter(1, repeated), parameter(2, column("", "text"))],
+        columns: [column("user_id", "text"), column("userID", "text"), column("USER_ID", "text"), column("", "text")],
+      }),
+
+      new Query({
+        filename: "admin/a.b.sql",
+        name: "CreateItem",
+        cmd: ":one",
+        text: "INSERT RETURNING",
+        columns: [column("default", "text")],
+        insertIntoTable: new Identifier({ name: "items" }),
+      }),
+
+      new Query({
+        filename: "admin/a.b.sql",
+        name: "ListItems",
+        cmd: ":many",
+        text: "SELECT",
+        columns: [column("created_at_2", "text")],
+      }),
+
+      new Query({ filename: "deep/audit.log.sql", name: "ClearLog", cmd: ":exec", text: "DELETE" }),
+    ],
+  });
 }
 
 const safeEmission: GeneratorScenario = {
@@ -1043,7 +1316,10 @@ const safeEmission: GeneratorScenario = {
     assert.equal(outcome.exitCode, 0, outcome.diagnostics);
     assert.equal(outcome.diagnostics, "");
     assert.ok(outcome.response);
-    assert.deepEqual(outcome.response.files.map((file) => file.name), ["runtime.ts", "admin/a_b_sql.ts", "deep/audit_log_sql.ts", "z_root_sql.ts"]);
+    assert.deepEqual(
+      outcome.response.files.map((file) => file.name),
+      ["runtime.ts", "admin/a_b_sql.ts", "deep/audit_log_sql.ts", "z_root_sql.ts"],
+    );
     const sources = new Map(outcome.response.files.map((file) => [file.name, new TextDecoder().decode(file.contents)]));
     assert.match(sources.get("admin/a_b_sql.ts")!, /from "\.\.\/runtime"/);
     assert.match(sources.get("deep/audit_log_sql.ts")!, /from "\.\.\/runtime"/);
@@ -1095,18 +1371,30 @@ const typescriptFloor: GeneratorScenario = {
 };
 
 export function createEmissionDiagnosticsRequest(): GenerateRequest {
-  return validRequest({ sqlcVersion: "v1.32.0", queries: [
-    new Query({ filename: "a.b", name: "Class", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "a_b", name: "URLValue", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "a_b", name: "UrlValue", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "Foo.sql", name: "GoodOne", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "foo.sql", name: "GoodTwo", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "../bad.sql", name: "Bad-Name", cmd: ":one", text: "SELECT", params: [parameter(1, column("bad-name", "text"))], columns: [column("also-bad", "text")] }),
-    new Query({ filename: "/absolute.sql", name: "AbsolutePath", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "bad\\path.sql", name: "BackslashPath", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "CON.sql", name: "DevicePath", cmd: ":exec", text: "DELETE" }),
-    new Query({ filename: "runtime", name: "RuntimeOwner", cmd: ":exec", text: "DELETE" }),
-  ] });
+  return validRequest({
+    sqlcVersion: "v1.32.0",
+    queries: [
+      new Query({ filename: "a.b", name: "Class", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "a_b", name: "URLValue", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "a_b", name: "UrlValue", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "Foo.sql", name: "GoodOne", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "foo.sql", name: "GoodTwo", cmd: ":exec", text: "DELETE" }),
+
+      new Query({
+        filename: "../bad.sql",
+        name: "Bad-Name",
+        cmd: ":one",
+        text: "SELECT",
+        params: [parameter(1, column("bad-name", "text"))],
+        columns: [column("also-bad", "text")],
+      }),
+
+      new Query({ filename: "/absolute.sql", name: "AbsolutePath", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "bad\\path.sql", name: "BackslashPath", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "CON.sql", name: "DevicePath", cmd: ":exec", text: "DELETE" }),
+      new Query({ filename: "runtime", name: "RuntimeOwner", cmd: ":exec", text: "DELETE" }),
+    ],
+  });
 }
 
 const expectedEmissionDiagnostics = String.raw`sqlc-d1-typescript: generation failed with 13 errors and 1 warning
@@ -1191,7 +1479,10 @@ const noQueryRuntime: GeneratorScenario = {
   createInput: () => queryInput(validRequest({ pluginOptions: new Uint8Array() })),
   assert(outcome) {
     assert.equal(outcome.exitCode, 0, outcome.diagnostics);
-    assert.deepEqual(outcome.response?.files.map((file) => file.name), ["runtime.ts"]);
+    assert.deepEqual(
+      outcome.response?.files.map((file) => file.name),
+      ["runtime.ts"],
+    );
     const runtimeSource = readFileSync(resolve(process.cwd(), "src/runtime.d1.ts"), "utf8");
     const expected = runtimeSource.split("// --- RUNTIME BEGIN ---")[1].split("// --- RUNTIME END ---")[0].slice(1, -1);
     assert.equal(new TextDecoder().decode(outcome.response?.files[0].contents), expected);
@@ -1238,10 +1529,41 @@ export function createCheckedValuesRequest(): GenerateRequest {
   const valueParameters = () => valueColumns().map((value, index) => parameter(index + 1, value));
   return validRequest({
     queries: [
-      new Query({ filename: "values.sql", name: "CreateSample", cmd: ":one", text: "INSERT INTO samples VALUES (?) RETURNING *;", params: valueParameters(), columns: valueColumns(), insertIntoTable: new Identifier({ name: "samples" }) }),
-      new Query({ filename: "values.sql", name: "GetSample", cmd: ":one", text: "SELECT * FROM samples WHERE int_value = ?;", params: [parameter(1, column("int_value", "INTEGER"))], columns: valueColumns() }),
-      new Query({ filename: "values.sql", name: "ListSamples", cmd: ":many", text: "SELECT * FROM samples;", columns: valueColumns() }),
-      new Query({ filename: "values.sql", name: "TouchSample", cmd: ":exec", text: "UPDATE samples SET int_value = ?;", params: valueParameters() }),
+      new Query({
+        filename: "values.sql",
+        name: "CreateSample",
+        cmd: ":one",
+        text: "INSERT INTO samples VALUES (?) RETURNING *;",
+        params: valueParameters(),
+        columns: valueColumns(),
+        insertIntoTable: new Identifier({ name: "samples" }),
+      }),
+
+      new Query({
+        filename: "values.sql",
+        name: "GetSample",
+        cmd: ":one",
+        text: "SELECT * FROM samples WHERE int_value = ?;",
+        params: [parameter(1, column("int_value", "INTEGER"))],
+        columns: valueColumns(),
+      }),
+
+      new Query({
+        filename: "values.sql",
+        name: "ListSamples",
+        cmd: ":many",
+        text: "SELECT * FROM samples;",
+        columns: valueColumns(),
+      }),
+
+      new Query({
+        filename: "values.sql",
+        name: "TouchSample",
+        cmd: ":exec",
+        text: "UPDATE samples SET int_value = ?;",
+        params: valueParameters(),
+      }),
+
       new Query({ filename: "plain.sql", name: "ClearSamples", cmd: ":exec", text: "DELETE FROM samples;" }),
     ],
   });
@@ -1343,18 +1665,48 @@ const checkedValues: GeneratorScenario = {
     const values = sources.get("values_sql.ts")!;
     const plain = sources.get("plain_sql.ts")!;
 
-    assert.match(values, /^import \{ generatedInternals as d1_values \} from "\.\/runtime";\nimport type \{ QueryDescriptor, D1NonNullValue, D1Value, JsonValue \} from "\.\/runtime";$/m);
-    assert.match(values, /^type d1_Context = \{ readonly operation: "execute" \| "batch"; readonly queryName: string; readonly batchIndex\?: number \| undefined; readonly rowIndex\?: number \| undefined \};$/m);
+    assert.match(
+      values,
+      /^import \{ generatedInternals as d1_values \} from "\.\/runtime";\nimport type \{ QueryDescriptor, D1NonNullValue, D1Value, JsonValue \} from "\.\/runtime";$/m,
+    );
+    assert.match(
+      values,
+      /^type d1_Context = \{ readonly operation: "execute" \| "batch"; readonly queryName: string; readonly batchIndex\?: number \| undefined; readonly rowIndex\?: number \| undefined \};$/m,
+    );
     assert.match(values, /name: "CreateSample"/);
     assert.match(values, /d1_values\.requireArgs\(args, "CreateSample"\);/);
 
-    for (const [kind, nullable] of [["Integer", "int"], ["Number", "num"], ["Text", "text"], ["Boolean", "bool"], ["Blob", "blob"], ["Json", "json"], ["Unknown", "any"]] as const) {
+    for (const [kind, nullable] of [
+      ["Integer", "int"],
+      ["Number", "num"],
+      ["Text", "text"],
+      ["Boolean", "bool"],
+      ["Blob", "blob"],
+      ["Json", "json"],
+      ["Unknown", "any"],
+    ] as const) {
       const publicName = `${nullable}Value`;
       const nullName = `${nullable}Null`;
-      assert.match(values, new RegExp(`d1_values\\.arg${kind}\\(args\\["${publicName}"\\], "CreateSample", "${publicName}"\\)`), publicName);
-      assert.match(values, new RegExp(`d1_values\\.arg${kind}OrNull\\(args\\["${nullName}"\\], "CreateSample", "${nullName}"\\)`), nullName);
-      assert.match(values, new RegExp(`d1_values\\.row${kind}\\(row, "${nullable}_value", "${publicName}", ctx\\)`), publicName);
-      assert.match(values, new RegExp(`d1_values\\.row${kind}OrNull\\(row, "${nullable}_null", "${nullName}", ctx\\)`), nullName);
+      assert.match(
+        values,
+        new RegExp(`d1_values\\.arg${kind}\\(args\\["${publicName}"\\], "CreateSample", "${publicName}"\\)`),
+        publicName,
+      );
+      assert.match(
+        values,
+        new RegExp(`d1_values\\.arg${kind}OrNull\\(args\\["${nullName}"\\], "CreateSample", "${nullName}"\\)`),
+        nullName,
+      );
+      assert.match(
+        values,
+        new RegExp(`d1_values\\.row${kind}\\(row, "${nullable}_value", "${publicName}", ctx\\)`),
+        publicName,
+      );
+      assert.match(
+        values,
+        new RegExp(`d1_values\\.row${kind}OrNull\\(row, "${nullable}_null", "${nullName}", ctx\\)`),
+        nullName,
+      );
     }
 
     // Argument-less :exec modules stay free of the codec import and the context alias.
@@ -1474,33 +1826,93 @@ const runtimeValues: GeneratorScenario = {
       assert.deepEqual(createSample({ ...validArgs(), anyValue: accepted }).params[12], accepted);
     }
 
-    rejectsArgument({ ...validArgs(), intValue: 1.5 }, { path: "intValue", expected: "a safe integer", received: "non-integer number" });
-    rejectsArgument({ ...validArgs(), intValue: 2 ** 53 }, { path: "intValue", expected: "a safe integer", received: "unsafe integer" });
-    rejectsArgument({ ...validArgs(), intNull: 1.5 }, { path: "intNull", expected: "a safe integer or null", received: "non-integer number" });
-    rejectsArgument({ ...validArgs(), numValue: Number.POSITIVE_INFINITY }, { path: "numValue", expected: "a finite number", received: "non-finite number" });
-    rejectsArgument({ ...validArgs(), numValue: Number.NaN }, { path: "numValue", expected: "a finite number", received: "non-finite number" });
+    rejectsArgument(
+      { ...validArgs(), intValue: 1.5 },
+      { path: "intValue", expected: "a safe integer", received: "non-integer number" },
+    );
+    rejectsArgument(
+      { ...validArgs(), intValue: 2 ** 53 },
+      { path: "intValue", expected: "a safe integer", received: "unsafe integer" },
+    );
+    rejectsArgument(
+      { ...validArgs(), intNull: 1.5 },
+      { path: "intNull", expected: "a safe integer or null", received: "non-integer number" },
+    );
+    rejectsArgument(
+      { ...validArgs(), numValue: Number.POSITIVE_INFINITY },
+      { path: "numValue", expected: "a finite number", received: "non-finite number" },
+    );
+    rejectsArgument(
+      { ...validArgs(), numValue: Number.NaN },
+      { path: "numValue", expected: "a finite number", received: "non-finite number" },
+    );
     rejectsArgument({ ...validArgs(), textValue: 1 }, { path: "textValue", expected: "a string", received: "number" });
     rejectsArgument({ ...validArgs(), boolValue: 1 }, { path: "boolValue", expected: "a boolean", received: "number" });
-    rejectsArgument({ ...validArgs(), blobValue: new ArrayBuffer(3) }, { path: "blobValue", expected: "a Uint8Array", received: "object" });
-    rejectsArgument({ ...validArgs(), blobValue: [1, 2, 3] }, { path: "blobValue", expected: "a Uint8Array", received: "array" });
-    rejectsArgument({ ...validArgs(), anyValue: 10n }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "bigint" });
-    rejectsArgument({ ...validArgs(), anyValue: new Date() }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "object" });
-    rejectsArgument({ ...validArgs(), anyValue: null }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "null" });
-    rejectsArgument({ ...validArgs(), anyValue: Number.POSITIVE_INFINITY }, { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "non-finite number" });
+    rejectsArgument(
+      { ...validArgs(), blobValue: new ArrayBuffer(3) },
+      { path: "blobValue", expected: "a Uint8Array", received: "object" },
+    );
+    rejectsArgument(
+      { ...validArgs(), blobValue: [1, 2, 3] },
+      { path: "blobValue", expected: "a Uint8Array", received: "array" },
+    );
+    rejectsArgument(
+      { ...validArgs(), anyValue: 10n },
+      { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "bigint" },
+    );
+    rejectsArgument(
+      { ...validArgs(), anyValue: new Date() },
+      { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "object" },
+    );
+    rejectsArgument(
+      { ...validArgs(), anyValue: null },
+      { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "null" },
+    );
+    rejectsArgument(
+      { ...validArgs(), anyValue: Number.POSITIVE_INFINITY },
+      { path: "anyValue", expected: "a boolean, finite number, string, or Uint8Array", received: "non-finite number" },
+    );
 
     // Recursive JsonValue validation, with paths into the caller's own structure.
-    rejectsArgument({ ...validArgs(), jsonValue: new Date() }, { path: "jsonValue", expected: "a plain JSON object", received: "object" });
-    rejectsArgument({ ...validArgs(), jsonValue: { a: undefined } }, { path: "jsonValue.a", expected: "a JSON value", received: "undefined" });
-    rejectsArgument({ ...validArgs(), jsonValue: { a: [0, Number.POSITIVE_INFINITY] } }, { path: "jsonValue.a[1]", expected: "a finite number", received: "non-finite number" });
-    rejectsArgument({ ...validArgs(), jsonValue: { a: () => 1 } }, { path: "jsonValue.a", expected: "a JSON value", received: "function" });
-    rejectsArgument({ ...validArgs(), jsonValue: { a: 1n } }, { path: "jsonValue.a", expected: "a JSON value", received: "bigint" });
-    rejectsArgument({ ...validArgs(), jsonValue: { [Symbol("k")]: 1 } }, { path: "jsonValue", expected: "a JSON object without symbol keys", received: "object" });
-    rejectsArgument({ ...validArgs(), jsonValue: { a: Object.create({ inherited: 1 }) as object } }, { path: "jsonValue.a", expected: "a plain JSON object", received: "object" });
+    rejectsArgument(
+      { ...validArgs(), jsonValue: new Date() },
+      { path: "jsonValue", expected: "a plain JSON object", received: "object" },
+    );
+    rejectsArgument(
+      { ...validArgs(), jsonValue: { a: undefined } },
+      { path: "jsonValue.a", expected: "a JSON value", received: "undefined" },
+    );
+    rejectsArgument(
+      { ...validArgs(), jsonValue: { a: [0, Number.POSITIVE_INFINITY] } },
+      { path: "jsonValue.a[1]", expected: "a finite number", received: "non-finite number" },
+    );
+    rejectsArgument(
+      { ...validArgs(), jsonValue: { a: () => 1 } },
+      { path: "jsonValue.a", expected: "a JSON value", received: "function" },
+    );
+    rejectsArgument(
+      { ...validArgs(), jsonValue: { a: 1n } },
+      { path: "jsonValue.a", expected: "a JSON value", received: "bigint" },
+    );
+    rejectsArgument(
+      { ...validArgs(), jsonValue: { [Symbol("k")]: 1 } },
+      { path: "jsonValue", expected: "a JSON object without symbol keys", received: "object" },
+    );
+    rejectsArgument(
+      { ...validArgs(), jsonValue: { a: Object.create({ inherited: 1 }) as object } },
+      { path: "jsonValue.a", expected: "a plain JSON object", received: "object" },
+    );
     const cyclic: Record<string, unknown> = { name: "root" };
     cyclic.self = cyclic;
-    rejectsArgument({ ...validArgs(), jsonValue: cyclic }, { path: "jsonValue.self", expected: "an acyclic JSON value", received: "object" });
+    rejectsArgument(
+      { ...validArgs(), jsonValue: cyclic },
+      { path: "jsonValue.self", expected: "an acyclic JSON value", received: "object" },
+    );
     const shared = { reused: true };
-    assert.equal(createSample({ ...validArgs(), jsonValue: [shared, shared] }).params[10], '[{"reused":true},{"reused":true}]');
+    assert.equal(
+      createSample({ ...validArgs(), jsonValue: [shared, shared] }).params[10],
+      '[{"reused":true},{"reused":true}]',
+    );
 
     // Every property is required; omission and explicit undefined are both violations.
     for (const [property, expected] of [
@@ -1520,7 +1932,12 @@ const runtimeValues: GeneratorScenario = {
     }
 
     // A non-object argument bag fails with the decided class, not a bare TypeError.
-    for (const [bag, received] of [[null, "null"], [undefined, "undefined"], ["text", "string"], [7, "number"]] as const) {
+    for (const [bag, received] of [
+      [null, "null"],
+      [undefined, "undefined"],
+      ["text", "string"],
+      [7, "number"],
+    ] as const) {
       let caught: unknown;
       try {
         createSample(bag as unknown as Record<string, unknown>);
@@ -1570,14 +1987,14 @@ const runtimeValues: GeneratorScenario = {
 
     // Two markers expand independently, and a repeated one is replaced left to right.
     assert.equal(
-      internals.expandSlices(`SELECT 1 WHERE a IN (${marker}) OR b IN (/*SLICE:tags*/?)`, "Sliced", [[marker, 2], ["/*SLICE:tags*/?", 1]]),
+      internals.expandSlices(`SELECT 1 WHERE a IN (${marker}) OR b IN (/*SLICE:tags*/?)`, "Sliced", [
+        [marker, 2],
+        ["/*SLICE:tags*/?", 1],
+      ]),
       "SELECT 1 WHERE a IN (?,?) OR b IN (?)",
     );
 
-    const rejectsSlice = (
-      value: unknown,
-      expectations: { path: string; expected: string; received: string },
-    ): void => {
+    const rejectsSlice = (value: unknown, expectations: { path: string; expected: string; received: string }): void => {
       let caught: unknown;
       try {
         internals.argSlice(value, internals.argInteger, "Sliced", "ids");
@@ -1595,8 +2012,12 @@ const runtimeValues: GeneratorScenario = {
 
     rejectsSlice([], { path: "ids", expected: "a non-empty array", received: "an empty array" });
     for (const [value, received] of [
-      [null, "null"], [undefined, "undefined"], ["abc", "string"], [7, "number"],
-      [new Uint8Array([1]), "Uint8Array"], [{ length: 2 }, "object"],
+      [null, "null"],
+      [undefined, "undefined"],
+      ["abc", "string"],
+      [7, "number"],
+      [new Uint8Array([1]), "Uint8Array"],
+      [{ length: 2 }, "object"],
     ] as const) {
       rejectsSlice(value, { path: "ids", expected: "a non-empty array", received });
     }
@@ -1634,17 +2055,35 @@ const runtimeValues: GeneratorScenario = {
       unexpected_extra: secret,
     });
 
-    const executeWithRows = async (rows: unknown[], query: unknown): Promise<{ executor: FakeExecutor; result: unknown }> => {
+    const executeWithRows = async (
+      rows: unknown[],
+      query: unknown,
+    ): Promise<{ executor: FakeExecutor; result: unknown }> => {
       const executor = new FakeExecutor();
       executor.rows = rows;
       const result = await new DB(executor).execute(query);
       return { executor, result };
     };
 
-    const mapped = (await executeWithRows([physicalRow()], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    const mapped = (await executeWithRows([physicalRow()], getSample({ intValue: 1 }))).result as Record<
+      string,
+      unknown
+    >;
     assert.deepEqual(Object.keys(mapped), [
-      "intValue", "intNull", "numValue", "numNull", "textValue", "textNull",
-      "boolValue", "boolNull", "blobValue", "blobNull", "jsonValue", "jsonNull", "anyValue", "anyNull",
+      "intValue",
+      "intNull",
+      "numValue",
+      "numNull",
+      "textValue",
+      "textNull",
+      "boolValue",
+      "boolNull",
+      "blobValue",
+      "blobNull",
+      "jsonValue",
+      "jsonNull",
+      "anyValue",
+      "anyNull",
     ]);
     assert.equal(mapped.boolValue, true);
     assert.equal(mapped.boolNull, false);
@@ -1681,34 +2120,120 @@ const runtimeValues: GeneratorScenario = {
       return checked;
     };
 
-    await rejectsRow((row) => { delete row.int_value; }, { path: "intValue", expected: "a safe integer", received: "missing field" });
-    await rejectsRow((row) => { delete row.any_null; }, { path: "anyNull", expected: "a present value", received: "missing field" });
-    await rejectsRow((row) => { row.int_value = null; }, { path: "intValue", expected: "a safe integer", received: "null" });
-    await rejectsRow((row) => { row.any_value = null; }, { path: "anyValue", expected: "a non-null value", received: "null" });
-    await rejectsRow((row) => { row.int_value = "1"; }, { path: "intValue", expected: "a safe integer", received: "string" });
-    await rejectsRow((row) => { row.int_value = 2 ** 53; }, { path: "intValue", expected: "a safe integer", received: "unsafe integer" });
-    await rejectsRow((row) => { row.num_value = "x"; }, { path: "numValue", expected: "a finite number", received: "string" });
-    await rejectsRow((row) => { row.text_value = 1; }, { path: "textValue", expected: "a string", received: "number" });
-    await rejectsRow((row) => { row.bool_value = 2; }, { path: "boolValue", expected: "the integer 0 or 1", received: "number" });
-    await rejectsRow((row) => { row.bool_value = "1"; }, { path: "boolValue", expected: "the integer 0 or 1", received: "string" });
-    await rejectsRow((row) => { row.bool_value = true; }, { path: "boolValue", expected: "the integer 0 or 1", received: "boolean" });
-    await rejectsRow((row) => { row.blob_value = [1, 300]; }, { path: "blobValue", expected: "a byte array", received: "array" });
-    await rejectsRow((row) => { row.blob_value = [1, 1.5]; }, { path: "blobValue", expected: "a byte array", received: "array" });
-    await rejectsRow((row) => { row.blob_value = "bytes"; }, { path: "blobValue", expected: "a byte array", received: "string" });
-    const malformed = await rejectsRow((row) => { row.json_value = "{oops"; }, { path: "jsonValue", expected: "JSON text", received: "malformed JSON string" });
+    await rejectsRow(
+      (row) => {
+        delete row.int_value;
+      },
+      { path: "intValue", expected: "a safe integer", received: "missing field" },
+    );
+    await rejectsRow(
+      (row) => {
+        delete row.any_null;
+      },
+      { path: "anyNull", expected: "a present value", received: "missing field" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.int_value = null;
+      },
+      { path: "intValue", expected: "a safe integer", received: "null" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.any_value = null;
+      },
+      { path: "anyValue", expected: "a non-null value", received: "null" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.int_value = "1";
+      },
+      { path: "intValue", expected: "a safe integer", received: "string" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.int_value = 2 ** 53;
+      },
+      { path: "intValue", expected: "a safe integer", received: "unsafe integer" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.num_value = "x";
+      },
+      { path: "numValue", expected: "a finite number", received: "string" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.text_value = 1;
+      },
+      { path: "textValue", expected: "a string", received: "number" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.bool_value = 2;
+      },
+      { path: "boolValue", expected: "the integer 0 or 1", received: "number" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.bool_value = "1";
+      },
+      { path: "boolValue", expected: "the integer 0 or 1", received: "string" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.bool_value = true;
+      },
+      { path: "boolValue", expected: "the integer 0 or 1", received: "boolean" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.blob_value = [1, 300];
+      },
+      { path: "blobValue", expected: "a byte array", received: "array" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.blob_value = [1, 1.5];
+      },
+      { path: "blobValue", expected: "a byte array", received: "array" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.blob_value = "bytes";
+      },
+      { path: "blobValue", expected: "a byte array", received: "string" },
+    );
+    const malformed = await rejectsRow(
+      (row) => {
+        row.json_value = "{oops";
+      },
+      { path: "jsonValue", expected: "JSON text", received: "malformed JSON string" },
+    );
     assert.ok(malformed.cause instanceof SyntaxError);
-    await rejectsRow((row) => { row.json_value = 7; }, { path: "jsonValue", expected: "JSON text", received: "number" });
+    await rejectsRow(
+      (row) => {
+        row.json_value = 7;
+      },
+      { path: "jsonValue", expected: "JSON text", received: "number" },
+    );
 
     // Defensive BLOB representations, and freshly constructed public rows.
     const uint8Row = physicalRow();
     uint8Row.blob_value = new Uint8Array([4, 5]);
-    const uint8Mapped = (await executeWithRows([uint8Row], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    const uint8Mapped = (await executeWithRows([uint8Row], getSample({ intValue: 1 }))).result as Record<
+      string,
+      unknown
+    >;
     assert.deepEqual(uint8Mapped.blobValue, new Uint8Array([4, 5]));
     assert.notEqual(uint8Mapped.blobValue, uint8Row.blob_value);
     const backingBuffer = new Uint8Array([6, 7]).buffer;
     const bufferRow = physicalRow();
     bufferRow.blob_value = backingBuffer;
-    const bufferMapped = (await executeWithRows([bufferRow], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    const bufferMapped = (await executeWithRows([bufferRow], getSample({ intValue: 1 }))).result as Record<
+      string,
+      unknown
+    >;
     assert.deepEqual(bufferMapped.blobValue, new Uint8Array([6, 7]));
     // A view over the source buffer would not survive this.
     new Uint8Array(backingBuffer)[0] = 99;
@@ -1716,7 +2241,10 @@ const runtimeValues: GeneratorScenario = {
     const sourceArray = [8, 9];
     const arrayRow = physicalRow();
     arrayRow.blob_value = sourceArray;
-    const arrayMapped = (await executeWithRows([arrayRow], getSample({ intValue: 1 }))).result as Record<string, unknown>;
+    const arrayMapped = (await executeWithRows([arrayRow], getSample({ intValue: 1 }))).result as Record<
+      string,
+      unknown
+    >;
     sourceArray[0] = 99;
     assert.deepEqual(arrayMapped.blobValue, new Uint8Array([8, 9]));
 
@@ -1752,7 +2280,10 @@ const runtimeValues: GeneratorScenario = {
     assert.equal(batchChecked.queryName, "ListSamples");
 
     // Native rejections keep their identity, type, message, stack, and D1 fields.
-    const nativeFailure = Object.assign(new Error("D1_ERROR: no such table: samples"), { cause: undefined, code: "D1_ERROR" });
+    const nativeFailure = Object.assign(new Error("D1_ERROR: no such table: samples"), {
+      cause: undefined,
+      code: "D1_ERROR",
+    });
     const nativeStack = nativeFailure.stack;
     const nativeExecutor = new FakeExecutor();
     nativeExecutor.failure = nativeFailure;
@@ -1812,7 +2343,9 @@ const runtimeValues: GeneratorScenario = {
         name: "Defective",
         sql: "SELECT 1",
         params: [],
-        parse: () => { throw defect; },
+        parse: () => {
+          throw defect;
+        },
       });
     } catch (error) {
       defectCaught = error;
@@ -1880,15 +2413,12 @@ const batchSessionContract: GeneratorScenario = {
       () => emptyDb.batch(),
       (error: unknown) => {
         assert.ok(error instanceof QueryUsageError);
-        assert.deepEqual(
-          pickError(error as unknown as CheckedError),
-          {
-            name: "QueryUsageError",
-            operation: "batch",
-            expected: "at least one generated query descriptor",
-            received: "no query descriptors",
-          },
-        );
+        assert.deepEqual(pickError(error as unknown as CheckedError), {
+          name: "QueryUsageError",
+          operation: "batch",
+          expected: "at least one generated query descriptor",
+          received: "no query descriptors",
+        });
         return true;
       },
     );
@@ -1898,11 +2428,7 @@ const batchSessionContract: GeneratorScenario = {
     // Every descriptor is validated before even the first statement is prepared.
     const malformedExecutor = new FakeExecutor();
     await assert.rejects(
-      new DB(malformedExecutor).batch(
-        handBuiltDescriptor("exec", "First"),
-        handBuiltDescriptor("exec", "Second"),
-        {},
-      ),
+      new DB(malformedExecutor).batch(handBuiltDescriptor("exec", "First"), handBuiltDescriptor("exec", "Second"), {}),
       (error: unknown) => {
         assert.ok(error instanceof QueryUsageError);
         assert.equal((error as unknown as CheckedError).batchIndex, 2);
@@ -1977,7 +2503,13 @@ const batchSessionContract: GeneratorScenario = {
     const defectExecutor = new FakeExecutor();
     defectExecutor.batchRows = [[{ id: 1 }]];
     await assert.rejects(
-      new DB(defectExecutor).batch(handBuiltDescriptor("one", "Defect", { parse: () => { throw defect; } })),
+      new DB(defectExecutor).batch(
+        handBuiltDescriptor("one", "Defect", {
+          parse: () => {
+            throw defect;
+          },
+        }),
+      ),
       (error: unknown) => error === defect,
     );
     assert.equal(defectExecutor.nativeBatchCompleted, true);
@@ -1994,7 +2526,11 @@ const batchSessionContract: GeneratorScenario = {
     assert.notEqual(primarySession, unconstrainedSession);
     assert.notEqual(unconstrainedSession, bookmarkSession);
 
-    for (const [value, received] of [[null, "null"], [7, "number"], [{}, "object"]] as const) {
+    for (const [value, received] of [
+      [null, "null"],
+      [7, "number"],
+      [{}, "object"],
+    ] as const) {
       assert.throws(
         () => db.withSession(value),
         (error: unknown) => {
@@ -2082,7 +2618,10 @@ const commandResults: GeneratorScenario = {
     const QueryResultError = runtime.QueryResultError as new (...args: never[]) => Error;
     const QueryUsageError = runtime.QueryUsageError as new (...args: never[]) => Error;
 
-    const executeWithMeta = async (meta: unknown, query: unknown): Promise<{ executor: FakeExecutor; result: unknown }> => {
+    const executeWithMeta = async (
+      meta: unknown,
+      query: unknown,
+    ): Promise<{ executor: FakeExecutor; result: unknown }> => {
       const executor = new FakeExecutor();
       executor.meta = meta;
       const result = await new DB(executor).execute(query);
@@ -2090,14 +2629,20 @@ const commandResults: GeneratorScenario = {
     };
 
     // Metadata commands resolve the validated field D1 reports, zero included.
-    for (const [changes, lastRowId] of [[3, 42], [0, 0]] as const) {
+    for (const [changes, lastRowId] of [
+      [3, 42],
+      [0, 0],
+    ] as const) {
       const meta = { changes, last_row_id: lastRowId, duration: 0.5, served_by: "miniflare.db" };
       assert.equal((await executeWithMeta(meta, handBuiltDescriptor("exec-rows", "Changed"))).result, changes);
       assert.equal((await executeWithMeta(meta, handBuiltDescriptor("exec-lastid", "Inserted"))).result, lastRowId);
     }
 
     // :execresult hands back D1's own object: same identity, unfrozen, uncopied.
-    const passthrough = await executeWithMeta({ changes: 1, last_row_id: 9 }, handBuiltDescriptor("exec-result", "Native"));
+    const passthrough = await executeWithMeta(
+      { changes: 1, last_row_id: 9 },
+      handBuiltDescriptor("exec-result", "Native"),
+    );
     assert.equal(passthrough.result, passthrough.executor.produced[0]);
     assert.equal(Object.isFrozen(passthrough.result), false);
     const native = passthrough.result as { results: unknown[]; success: boolean; meta: Record<string, unknown> };
@@ -2107,7 +2652,10 @@ const commandResults: GeneratorScenario = {
     assert.equal(native.meta.last_row_id, 9);
 
     // :exec still discards everything D1 reported.
-    assert.equal((await executeWithMeta({ changes: 5, last_row_id: 5 }, handBuiltDescriptor("exec", "Touch"))).result, undefined);
+    assert.equal(
+      (await executeWithMeta({ changes: 5, last_row_id: 5 }, handBuiltDescriptor("exec", "Touch"))).result,
+      undefined,
+    );
 
     const rejectsMeta = async (
       kind: string,
@@ -2171,9 +2719,16 @@ const commandResults: GeneratorScenario = {
     assert.deepEqual(await new DB(emptyExecutor).batch(handBuiltDescriptor("many", "Many", { parse: identity })), [[]]);
 
     // Metadata failures inside a batch carry the operation and the failing index.
-    for (const [batchIndex, kind, key] of [[1, "exec-rows", "changes"], [2, "exec-lastid", "last_row_id"]] as const) {
+    for (const [batchIndex, kind, key] of [
+      [1, "exec-rows", "changes"],
+      [2, "exec-lastid", "last_row_id"],
+    ] as const) {
       const executor = new FakeExecutor();
-      executor.batchMetas = [{ changes: 1, last_row_id: 1 }, { changes: 1, last_row_id: 1 }, { changes: 1, last_row_id: 1 }];
+      executor.batchMetas = [
+        { changes: 1, last_row_id: 1 },
+        { changes: 1, last_row_id: 1 },
+        { changes: 1, last_row_id: 1 },
+      ];
       executor.batchMetas[batchIndex] = { [key]: "not a number" };
       let caught: unknown;
       try {
@@ -2255,8 +2810,13 @@ const commandResults: GeneratorScenario = {
     const generatedBatch = new FakeExecutor();
     generatedBatch.batchRows = [[feedRow(1)], [feedRow(2)], [feedRow(3), feedRow(4)], [], [], [], [feedRow(5)]];
     generatedBatch.batchMetas = [
-      DEFAULT_FAKE_META, DEFAULT_FAKE_META, DEFAULT_FAKE_META, { changes: 1, last_row_id: 0 },
-      { changes: 2, last_row_id: 0 }, { changes: 1, last_row_id: 55 }, { changes: 3, last_row_id: 56 },
+      DEFAULT_FAKE_META,
+      DEFAULT_FAKE_META,
+      DEFAULT_FAKE_META,
+      { changes: 1, last_row_id: 0 },
+      { changes: 2, last_row_id: 0 },
+      { changes: 1, last_row_id: 55 },
+      { changes: 3, last_row_id: 56 },
     ];
     const generatedResults = await new DB(generatedBatch).batch(
       getFeed({ id: 1 }),
@@ -2268,7 +2828,12 @@ const commandResults: GeneratorScenario = {
       purgeFeeds({ userId: "user_1" }),
     );
     assert.deepEqual(generatedResults.slice(0, 6), [
-      feedRow(1), feedRow(2), [feedRow(3), feedRow(4)], undefined, 2, 55,
+      feedRow(1),
+      feedRow(2),
+      [feedRow(3), feedRow(4)],
+      undefined,
+      2,
+      55,
     ]);
     assert.equal(generatedResults[6], generatedBatch.produced[6]);
     assert.equal(generatedBatch.bound.length, 7);
@@ -2284,8 +2849,14 @@ const commandResults: GeneratorScenario = {
     }
     assert.ok(generatedCaught instanceof QueryResultError);
     assert.deepEqual(
-      (({ operation, queryName, path, expected, received, rowIndex }: CheckedError) =>
-        ({ operation, queryName, path, expected, received, rowIndex }))(generatedCaught as unknown as CheckedError),
+      (({ operation, queryName, path, expected, received, rowIndex }: CheckedError) => ({
+        operation,
+        queryName,
+        path,
+        expected,
+        received,
+        rowIndex,
+      }))(generatedCaught as unknown as CheckedError),
       {
         operation: "execute",
         queryName: "DeleteFeedsByUser",
@@ -2339,17 +2910,19 @@ const SAMPLE_COLUMNS = VALUE_COLUMNS.map(([name]) => name);
 
 const embedCatalog = new Catalog({
   defaultSchema: "main",
-  schemas: [new Schema({
-    name: "main",
-    tables: [
-      catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
-      catalogTable("posts", [column("id", "INTEGER"), column("user_id", "INTEGER"), column("title", "TEXT")]),
-      // Every column nullable, so an absent outer row maps to an all-null object.
-      catalogTable("profiles", [column("user_id", "INTEGER", false), column("bio", "TEXT", false)]),
-      catalogTable("odd", [column("foo_bar", "TEXT"), column("fooBar", "TEXT")]),
-      catalogTable("samples", valueColumns()),
-    ],
-  })],
+  schemas: [
+    new Schema({
+      name: "main",
+      tables: [
+        catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
+        catalogTable("posts", [column("id", "INTEGER"), column("user_id", "INTEGER"), column("title", "TEXT")]),
+        // Every column nullable, so an absent outer row maps to an all-null object.
+        catalogTable("profiles", [column("user_id", "INTEGER", false), column("bio", "TEXT", false)]),
+        catalogTable("odd", [column("foo_bar", "TEXT"), column("fooBar", "TEXT")]),
+        catalogTable("samples", valueColumns()),
+      ],
+    }),
+  ],
 });
 
 // The whole embed surface in one module: colliding physical names, interleaved ordinary
@@ -2361,53 +2934,79 @@ export function createEmbedsRequest(): GenerateRequest {
     queries: [
       // Both embedded tables have an "id"; without private aliases one of them is lost.
       new Query({
-        filename: "queries.sql", name: "UserAndPost", cmd: ":one",
+        filename: "queries.sql",
+        name: "UserAndPost",
+        cmd: ":one",
         text: `SELECT ${projection("users", USERS_COLUMNS)}, ${projection("posts", ["id", "user_id", "title"])} FROM users JOIN posts ON posts.user_id = users.id WHERE posts.id = ?`,
         params: [parameter(1, column("id", "integer"))],
         columns: [embedColumn("users"), embedColumn("posts")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "MixedEmbed", cmd: ":many",
+        filename: "queries.sql",
+        name: "MixedEmbed",
+        cmd: ":many",
         text: `SELECT posts.id AS post_id, ${projection("users", USERS_COLUMNS)}, posts.title AS post_title FROM posts JOIN users ON posts.user_id = users.id`,
         columns: [column("post_id", "integer"), embedColumn("users"), column("post_title", "text")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "UserWithProfile", cmd: ":one",
+        filename: "queries.sql",
+        name: "UserWithProfile",
+        cmd: ":one",
         text: `SELECT ${projection("users", USERS_COLUMNS)}, ${projection("profiles", ["user_id", "bio"])} FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.id = ?`,
         params: [parameter(1, column("id", "integer"))],
         columns: [embedColumn("users"), embedColumn("profiles")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "SelfJoin", cmd: ":many",
+        filename: "queries.sql",
+        name: "SelfJoin",
+        cmd: ":many",
         text: `SELECT ${projection("a", USERS_COLUMNS)}, ${projection("b", USERS_COLUMNS)} FROM users a JOIN users b ON b.id = a.id`,
         columns: [embedColumn("users"), embedColumn("users")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "AliasCollision", cmd: ":many",
+        filename: "queries.sql",
+        name: "AliasCollision",
+        cmd: ":many",
         text: `SELECT logs.d1_embed_0_0, ${projection("users", USERS_COLUMNS)} FROM logs JOIN users ON logs.user_id = users.id`,
         columns: [column("d1_embed_0_0", "text"), embedColumn("users")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "NestedNames", cmd: ":one",
+        filename: "queries.sql",
+        name: "NestedNames",
+        cmd: ":one",
         text: `SELECT ${projection("odd", ["foo_bar", "fooBar"])}, users.name AS users, ${projection("users", USERS_COLUMNS)} FROM odd JOIN users ON odd.foo_bar = users.name`,
         columns: [embedColumn("odd"), column("users", "text"), embedColumn("users")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "EmbedValues", cmd: ":one",
+        filename: "queries.sql",
+        name: "EmbedValues",
+        cmd: ":one",
         text: `SELECT ${projection("samples", SAMPLE_COLUMNS)} FROM samples WHERE samples.int_value = ?`,
         params: [parameter(1, column("int_value", "INTEGER"))],
         columns: [embedColumn("samples")],
       }),
+
       // The exec family ignores result columns, so it plans no embed and no alias even
       // though it shares a module with queries that do.
       new Query({
-        filename: "queries.sql", name: "DeleteUsers", cmd: ":execrows",
+        filename: "queries.sql",
+        name: "DeleteUsers",
+        cmd: ":execrows",
         text: "DELETE FROM users WHERE id = ?",
         params: [parameter(1, column("id", "integer"))],
         columns: [embedColumn("users")],
       }),
+
       new Query({
-        filename: "queries.sql", name: "EmbedWithSlice", cmd: ":many",
+        filename: "queries.sql",
+        name: "EmbedWithSlice",
+        cmd: ":many",
         text: `SELECT ${projection("users", USERS_COLUMNS)} FROM users WHERE users.id IN (/*SLICE:ids*/?) ORDER BY users.id`,
         params: [parameter(1, sliceColumn("ids", "integer"))],
         columns: [embedColumn("users")],
@@ -2494,7 +3093,10 @@ const embedModel: GeneratorScenario = {
     assert.equal(outcome.diagnostics, "");
     assert.ok(outcome.response);
     const response = outcome.response;
-    assert.deepEqual(response.files.map((file) => file.name), ["runtime.ts", "queries_sql.ts"]);
+    assert.deepEqual(
+      response.files.map((file) => file.name),
+      ["runtime.ts", "queries_sql.ts"],
+    );
     const source = new TextDecoder().decode(response.files[1].contents);
 
     const expected = readFileSync(resolve(process.cwd(), "test/generator/goldens/embeds-output.ts.txt"), "utf8");
@@ -2502,8 +3104,15 @@ const embedModel: GeneratorScenario = {
 
     // Every SQL constant is sqlc's own text plus exactly one alias per embedded column.
     const embeddedColumnCounts: Readonly<Record<string, number>> = {
-      UserAndPost: 5, MixedEmbed: 2, UserWithProfile: 4, SelfJoin: 4,
-      AliasCollision: 2, NestedNames: 4, EmbedValues: VALUE_COLUMNS.length, DeleteUsers: 0, EmbedWithSlice: 2,
+      UserAndPost: 5,
+      MixedEmbed: 2,
+      UserWithProfile: 4,
+      SelfJoin: 4,
+      AliasCollision: 2,
+      NestedNames: 4,
+      EmbedValues: VALUE_COLUMNS.length,
+      DeleteUsers: 0,
+      EmbedWithSlice: 2,
     };
     for (const query of createEmbedsRequest().queries) {
       const factory = query.name.charAt(0).toLowerCase() + query.name.slice(1);
@@ -2530,9 +3139,15 @@ const embedModel: GeneratorScenario = {
     assert.match(source, /d1_values\.rowInteger\(row, "d1_embed_0_0_2", "users\.id", ctx\)/);
 
     // Nested types are inline objects, and one embed is one row property.
-    assert.match(source, /^export interface UserAndPostRow \{\n {4}"users": \{\n {8}"id": number;\n {8}"name": string;\n {4}\};\n {4}"posts": \{\n {8}"id": number;\n {8}"userId": number;\n {8}"title": string;\n {4}\};\n\}$/m);
+    assert.match(
+      source,
+      /^export interface UserAndPostRow \{\n {4}"users": \{\n {8}"id": number;\n {8}"name": string;\n {4}\};\n {4}"posts": \{\n {8}"id": number;\n {8}"userId": number;\n {8}"title": string;\n {4}\};\n\}$/m,
+    );
     assert.doesNotMatch(source, /interface \w+UsersRow|interface \w+PostsRow/);
-    assert.match(source, /^ {8}"users": \{\n {12}"id": d1_values\.rowInteger\(row, "d1_embed_0_0", "users\.id", ctx\),\n {12}"name": d1_values\.rowText\(row, "d1_embed_0_1", "users\.name", ctx\)\n {8}\},$/m);
+    assert.match(
+      source,
+      /^ {8}"users": \{\n {12}"id": d1_values\.rowInteger\(row, "d1_embed_0_0", "users\.id", ctx\),\n {12}"name": d1_values\.rowText\(row, "d1_embed_0_1", "users\.name", ctx\)\n {8}\},$/m,
+    );
 
     for (const compiler of ["typescript-5-2", "typescript"] as const) {
       compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": embedsConsumer } });
@@ -2564,7 +3179,10 @@ const embedValuesScenario: GeneratorScenario = {
     const embedWithSlice = factory("embedWithSlice");
     const aliasCollision = factory("aliasCollision");
 
-    const executeWithRows = async (rows: unknown[], query: unknown): Promise<{ executor: FakeExecutor; result: unknown }> => {
+    const executeWithRows = async (
+      rows: unknown[],
+      query: unknown,
+    ): Promise<{ executor: FakeExecutor; result: unknown }> => {
       const executor = new FakeExecutor();
       executor.rows = rows;
       const result = await new DB(executor).execute(query);
@@ -2574,11 +3192,17 @@ const embedValuesScenario: GeneratorScenario = {
     // The regression this feature exists for: two physical "id" columns, each in the
     // object that projected it.
     const userAndPostRow = {
-      d1_embed_0_0: 1, d1_embed_0_1: "Ada",
-      d1_embed_1_0: 7, d1_embed_1_1: 1, d1_embed_1_2: "Post title",
+      d1_embed_0_0: 1,
+      d1_embed_0_1: "Ada",
+      d1_embed_1_0: 7,
+      d1_embed_1_1: 1,
+      d1_embed_1_2: "Post title",
       id: "an ignored physical key",
     };
-    const nested = (await executeWithRows([userAndPostRow], userAndPost({ id: 1 }))).result as Record<string, Record<string, unknown>>;
+    const nested = (await executeWithRows([userAndPostRow], userAndPost({ id: 1 }))).result as Record<
+      string,
+      Record<string, unknown>
+    >;
     assert.deepEqual(nested, {
       users: { id: 1, name: "Ada" },
       posts: { id: 7, userId: 1, title: "Post title" },
@@ -2589,10 +3213,15 @@ const embedValuesScenario: GeneratorScenario = {
     assert.equal(Object.prototype.hasOwnProperty.call(nested.users, "d1_embed_0_0"), false);
 
     // Ordinary fields sit beside nested ones, in projection order.
-    const mixed = (await executeWithRows([
-      { post_id: 3, d1_embed_0_0: 1, d1_embed_0_1: "Ada", post_title: "Title" },
-      { post_id: 4, d1_embed_0_0: 2, d1_embed_0_1: "Grace", post_title: "Other" },
-    ], mixedEmbed())).result as Record<string, unknown>[];
+    const mixed = (
+      await executeWithRows(
+        [
+          { post_id: 3, d1_embed_0_0: 1, d1_embed_0_1: "Ada", post_title: "Title" },
+          { post_id: 4, d1_embed_0_0: 2, d1_embed_0_1: "Grace", post_title: "Other" },
+        ],
+        mixedEmbed(),
+      )
+    ).result as Record<string, unknown>[];
     assert.deepEqual(mixed, [
       { postId: 3, users: { id: 1, name: "Ada" }, postTitle: "Title" },
       { postId: 4, users: { id: 2, name: "Grace" }, postTitle: "Other" },
@@ -2601,37 +3230,68 @@ const embedValuesScenario: GeneratorScenario = {
     assert.notEqual(mixed[0].users, mixed[1].users);
 
     // An absent outer row is an object of nulls, never a null object and never absent.
-    const outer = (await executeWithRows([
-      { d1_embed_0_0: 1, d1_embed_0_1: "Ada", d1_embed_1_0: null, d1_embed_1_1: null },
-    ], userWithProfile({ id: 1 }))).result as Record<string, Record<string, unknown> | null>;
+    const outer = (
+      await executeWithRows(
+        [{ d1_embed_0_0: 1, d1_embed_0_1: "Ada", d1_embed_1_0: null, d1_embed_1_1: null }],
+        userWithProfile({ id: 1 }),
+      )
+    ).result as Record<string, Record<string, unknown> | null>;
     assert.notEqual(outer.profiles, null);
     assert.deepEqual(outer.profiles, { userId: null, bio: null });
     assert.deepEqual(outer.users, { id: 1, name: "Ada" });
 
     // Two embeds of one table are two independent objects.
-    const self = (await executeWithRows([
-      { d1_embed_0_0: 1, d1_embed_0_1: "Ada", d1_embed_1_0: 2, d1_embed_1_1: "Grace" },
-    ], selfJoin())).result as Record<string, unknown>[];
+    const self = (
+      await executeWithRows(
+        [{ d1_embed_0_0: 1, d1_embed_0_1: "Ada", d1_embed_1_0: 2, d1_embed_1_1: "Grace" }],
+        selfJoin(),
+      )
+    ).result as Record<string, unknown>[];
     assert.deepEqual(self, [{ users: { id: 1, name: "Ada" }, users_2: { id: 2, name: "Grace" } }]);
 
     // The stepped-over alias is what the parser actually reads.
-    const collision = (await executeWithRows([
-      { d1_embed_0_0: "occupied", d1_embed_0_0_2: 5, d1_embed_0_1: "Ada" },
-    ], aliasCollision())).result as Record<string, unknown>[];
+    const collision = (
+      await executeWithRows([{ d1_embed_0_0: "occupied", d1_embed_0_0_2: 5, d1_embed_0_1: "Ada" }], aliasCollision())
+    ).result as Record<string, unknown>[];
     assert.deepEqual(collision, [{ d1Embed00: "occupied", users: { id: 5, name: "Ada" } }]);
 
     // Every value kind inside an embed behaves exactly as its flat counterpart.
     const backingBuffer = new Uint8Array([6, 7]).buffer;
     const samplesRow = (): Record<string, unknown> => ({
-      d1_embed_0_0: 1, d1_embed_0_1: null, d1_embed_0_2: 1.5, d1_embed_0_3: null,
-      d1_embed_0_4: "text", d1_embed_0_5: null, d1_embed_0_6: 1, d1_embed_0_7: 0,
-      d1_embed_0_8: [1, 2, 3], d1_embed_0_9: null, d1_embed_0_10: '{"a":1}', d1_embed_0_11: null,
-      d1_embed_0_12: "opaque", d1_embed_0_13: null,
+      d1_embed_0_0: 1,
+      d1_embed_0_1: null,
+      d1_embed_0_2: 1.5,
+      d1_embed_0_3: null,
+      d1_embed_0_4: "text",
+      d1_embed_0_5: null,
+      d1_embed_0_6: 1,
+      d1_embed_0_7: 0,
+      d1_embed_0_8: [1, 2, 3],
+      d1_embed_0_9: null,
+      d1_embed_0_10: '{"a":1}',
+      d1_embed_0_11: null,
+      d1_embed_0_12: "opaque",
+      d1_embed_0_13: null,
     });
-    const values = (await executeWithRows([samplesRow()], embedValues({ intValue: 1 }))).result as Record<string, Record<string, unknown>>;
+    const values = (await executeWithRows([samplesRow()], embedValues({ intValue: 1 }))).result as Record<
+      string,
+      Record<string, unknown>
+    >;
     assert.deepEqual(Object.keys(values.samples), [
-      "intValue", "intNull", "numValue", "numNull", "textValue", "textNull",
-      "boolValue", "boolNull", "blobValue", "blobNull", "jsonValue", "jsonNull", "anyValue", "anyNull",
+      "intValue",
+      "intNull",
+      "numValue",
+      "numNull",
+      "textValue",
+      "textNull",
+      "boolValue",
+      "boolNull",
+      "blobValue",
+      "blobNull",
+      "jsonValue",
+      "jsonNull",
+      "anyValue",
+      "anyNull",
     ]);
     assert.equal(values.samples.boolValue, true);
     assert.equal(values.samples.boolNull, false);
@@ -2642,7 +3302,10 @@ const embedValuesScenario: GeneratorScenario = {
     assert.equal(values.samples.anyNull, null);
     const bufferRow = samplesRow();
     bufferRow.d1_embed_0_8 = backingBuffer;
-    const fromBuffer = (await executeWithRows([bufferRow], embedValues({ intValue: 1 }))).result as Record<string, Record<string, unknown>>;
+    const fromBuffer = (await executeWithRows([bufferRow], embedValues({ intValue: 1 }))).result as Record<
+      string,
+      Record<string, unknown>
+    >;
     new Uint8Array(backingBuffer)[0] = 99;
     assert.deepEqual(fromBuffer.samples.blobValue, new Uint8Array([6, 7]));
 
@@ -2669,10 +3332,30 @@ const embedValuesScenario: GeneratorScenario = {
       assert.equal(checked.received, expectations.received);
       return checked;
     };
-    await rejectsRow((row) => { delete row.d1_embed_0_0; }, { path: "users.id", expected: "a safe integer", received: "missing field" });
-    await rejectsRow((row) => { row.d1_embed_0_1 = null; }, { path: "users.name", expected: "a string", received: "null" });
-    await rejectsRow((row) => { row.d1_embed_1_2 = 7; }, { path: "posts.title", expected: "a string", received: "number" });
-    await rejectsRow((row) => { row.d1_embed_1_0 = 2 ** 53; }, { path: "posts.id", expected: "a safe integer", received: "unsafe integer" });
+    await rejectsRow(
+      (row) => {
+        delete row.d1_embed_0_0;
+      },
+      { path: "users.id", expected: "a safe integer", received: "missing field" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.d1_embed_0_1 = null;
+      },
+      { path: "users.name", expected: "a string", received: "null" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.d1_embed_1_2 = 7;
+      },
+      { path: "posts.title", expected: "a string", received: "number" },
+    );
+    await rejectsRow(
+      (row) => {
+        row.d1_embed_1_0 = 2 ** 53;
+      },
+      { path: "posts.id", expected: "a safe integer", received: "unsafe integer" },
+    );
 
     // Embeds compose with slices: the marker survives the projection rewrite.
     const sliced = embedWithSlice({ ids: [1, 2, 3] });
@@ -2744,57 +3427,79 @@ export function createEmbedBoundaryRequest(): GenerateRequest {
   return validRequest({
     catalog: new Catalog({
       defaultSchema: "main",
-      schemas: [new Schema({
-        name: "main",
-        tables: [
-          catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
-          catalogTable("empty", []),
-          catalogTable("repeated", [column("id", "INTEGER"), column("id", "TEXT")]),
-          // Neither name can become a safe ASCII property, and each is reported on its own.
-          catalogTable("weird", [column("my col", "TEXT"), column("café", "TEXT"), column("ok_col", "TEXT")]),
-        ],
-      })],
+      schemas: [
+        new Schema({
+          name: "main",
+          tables: [
+            catalogTable("users", [column("id", "INTEGER"), column("name", "TEXT")]),
+            catalogTable("empty", []),
+            catalogTable("repeated", [column("id", "INTEGER"), column("id", "TEXT")]),
+            // Neither name can become a safe ASCII property, and each is reported on its own.
+            catalogTable("weird", [column("my col", "TEXT"), column("café", "TEXT"), column("ok_col", "TEXT")]),
+          ],
+        }),
+      ],
     }),
     queries: [
       // The text cannot be located either, but an unresolved table suppresses that check:
       // one violation is one diagnostic.
       new Query({
-        filename: "unknown.sql", name: "UnknownTable", cmd: ":one",
+        filename: "unknown.sql",
+        name: "UnknownTable",
+        cmd: ":one",
         text: "SELECT * FROM absent",
         columns: [embedColumn("absent")],
       }),
+
       new Query({
-        filename: "empty.sql", name: "EmptyTable", cmd: ":one",
+        filename: "empty.sql",
+        name: "EmptyTable",
+        cmd: ":one",
         text: "SELECT empty.id FROM empty",
         columns: [embedColumn("empty")],
       }),
+
       new Query({
-        filename: "repeated.sql", name: "RepeatedColumn", cmd: ":one",
+        filename: "repeated.sql",
+        name: "RepeatedColumn",
+        cmd: ":one",
         text: "SELECT repeated.id, repeated.id FROM repeated",
         columns: [embedColumn("repeated")],
       }),
+
       // sqlc quotes only reserved keywords, so this text is not even valid SQL; the
       // Plugin rejects it earlier, and for its own reason.
       new Query({
-        filename: "unsafe.sql", name: "UnsafeColumn", cmd: ":one",
+        filename: "unsafe.sql",
+        name: "UnsafeColumn",
+        cmd: ":one",
         text: "SELECT weird.my col, weird.café, weird.ok_col FROM weird",
         columns: [embedColumn("weird")],
       }),
+
       // sqlc.embed(users) beside users.* expands twice, indistinguishably.
       new Query({
-        filename: "ambiguous.sql", name: "AmbiguousProjection", cmd: ":one",
+        filename: "ambiguous.sql",
+        name: "AmbiguousProjection",
+        cmd: ":one",
         text: `SELECT ${projection("users", USERS_COLUMNS)}, ${projection("users", USERS_COLUMNS)} FROM users`,
         columns: [embedColumn("users")],
       }),
+
       // Metadata and text that disagree are the same kind of failure.
       new Query({
-        filename: "absent.sql", name: "AbsentProjection", cmd: ":one",
+        filename: "absent.sql",
+        name: "AbsentProjection",
+        cmd: ":one",
         text: "SELECT * FROM users",
         columns: [embedColumn("users")],
       }),
+
       // One valid embed in the same request contributes no diagnostic.
       new Query({
-        filename: "valid.sql", name: "ValidEmbed", cmd: ":one",
+        filename: "valid.sql",
+        name: "ValidEmbed",
+        cmd: ":one",
         text: usersProjection,
         columns: [embedColumn("users")],
       }),

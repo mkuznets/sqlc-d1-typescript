@@ -1,4 +1,13 @@
-import { RESULT_CONTEXT_ALIAS, RUNTIME_VALUE_ALIAS, type ArgumentFieldPlan, type QueryPlan, type RowFieldPlan, type RowValueFieldPlan, type SlicePlan, type ValueFieldPlan } from "./emission-plan";
+import {
+  RESULT_CONTEXT_ALIAS,
+  RUNTIME_VALUE_ALIAS,
+  type ArgumentFieldPlan,
+  type QueryPlan,
+  type RowFieldPlan,
+  type RowValueFieldPlan,
+  type SlicePlan,
+  type ValueFieldPlan,
+} from "./emission-plan";
 import { RUNTIME } from "./runtime";
 import { VALUE_KINDS } from "./sqlite-types";
 
@@ -47,7 +56,9 @@ export class Driver {
   // another query's declarations, and GetUserRow["users"] already names the nested type.
   rowType(field: RowFieldPlan): string {
     if (field.kind !== "embed") return valueType(field);
-    const nested = field.fields.map((nestedField) => `        ${nestedField.publicNameLiteral}: ${valueType(nestedField)}`).join(";\n");
+    const nested = field.fields
+      .map((nestedField) => `        ${nestedField.publicNameLiteral}: ${valueType(nestedField)}`)
+      .join(";\n");
     return `{\n${nested};\n    }`;
   }
 
@@ -65,17 +76,30 @@ ${properties}
     // A slice is validated and snapshotted first, so its length is known before the
     // descriptor's SQL and bind values are built from it.
     const slices = plan.argumentFields.filter((field): field is SliceArgumentFieldPlan => field.slice !== undefined);
-    const preamble = plan.argsTypeName ? [`    ${RUNTIME_VALUE_ALIAS}.requireArgs(args, ${plan.queryNameLiteral});`] : [];
+    const preamble = plan.argsTypeName
+      ? [`    ${RUNTIME_VALUE_ALIAS}.requireArgs(args, ${plan.queryNameLiteral});`]
+      : [];
     for (const field of slices) {
-      preamble.push(`    const ${field.slice.localName} = ${RUNTIME_VALUE_ALIAS}.argSlice(args[${field.publicNameLiteral}], ${codecCall("arg", field)}, ${plan.queryNameLiteral}, ${field.publicNameLiteral});`);
+      preamble.push(
+        `    const ${field.slice.localName} = ${RUNTIME_VALUE_ALIAS}.argSlice(args[${field.publicNameLiteral}], ${codecCall("arg", field)}, ${plan.queryNameLiteral}, ${field.publicNameLiteral});`,
+      );
     }
-    const sql = slices.length === 0 ? plan.sqlConstantName
-      : `${RUNTIME_VALUE_ALIAS}.expandSlices(${plan.sqlConstantName}, ${plan.queryNameLiteral}, [${
-        slices.map((field) => `[${field.slice.markerLiteral}, ${field.slice.localName}.length]`).join(", ")}])`;
-    const params = plan.argumentFields.map((field) => field.slice
-      ? `...${field.slice.localName}`
-      : `${codecCall("arg", field)}(args[${field.publicNameLiteral}], ${plan.queryNameLiteral}, ${field.publicNameLiteral})`,
-    ).join(", ");
+
+    const sql =
+      slices.length === 0
+        ? plan.sqlConstantName
+        : `${RUNTIME_VALUE_ALIAS}.expandSlices(${plan.sqlConstantName}, ${plan.queryNameLiteral}, [${slices
+            .map((field) => `[${field.slice.markerLiteral}, ${field.slice.localName}.length]`)
+            .join(", ")}])`;
+
+    const params = plan.argumentFields
+      .map((field) =>
+        field.slice
+          ? `...${field.slice.localName}`
+          : `${codecCall("arg", field)}(args[${field.publicNameLiteral}], ${plan.queryNameLiteral}, ${field.publicNameLiteral})`,
+      )
+      .join(", ");
+
     const properties = [
       `        kind: ${plan.kindLiteral}`,
       `        name: ${plan.queryNameLiteral}`,
@@ -83,6 +107,7 @@ ${properties}
       `        params: Object.freeze([${params}])`,
     ];
     if (plan.parserName) properties.push(`        parse: ${plan.parserName}`);
+
     const guard = preamble.length > 0 ? `${preamble.join("\n")}\n` : "";
     return `export function ${plan.factoryName}(${fnParams}): ${plan.factoryReturnType} {
 ${guard}    return Object.freeze({

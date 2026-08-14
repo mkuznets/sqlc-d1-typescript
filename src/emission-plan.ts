@@ -1,9 +1,5 @@
 import { Column, Identifier, Query } from "./gen/plugin/codegen_pb";
-import {
-  GenerationDiagnosticError,
-  quoteDiagnosticValue,
-  type Diagnostic,
-} from "./diagnostics";
+import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics";
 import {
   CatalogIndex,
   EMBED_ALIAS_PREFIX,
@@ -130,8 +126,10 @@ export interface EmissionPlan {
 
 export function quoteTypeScriptString(value: string): string {
   return JSON.stringify(value)
-    .split(String.fromCharCode(0x2028)).join("\\u2028")
-    .split(String.fromCharCode(0x2029)).join("\\u2029");
+    .split(String.fromCharCode(0x2028))
+    .join("\\u2028")
+    .split(String.fromCharCode(0x2029))
+    .join("\\u2029");
 }
 
 type Word = { text: string; acronym: boolean };
@@ -176,28 +174,74 @@ function tokenizeAsciiName(value: string): Word[] {
 }
 
 export function toQueryFactoryCamelCase(value: string): string {
-  return tokenizeAsciiName(value).map((word, index) => {
-    if (index === 0) return asciiLower(word.text);
-    if (word.acronym) return word.text;
-    return asciiUpperFirst(asciiLower(word.text));
-  }).join("");
+  return tokenizeAsciiName(value)
+    .map((word, index) => {
+      if (index === 0) return asciiLower(word.text);
+      if (word.acronym) return word.text;
+      return asciiUpperFirst(asciiLower(word.text));
+    })
+    .join("");
 }
 
 export function toPublicFieldCamelCase(value: string): string {
-  return tokenizeAsciiName(value).map((word, index) => {
-    const lowered = asciiLower(word.text);
-    return index === 0 ? lowered : asciiUpperFirst(lowered);
-  }).join("");
+  return tokenizeAsciiName(value)
+    .map((word, index) => {
+      const lowered = asciiLower(word.text);
+      return index === 0 ? lowered : asciiUpperFirst(lowered);
+    })
+    .join("");
 }
 
 // Reserved words and context-sensitive binding restrictions across supported TS targets.
 const RESERVED_BINDINGS = new Set([
-  "arguments", "await", "break", "case", "catch", "class", "const", "continue",
-  "debugger", "default", "delete", "do", "else", "enum", "eval", "export", "extends",
-  "false", "finally", "for", "function", "if", "implements", "import", "in", "instanceof",
-  "interface", "let", "new", "null", "package", "private", "protected", "public", "return",
-  "static", "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void",
-  "while", "with", "yield",
+  "arguments",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "eval",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "new",
+  "null",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "return",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
 ]);
 
 export function isReservedBinding(value: string): boolean {
@@ -217,11 +261,27 @@ export function allocatePublicNames(sourceNames: readonly string[]): readonly st
 }
 
 export function planOutputPath(sourceFilename: string): string | undefined {
-  if (!sourceFilename || sourceFilename.startsWith("/") || /^[A-Za-z]:/.test(sourceFilename)
-    || sourceFilename.startsWith("\\\\") || sourceFilename.includes("\\")) return undefined;
+  if (
+    !sourceFilename ||
+    sourceFilename.startsWith("/") ||
+    /^[A-Za-z]:/.test(sourceFilename) ||
+    sourceFilename.startsWith("\\\\") ||
+    sourceFilename.includes("\\")
+  )
+    return undefined;
   const segments = sourceFilename.split("/");
-  if (segments.some((segment) => !segment || segment === "." || segment === ".."
-    || !/^[A-Za-z0-9._-]+$/.test(segment) || segment.endsWith(".") || isWindowsDevice(segment))) return undefined;
+  if (
+    segments.some(
+      (segment) =>
+        !segment ||
+        segment === "." ||
+        segment === ".." ||
+        !/^[A-Za-z0-9._-]+$/.test(segment) ||
+        segment.endsWith(".") ||
+        isWindowsDevice(segment),
+    )
+  )
+    return undefined;
   const basename = segments.pop()!;
   return [...segments, `${basename.replace(/\./g, "_")}.ts`].join("/");
 }
@@ -280,16 +340,34 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
   for (const [sourceFilename, queryEntries] of groupedEntries) {
     const outputPath = planOutputPath(sourceFilename);
     if (!outputPath) {
-      diagnostics.push(emissionError("INVALID_OUTPUT_PATH", `source filename ${quoteDiagnosticValue(sourceFilename)} is not a safe portable relative path`, { filename: sourceFilename, fieldPath: "filename" }));
+      diagnostics.push(
+        emissionError(
+          "INVALID_OUTPUT_PATH",
+          `source filename ${quoteDiagnosticValue(sourceFilename)} is not a safe portable relative path`,
+          { filename: sourceFilename, fieldPath: "filename" },
+        ),
+      );
     } else {
       const exactOwner = pathOwners.get(outputPath);
       if (exactOwner !== undefined) {
-        diagnostics.push(emissionError("OUTPUT_PATH_COLLISION", `source files ${quoteDiagnosticValue(exactOwner)} and ${quoteDiagnosticValue(sourceFilename)} both derive output path ${quoteDiagnosticValue(outputPath)}`, { filename: sourceFilename, fieldPath: "filename" }));
+        diagnostics.push(
+          emissionError(
+            "OUTPUT_PATH_COLLISION",
+            `source files ${quoteDiagnosticValue(exactOwner)} and ${quoteDiagnosticValue(sourceFilename)} both derive output path ${quoteDiagnosticValue(outputPath)}`,
+            { filename: sourceFilename, fieldPath: "filename" },
+          ),
+        );
       } else {
         const folded = asciiLower(outputPath);
         const portableOwner = foldedPathOwners.get(folded);
         if (portableOwner !== undefined) {
-          diagnostics.push(emissionError("PORTABLE_OUTPUT_PATH_COLLISION", `source files ${quoteDiagnosticValue(portableOwner.source)} and ${quoteDiagnosticValue(sourceFilename)} derive paths ${quoteDiagnosticValue(portableOwner.path)} and ${quoteDiagnosticValue(outputPath)}, which collide on case-insensitive filesystems`, { filename: sourceFilename, fieldPath: "filename" }));
+          diagnostics.push(
+            emissionError(
+              "PORTABLE_OUTPUT_PATH_COLLISION",
+              `source files ${quoteDiagnosticValue(portableOwner.source)} and ${quoteDiagnosticValue(sourceFilename)} derive paths ${quoteDiagnosticValue(portableOwner.path)} and ${quoteDiagnosticValue(outputPath)}, which collide on case-insensitive filesystems`,
+              { filename: sourceFilename, fieldPath: "filename" },
+            ),
+          );
         }
         pathOwners.set(outputPath, sourceFilename);
         if (!portableOwner) foldedPathOwners.set(folded, { path: outputPath, source: sourceFilename });
@@ -307,6 +385,7 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
       }
       plannedQueries.push(plannedQuery);
     }
+
     const imports = RUNTIME_TYPE_IMPORT_ORDER.filter((name) => importSet.has(name));
     const usesCodecs = plannedQueries.some((query) => query.argumentFields.length > 0 || query.rowFields.length > 0);
     const valueImports: readonly RuntimeValueImport[] = usesCodecs ? ["generatedInternals"] : [];
@@ -316,15 +395,16 @@ export function planEmission(validated: ValidatedGeneration): EmissionPlan {
       ...(emitsResultContext ? [RESULT_CONTEXT_ALIAS] : []),
     ];
     validateModuleSymbols(sourceFilename, queryEntries, plannedQueries, imports, helperBindings, diagnostics);
-    if (outputPath) modules.push({
-      sourceFilename,
-      outputPath,
-      runtimeSpecifierLiteral: quoteTypeScriptString(runtimeImportSpecifier(outputPath)),
-      runtimeTypeImports: imports,
-      runtimeValueImports: valueImports,
-      emitsResultContext,
-      queries: plannedQueries,
-    });
+    if (outputPath)
+      modules.push({
+        sourceFilename,
+        outputPath,
+        runtimeSpecifierLiteral: quoteTypeScriptString(runtimeImportSpecifier(outputPath)),
+        runtimeTypeImports: imports,
+        runtimeValueImports: valueImports,
+        emitsResultContext,
+        queries: plannedQueries,
+      });
   }
 
   if (diagnostics.length > 0) throw new GenerationDiagnosticError([...validated.warnings, ...diagnostics]);
@@ -338,10 +418,23 @@ function argumentTypeImport(field: ValueFieldPlan): RuntimeTypeImport | undefine
 }
 
 function planQuery(query: Query, queryIndex: number, catalog: CatalogIndex, diagnostics: Diagnostic[]): QueryPlan {
-  const context = (extra: Partial<Diagnostic> = {}): Partial<Diagnostic> => ({ filename: query.filename, queryName: query.name, queryIndex, ...extra });
+  const context = (extra: Partial<Diagnostic> = {}): Partial<Diagnostic> => ({
+    filename: query.filename,
+    queryName: query.name,
+    queryIndex,
+    ...extra,
+  });
+
   if (!QUERY_NAME_PATTERN.test(query.name)) {
-    diagnostics.push(emissionError("INVALID_QUERY_NAME", `query name ${quoteDiagnosticValue(query.name)} must match ${quoteDiagnosticValue(QUERY_NAME_PATTERN.source)}`, context({ fieldPath: "name" })));
+    diagnostics.push(
+      emissionError(
+        "INVALID_QUERY_NAME",
+        `query name ${quoteDiagnosticValue(query.name)} must match ${quoteDiagnosticValue(QUERY_NAME_PATTERN.source)}`,
+        context({ fieldPath: "name" }),
+      ),
+    );
   }
+
   const factoryName = toQueryFactoryCamelCase(query.name);
   const argumentFields: ArgumentFieldPlan[] = [];
   const byBind = new Map<number, ArgumentFieldPlan>();
@@ -352,15 +445,29 @@ function planQuery(query: Query, queryIndex: number, catalog: CatalogIndex, diag
     const column = parameter.column!;
     const sourceName = column.name;
     if (sourceName && !FIELD_NAME_PATTERN.test(sourceName)) {
-      diagnostics.push(emissionError("INVALID_FIELD_NAME", `argument name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}`, context({ fieldPath: `params[${parameterIndex}].column.name`, fieldIndex: parameterIndex })));
+      diagnostics.push(
+        emissionError(
+          "INVALID_FIELD_NAME",
+          `argument name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}`,
+          context({ fieldPath: `params[${parameterIndex}].column.name`, fieldIndex: parameterIndex }),
+        ),
+      );
     }
     const publicName = allocatePublicName(sourceName, parameterIndex, argumentCounts);
     const field: ArgumentFieldPlan = {
-      firstParameterIndex: parameterIndex, bindNumber: parameter.number, sourceName, publicName,
-      publicNameLiteral: quoteTypeScriptString(publicName), column,
-      valueKind: valueKindForColumn(column), nullable: !column.notNull,
+      firstParameterIndex: parameterIndex,
+      bindNumber: parameter.number,
+      sourceName,
+      publicName,
+      publicNameLiteral: quoteTypeScriptString(publicName),
+      column,
+      valueKind: valueKindForColumn(column),
+      nullable: !column.notNull,
       slice: column.isSqlcSlice
-        ? { markerLiteral: quoteTypeScriptString(`/*SLICE:${column.name}*/?`), localName: `${SLICE_LOCAL_PREFIX}${publicName}` }
+        ? {
+            markerLiteral: quoteTypeScriptString(`/*SLICE:${column.name}*/?`),
+            localName: `${SLICE_LOCAL_PREFIX}${publicName}`,
+          }
         : undefined,
     };
     argumentFields.push(field);
@@ -375,47 +482,74 @@ function planQuery(query: Query, queryIndex: number, catalog: CatalogIndex, diag
   // An embed's own property shares the row's allocator, so an ordinary column named
   // "users" and an embed of "users" become "users" and "users_2".
   const rowCounts = new Map<string, number>();
-  const slots = !ROW_COMMANDS.has(command) ? [] : query.columns.map((column, columnIndex): RowSlot => {
-    const sourceName = column.name;
-    const embedTable = column.embedTable;
-    const nameValid = !sourceName || FIELD_NAME_PATTERN.test(sourceName);
-    if (!nameValid) {
-      // A schema table's name cannot be aliased in SQL the way a result column's can.
-      const message = embedTable
-        ? `embedded table name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; rename the table or project its columns explicitly instead of embedding it`
-        : `result name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; add a safe ASCII SQL alias`;
-      diagnostics.push(emissionError("INVALID_FIELD_NAME", message, context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex })));
-    }
-    const publicName = allocatePublicName(sourceName, columnIndex, rowCounts);
-    const publicNameLiteral = quoteTypeScriptString(publicName);
-    if (embedTable) {
-      return { kind: "embed", pending: { columnIndex, sourceName, publicName, publicNameLiteral, embedTable, nameValid } };
-    }
-    return { kind: "scalar", columnIndex, sourceName, publicName, publicNameLiteral, physicalKey: column.name, physicalKeyLiteral: quoteTypeScriptString(column.name), pathLiteral: publicNameLiteral, column, valueKind: valueKindForColumn(column), nullable: !column.notNull };
-  });
+  const slots = !ROW_COMMANDS.has(command)
+    ? []
+    : query.columns.map((column, columnIndex): RowSlot => {
+        const sourceName = column.name;
+        const embedTable = column.embedTable;
+        const nameValid = !sourceName || FIELD_NAME_PATTERN.test(sourceName);
+        if (!nameValid) {
+          // A schema table's name cannot be aliased in SQL the way a result column's can.
+          const message = embedTable
+            ? `embedded table name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; rename the table or project its columns explicitly instead of embedding it`
+            : `result name ${quoteDiagnosticValue(sourceName)} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; add a safe ASCII SQL alias`;
+          diagnostics.push(
+            emissionError(
+              "INVALID_FIELD_NAME",
+              message,
+              context({ fieldPath: `columns[${columnIndex}].name`, fieldIndex: columnIndex }),
+            ),
+          );
+        }
+        const publicName = allocatePublicName(sourceName, columnIndex, rowCounts);
+        const publicNameLiteral = quoteTypeScriptString(publicName);
+        if (embedTable) {
+          return {
+            kind: "embed",
+            pending: { columnIndex, sourceName, publicName, publicNameLiteral, embedTable, nameValid },
+          };
+        }
+        return {
+          kind: "scalar",
+          columnIndex,
+          sourceName,
+          publicName,
+          publicNameLiteral,
+          physicalKey: column.name,
+          physicalKeyLiteral: quoteTypeScriptString(column.name),
+          pathLiteral: publicNameLiteral,
+          column,
+          valueKind: valueKindForColumn(column),
+          nullable: !column.notNull,
+        };
+      });
 
   // Private aliases are collision-safe against every physical key the same query reads.
   const physicalKeyNamespace = new PhysicalKeyNamespace(
     slots.filter((slot): slot is RowScalarFieldPlan => slot.kind === "scalar").map((slot) => slot.physicalKey),
   );
   const pendingEmbeds = slots.filter((slot): slot is EmbedSlot => slot.kind === "embed").map((slot) => slot.pending);
-  const planned = pendingEmbeds.length === 0
-    ? { fields: NO_EMBED_FIELDS, text: query.text }
-    : planEmbeds(query, pendingEmbeds, catalog, physicalKeyNamespace, context, diagnostics);
+  const planned =
+    pendingEmbeds.length === 0
+      ? { fields: NO_EMBED_FIELDS, text: query.text }
+      : planEmbeds(query, pendingEmbeds, catalog, physicalKeyNamespace, context, diagnostics);
   const sqlText = planned.text;
-  const rowFields: readonly RowFieldPlan[] = slots.map((slot): RowFieldPlan => slot.kind === "scalar" ? slot : {
-    kind: "embed",
-    columnIndex: slot.pending.columnIndex,
-    sourceName: slot.pending.sourceName,
-    publicName: slot.pending.publicName,
-    publicNameLiteral: slot.pending.publicNameLiteral,
-    fields: planned.fields.get(slot.pending.columnIndex) ?? [],
-  });
+  const rowFields: readonly RowFieldPlan[] = slots.map((slot): RowFieldPlan =>
+    slot.kind === "scalar"
+      ? slot
+      : {
+          kind: "embed",
+          columnIndex: slot.pending.columnIndex,
+          sourceName: slot.pending.sourceName,
+          publicName: slot.pending.publicName,
+          publicNameLiteral: slot.pending.publicNameLiteral,
+          fields: planned.fields.get(slot.pending.columnIndex) ?? [],
+        },
+  );
 
   const rowTypeName = rowFields.length > 0 ? `${query.name}Row` : undefined;
-  const resultType = command === ":one" ? `${rowTypeName} | null`
-    : command === ":many" ? `${rowTypeName}[]`
-    : COMMAND_RESULTS[command];
+  const resultType =
+    command === ":one" ? `${rowTypeName} | null` : command === ":many" ? `${rowTypeName}[]` : COMMAND_RESULTS[command];
   return {
     queryIndex,
     command,
@@ -491,7 +625,13 @@ function planEmbeds(
     const described = describeEmbedTable(embed.embedTable);
     const columns = catalog.resolve(embed.embedTable);
     if (!columns) {
-      diagnostics.push(emissionError("UNKNOWN_EMBED_TABLE", `embedded table ${described} is not in the request catalog; embed a schema table instead`, at));
+      diagnostics.push(
+        emissionError(
+          "UNKNOWN_EMBED_TABLE",
+          `embedded table ${described} is not in the request catalog; embed a schema table instead`,
+          at,
+        ),
+      );
       continue;
     }
     if (columns.length === 0) {
@@ -502,18 +642,31 @@ function planEmbeds(
     let valid = true;
     for (const column of columns) {
       if (seen.has(column.name)) {
-        diagnostics.push(emissionError("DUPLICATE_EMBED_COLUMN", `embedded table ${described} repeats column name ${quoteDiagnosticValue(column.name)}, so its embedded fields cannot be told apart`, at));
+        diagnostics.push(
+          emissionError(
+            "DUPLICATE_EMBED_COLUMN",
+            `embedded table ${described} repeats column name ${quoteDiagnosticValue(column.name)}, so its embedded fields cannot be told apart`,
+            at,
+          ),
+        );
         valid = false;
         break;
       }
       seen.add(column.name);
     }
-    if (valid) for (const column of columns) {
-      if (FIELD_NAME_PATTERN.test(column.name)) continue;
-      // Unlike an ordinary result column, a schema column cannot be fixed with a SQL alias.
-      diagnostics.push(emissionError("INVALID_FIELD_NAME", `embedded column ${quoteDiagnosticValue(column.name)} of table ${described} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; rename the column or project it explicitly instead of embedding it`, at));
-      valid = false;
-    }
+    if (valid)
+      for (const column of columns) {
+        if (FIELD_NAME_PATTERN.test(column.name)) continue;
+        // Unlike an ordinary result column, a schema column cannot be fixed with a SQL alias.
+        diagnostics.push(
+          emissionError(
+            "INVALID_FIELD_NAME",
+            `embedded column ${quoteDiagnosticValue(column.name)} of table ${described} must match ${quoteDiagnosticValue(FIELD_NAME_PATTERN.source)}; rename the column or project it explicitly instead of embedding it`,
+            at,
+          ),
+        );
+        valid = false;
+      }
     if (valid) resolved.push({ ...embed, columns });
   }
   // One metadata failure is the whole story for this query: without a resolved column list
@@ -522,10 +675,16 @@ function planEmbeds(
 
   const reportAmbiguous = (embed: ResolvedEmbed, message: string): void => {
     failed = true;
-    diagnostics.push(emissionError("AMBIGUOUS_EMBED_PROJECTION", message, context({
-      fieldPath: `columns[${embed.columnIndex}].embedTable`,
-      fieldIndex: embed.columnIndex,
-    })));
+    diagnostics.push(
+      emissionError(
+        "AMBIGUOUS_EMBED_PROJECTION",
+        message,
+        context({
+          fieldPath: `columns[${embed.columnIndex}].embedTable`,
+          fieldIndex: embed.columnIndex,
+        }),
+      ),
+    );
   };
 
   // Every embed of one table expands identically, so a table's spans are counted together
@@ -539,10 +698,16 @@ function planEmbeds(
   }
   const spans = new Map<number, ExpansionSpan>();
   for (const group of groups.values()) {
-    const located = findEmbedExpansions(query.text, group[0].columns.map((column) => column.name));
+    const located = findEmbedExpansions(
+      query.text,
+      group[0].columns.map((column) => column.name),
+    );
     if (located.length !== group.length) {
       for (const embed of group) {
-        reportAmbiguous(embed, `the expanded projection of embedded table ${describeEmbedTable(embed.embedTable)} was found ${located.length} ${located.length === 1 ? "time" : "times"} but is embedded ${group.length} ${group.length === 1 ? "time" : "times"}; give the other projected columns explicit SQL aliases so the embedded columns can be identified`);
+        reportAmbiguous(
+          embed,
+          `the expanded projection of embedded table ${describeEmbedTable(embed.embedTable)} was found ${located.length} ${located.length === 1 ? "time" : "times"} but is embedded ${group.length} ${group.length === 1 ? "time" : "times"}; give the other projected columns explicit SQL aliases so the embedded columns can be identified`,
+        );
       }
       continue;
     }
@@ -555,7 +720,10 @@ function planEmbeds(
   for (const embed of resolved) {
     const span = spans.get(embed.columnIndex)!;
     if (span.start < previousEnd) {
-      reportAmbiguous(embed, `the expanded projection of embedded table ${describeEmbedTable(embed.embedTable)} overlaps or precedes the projection of an earlier embedded table; give the other projected columns explicit SQL aliases so the embedded columns can be identified`);
+      reportAmbiguous(
+        embed,
+        `the expanded projection of embedded table ${describeEmbedTable(embed.embedTable)} overlaps or precedes the projection of an earlier embedded table; give the other projected columns explicit SQL aliases so the embedded columns can be identified`,
+      );
     }
     previousEnd = span.end;
   }
@@ -568,22 +736,25 @@ function planEmbeds(
     // Each embed object allocates its field names from its own counter, so a collision
     // inside one table cannot disturb the row's other properties.
     const counts = new Map<string, number>();
-    fields.set(embed.columnIndex, embed.columns.map((column, columnOrdinal): RowValueFieldPlan => {
-      const alias = namespace.allocatePrivatePhysicalAlias(`${EMBED_ALIAS_PREFIX}${embedOrdinal}_${columnOrdinal}`);
-      aliased.push({ item: span.items[columnOrdinal], alias });
-      const publicName = allocatePublicName(column.name, columnOrdinal, counts);
-      return {
-        sourceName: column.name,
-        publicName,
-        publicNameLiteral: quoteTypeScriptString(publicName),
-        physicalKey: alias,
-        physicalKeyLiteral: quoteTypeScriptString(alias),
-        pathLiteral: quoteTypeScriptString(`${embed.publicName}.${publicName}`),
-        column,
-        valueKind: valueKindForColumn(column),
-        nullable: !column.notNull,
-      };
-    }));
+    fields.set(
+      embed.columnIndex,
+      embed.columns.map((column, columnOrdinal): RowValueFieldPlan => {
+        const alias = namespace.allocatePrivatePhysicalAlias(`${EMBED_ALIAS_PREFIX}${embedOrdinal}_${columnOrdinal}`);
+        aliased.push({ item: span.items[columnOrdinal], alias });
+        const publicName = allocatePublicName(column.name, columnOrdinal, counts);
+        return {
+          sourceName: column.name,
+          publicName,
+          publicNameLiteral: quoteTypeScriptString(publicName),
+          physicalKey: alias,
+          physicalKeyLiteral: quoteTypeScriptString(alias),
+          pathLiteral: quoteTypeScriptString(`${embed.publicName}.${publicName}`),
+          column,
+          valueKind: valueKindForColumn(column),
+          nullable: !column.notNull,
+        };
+      }),
+    );
   });
   return { fields, text: rewriteProjection(query.text, aliased) };
 }
@@ -600,33 +771,57 @@ function validateModuleSymbols(
     ...imports.map((identifier) => ({ identifier, role: "runtime import" })),
     ...helperBindings.map((identifier) => ({ identifier, role: "runtime helper" })),
   ];
+
   plans.forEach((plan, planIndex) => {
     const { query, index } = queryEntries[planIndex];
     const declarations: Array<[string | undefined, string]> = [
-      [plan.factoryName, "factory"], [plan.sqlConstantName, "SQL constant"],
-      [plan.argsTypeName, "arguments type"], [plan.rowTypeName, "row type"], [plan.parserName, "row parser"],
+      [plan.factoryName, "factory"],
+      [plan.sqlConstantName, "SQL constant"],
+      [plan.argsTypeName, "arguments type"],
+      [plan.rowTypeName, "row type"],
+      [plan.parserName, "row parser"],
     ];
-    for (const [identifier, role] of declarations) if (identifier) {
-      if (isReservedBinding(identifier)) {
-        diagnostics.push(emissionError("RESERVED_DECLARATION", `query ${quoteDiagnosticValue(query.name)} derives reserved ${role} binding ${quoteDiagnosticValue(identifier)}`, { filename, queryName: query.name, queryIndex: index, fieldPath: "name" }));
+    for (const [identifier, role] of declarations)
+      if (identifier) {
+        if (isReservedBinding(identifier)) {
+          diagnostics.push(
+            emissionError(
+              "RESERVED_DECLARATION",
+              `query ${quoteDiagnosticValue(query.name)} derives reserved ${role} binding ${quoteDiagnosticValue(identifier)}`,
+              { filename, queryName: query.name, queryIndex: index, fieldPath: "name" },
+            ),
+          );
+        }
+        owners.push({ identifier, role, queryName: query.name, queryIndex: index });
       }
-      owners.push({ identifier, role, queryName: query.name, queryIndex: index });
-    }
   });
+
   const byIdentifier = new Map<string, SymbolOwner[]>();
   for (const owner of owners) {
     const matching = byIdentifier.get(owner.identifier) ?? [];
     matching.push(owner);
     byIdentifier.set(owner.identifier, matching);
   }
-  for (const [identifier, matching] of [...byIdentifier.entries()].sort(([left], [right]) => compareText(left, right))) {
+
+  for (const [identifier, matching] of [...byIdentifier.entries()].sort(([left], [right]) =>
+    compareText(left, right),
+  )) {
     if (matching.length < 2) continue;
     matching.sort(compareSymbolOwners);
     const first = matching[0];
     for (const owner of matching.slice(1)) {
-      diagnostics.push(emissionError("DECLARATION_COLLISION", `${describeOwner(first)} and ${describeOwner(owner)} both derive module binding ${quoteDiagnosticValue(identifier)}; rename a query`, {
-        filename, queryName: owner.queryName, queryIndex: owner.queryIndex, fieldPath: "name",
-      }));
+      diagnostics.push(
+        emissionError(
+          "DECLARATION_COLLISION",
+          `${describeOwner(first)} and ${describeOwner(owner)} both derive module binding ${quoteDiagnosticValue(identifier)}; rename a query`,
+          {
+            filename,
+            queryName: owner.queryName,
+            queryIndex: owner.queryIndex,
+            fieldPath: "name",
+          },
+        ),
+      );
     }
   }
 }
@@ -634,14 +829,18 @@ function validateModuleSymbols(
 function compareSymbolOwners(left: SymbolOwner, right: SymbolOwner): number {
   const leftImported = left.queryName === undefined ? 0 : 1;
   const rightImported = right.queryName === undefined ? 0 : 1;
-  return leftImported - rightImported
-    || compareText(left.queryName ?? "", right.queryName ?? "")
-    || compareText(left.role, right.role)
-    || (left.queryIndex ?? -1) - (right.queryIndex ?? -1);
+  return (
+    leftImported - rightImported ||
+    compareText(left.queryName ?? "", right.queryName ?? "") ||
+    compareText(left.role, right.role) ||
+    (left.queryIndex ?? -1) - (right.queryIndex ?? -1)
+  );
 }
 
 function describeOwner(owner: SymbolOwner): string {
-  return owner.queryName === undefined ? owner.role : `${owner.role} for query ${quoteDiagnosticValue(owner.queryName)}`;
+  return owner.queryName === undefined
+    ? owner.role
+    : `${owner.role} for query ${quoteDiagnosticValue(owner.queryName)}`;
 }
 
 function emissionError(reason: string, message: string, context: Partial<Diagnostic> = {}): Diagnostic {

@@ -19,13 +19,23 @@ test("diagnostic values are quoted on one safe line", () => {
 test("failure diagnostics are deterministically sorted and formatted", () => {
   const findings: Diagnostic[] = [
     { severity: "warning", category: "COMPATIBILITY", reason: "UNTESTED_SQLC_VERSION", message: "future" },
-    { severity: "error", category: "QUERY", reason: "MISSING_NAME", message: "second", filename: "b.sql", queryIndex: 1 },
+    {
+      severity: "error",
+      category: "QUERY",
+      reason: "MISSING_NAME",
+      message: "second",
+      filename: "b.sql",
+      queryIndex: 1,
+    },
     { severity: "error", category: "OPTIONS", reason: "UNKNOWN_OPTION", message: "first" },
   ];
-  assert.deepEqual(sortDiagnostics(findings).map((finding) => finding.reason), [
-    "UNKNOWN_OPTION", "UNTESTED_SQLC_VERSION", "MISSING_NAME",
-  ]);
-  assert.equal(renderFailureDiagnostics(findings), `sqlc-d1-typescript: generation failed with 2 errors and 1 warning
+  assert.deepEqual(
+    sortDiagnostics(findings).map((finding) => finding.reason),
+    ["UNKNOWN_OPTION", "UNTESTED_SQLC_VERSION", "MISSING_NAME"],
+  );
+  assert.equal(
+    renderFailureDiagnostics(findings),
+    `sqlc-d1-typescript: generation failed with 2 errors and 1 warning
 
 Errors:
 [OPTIONS/UNKNOWN_OPTION]
@@ -37,17 +47,26 @@ second
 Warnings:
 [COMPATIBILITY/UNTESTED_SQLC_VERSION]
 future
-`);
+`,
+  );
 });
 
 test("warning-only and internal diagnostics are safe", () => {
-  const warning: Diagnostic = { severity: "warning", category: "COMPATIBILITY", reason: "UNTESTED_SQLC_VERSION", message: "future" };
-  assert.equal(renderWarningDiagnostics([warning]), `sqlc-d1-typescript: generation completed with 1 warning
+  const warning: Diagnostic = {
+    severity: "warning",
+    category: "COMPATIBILITY",
+    reason: "UNTESTED_SQLC_VERSION",
+    message: "future",
+  };
+  assert.equal(
+    renderWarningDiagnostics([warning]),
+    `sqlc-d1-typescript: generation completed with 1 warning
 
 Warnings:
 [COMPATIBILITY/UNTESTED_SQLC_VERSION]
 future
-`);
+`,
+  );
   const internal = internalPluginFailure(new Error("secret\nstack"));
   assert.equal(internal.category, "INTERNAL");
   assert.equal(internal.reason, "PLUGIN_FAILURE");

@@ -13,7 +13,14 @@ function request(data: Partial<GenerateRequest> = {}): GenerateRequest {
 }
 
 function validQuery(data: Partial<Query> = {}): Query {
-  return new Query({ filename: "queries.sql", name: "Get", cmd: ":one", text: "SELECT id", columns: [column()], ...data });
+  return new Query({
+    filename: "queries.sql",
+    name: "Get",
+    cmd: ":one",
+    text: "SELECT id",
+    columns: [column()],
+    ...data,
+  });
 }
 
 function reasons(input: GenerateRequest): string[] {
@@ -30,12 +37,17 @@ test("plugin options default to the Workers binding and are strict", () => {
   for (const pluginOptions of [new Uint8Array(), encoder.encode("{}"), encoder.encode('{"interface":"workers"}')]) {
     assert.deepEqual(validateGenerateRequest(request({ pluginOptions })).options, { interface: "workers" });
   }
+
   const cases: Array<[Uint8Array, string]> = [
     [new Uint8Array([0xff]), "OPTIONS/INVALID_UTF8"],
     [encoder.encode("{"), "OPTIONS/MALFORMED_JSON"],
-    ...["null", "[]", '"workers"', "1", "true"].map((json) => [encoder.encode(json), "OPTIONS/NON_OBJECT"] as [Uint8Array, string]),
+    ...["null", "[]", '"workers"', "1", "true"].map(
+      (json) => [encoder.encode(json), "OPTIONS/NON_OBJECT"] as [Uint8Array, string],
+    ),
     [encoder.encode('{"interfaces":"workers"}'), "OPTIONS/UNKNOWN_OPTION"],
-    ...['"http"', "null", "false", "1", "[]", "{}"].map((json) => [encoder.encode(`{"interface":${json}}`), "OPTIONS/UNSUPPORTED_INTERFACE"] as [Uint8Array, string]),
+    ...['"http"', "null", "false", "1", "[]", "{}"].map(
+      (json) => [encoder.encode(`{"interface":${json}}`), "OPTIONS/UNSUPPORTED_INTERFACE"] as [Uint8Array, string],
+    ),
   ];
   for (const [pluginOptions, expected] of cases) {
     assert.deepEqual(reasons(request({ pluginOptions: Uint8Array.from(pluginOptions) })), [expected]);
@@ -44,7 +56,9 @@ test("plugin options default to the Workers binding and are strict", () => {
 
 test("compatibility validation implements the sqlc semantic-version floor and warning ceiling", () => {
   assert.deepEqual(reasons(new GenerateRequest()), ["PROTOCOL/MISSING_SETTINGS", "COMPATIBILITY/MISSING_SQLC_VERSION"]);
-  assert.deepEqual(reasons(request({ settings: new Settings({ engine: "postgresql" }) })), ["COMPATIBILITY/UNSUPPORTED_ENGINE"]);
+  assert.deepEqual(reasons(request({ settings: new Settings({ engine: "postgresql" }) })), [
+    "COMPATIBILITY/UNSUPPORTED_ENGINE",
+  ]);
   for (const sqlcVersion of ["v1.18.0", "1.18.0", "v1.31.1", "v1.31.1+build.7"]) {
     assert.equal(validateGenerateRequest(request({ sqlcVersion })).warnings.length, 0);
   }
@@ -55,7 +69,10 @@ test("compatibility validation implements the sqlc semantic-version floor and wa
     assert.deepEqual(reasons(request({ sqlcVersion })), ["COMPATIBILITY/UNSUPPORTED_SQLC_VERSION"]);
   }
   for (const sqlcVersion of ["v1.31.2", "v1.32.0-rc.1", "999999999999999999999.0.0"]) {
-    assert.deepEqual(validateGenerateRequest(request({ sqlcVersion })).warnings.map(({ reason }) => reason), ["UNTESTED_SQLC_VERSION"]);
+    assert.deepEqual(
+      validateGenerateRequest(request({ sqlcVersion })).warnings.map(({ reason }) => reason),
+      ["UNTESTED_SQLC_VERSION"],
+    );
   }
 });
 
@@ -102,10 +119,14 @@ test("repeated bind numbers compare every semantic column field but ignore comme
       cmd: ":exec",
       columns: [],
       text: changed.isSqlcSlice ? "DELETE /*SLICE:id*/?" : "DELETE",
-      params: [new Parameter({ number: 1, column: new Column(baseData) }), new Parameter({ number: 1, column: changed })],
+      params: [
+        new Parameter({ number: 1, column: new Column(baseData) }),
+        new Parameter({ number: 1, column: changed }),
+      ],
     });
     assert.ok(reasons(request({ queries: [query] })).includes("QUERY/CONFLICTING_BIND_NUMBER"));
   }
+
   const commentsOnly = validQuery({
     cmd: ":exec",
     columns: [],
@@ -119,7 +140,12 @@ test("repeated bind numbers compare every semantic column field but ignore comme
 
 test("slice validation suppresses SQL-dependent cascades and identifies duplicate marker locations", () => {
   const slice = new Column({ name: "ids", type: identifier("integer"), isSqlcSlice: true });
-  const missingSql = validQuery({ cmd: ":exec", columns: [], text: "", params: [new Parameter({ number: 1, column: slice })] });
+  const missingSql = validQuery({
+    cmd: ":exec",
+    columns: [],
+    text: "",
+    params: [new Parameter({ number: 1, column: slice })],
+  });
   assert.deepEqual(reasons(request({ queries: [missingSql] })), ["QUERY/MISSING_SQL"]);
 
   const duplicateMarkers = validQuery({
@@ -128,37 +154,88 @@ test("slice validation suppresses SQL-dependent cascades and identifies duplicat
     text: "DELETE /*SLICE:ids*/? OR /*SLICE:ids*/?",
     params: [new Parameter({ number: 1, column: slice })],
   });
-  assert.equal(reasons(request({ queries: [duplicateMarkers] })).filter((reason) => reason === "QUERY/SLICE_METADATA_MISMATCH").length, 2);
+  assert.equal(
+    reasons(request({ queries: [duplicateMarkers] })).filter((reason) => reason === "QUERY/SLICE_METADATA_MISMATCH")
+      .length,
+    2,
+  );
 });
 
 test("emission readiness is suppressed only by its own invalid metadata", () => {
   const validSlice = new Column({ name: "ids", type: identifier("integer"), isSqlcSlice: true });
   assert.deepEqual(
-    reasons(request({ queries: [validQuery({ filename: "", cmd: ":exec", columns: [], text: "DELETE WHERE id IN (/*SLICE:ids*/?)", params: [new Parameter({ number: 1, column: validSlice })] })] })),
+    reasons(
+      request({
+        queries: [
+          validQuery({
+            filename: "",
+            cmd: ":exec",
+            columns: [],
+            text: "DELETE WHERE id IN (/*SLICE:ids*/?)",
+            params: [new Parameter({ number: 1, column: validSlice })],
+          }),
+        ],
+      }),
+    ),
     ["QUERY/MISSING_FILENAME"],
   );
 
   // A well-formed embed is no longer a boundary finding of its own: planning owns it.
   const validEmbed = new Column({ name: "user", embedTable: identifier("users") });
-  assert.deepEqual(
-    reasons(request({ queries: [validQuery({ filename: "", columns: [validEmbed] })] })),
-    ["QUERY/MISSING_FILENAME"],
-  );
+  assert.deepEqual(reasons(request({ queries: [validQuery({ filename: "", columns: [validEmbed] })] })), [
+    "QUERY/MISSING_FILENAME",
+  ]);
 });
 
 test("query metadata validates repeated binds, slices, embeds, result columns, and emission readiness", () => {
-  assert.deepEqual(reasons(request({ queries: [validQuery({ cmd: ":copyfrom", columns: [] })] })), ["QUERY/UNSUPPORTED_COMMAND"]);
+  assert.deepEqual(reasons(request({ queries: [validQuery({ cmd: ":copyfrom", columns: [] })] })), [
+    "QUERY/UNSUPPORTED_COMMAND",
+  ]);
   const id = column();
   const conflicting = column("other");
-  assert.ok(reasons(request({ queries: [validQuery({ cmd: ":exec", columns: [], params: [new Parameter({ number: 1, column: id }), new Parameter({ number: 1, column: conflicting })] })] })).includes("QUERY/CONFLICTING_BIND_NUMBER"));
+  assert.ok(
+    reasons(
+      request({
+        queries: [
+          validQuery({
+            cmd: ":exec",
+            columns: [],
+            params: [new Parameter({ number: 1, column: id }), new Parameter({ number: 1, column: conflicting })],
+          }),
+        ],
+      }),
+    ).includes("QUERY/CONFLICTING_BIND_NUMBER"),
+  );
 
   const slice = new Column({ name: "ids", type: identifier("integer"), isSqlcSlice: true });
-  assert.deepEqual(reasons(request({ queries: [validQuery({ cmd: ":exec", columns: [], params: [new Parameter({ number: 1, column: slice })], text: "DELETE WHERE id IN (/*SLICE:ids*/?)" })] })), []);
-  assert.ok(reasons(request({ queries: [validQuery({ params: [new Parameter({ number: 1, column: slice })] })] })).includes("QUERY/SLICE_METADATA_MISMATCH"));
+  assert.deepEqual(
+    reasons(
+      request({
+        queries: [
+          validQuery({
+            cmd: ":exec",
+            columns: [],
+            params: [new Parameter({ number: 1, column: slice })],
+            text: "DELETE WHERE id IN (/*SLICE:ids*/?)",
+          }),
+        ],
+      }),
+    ),
+    [],
+  );
+  assert.ok(
+    reasons(request({ queries: [validQuery({ params: [new Parameter({ number: 1, column: slice })] })] })).includes(
+      "QUERY/SLICE_METADATA_MISMATCH",
+    ),
+  );
 
   const embed = new Column({ name: "user", embedTable: identifier("users") });
   assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [embed] })] })), []);
-  assert.ok(reasons(request({ queries: [validQuery({ columns: [new Column({ embedTable: identifier("") })] })] })).includes("QUERY/INVALID_EMBED_METADATA"));
+  assert.ok(
+    reasons(request({ queries: [validQuery({ columns: [new Column({ embedTable: identifier("") })] })] })).includes(
+      "QUERY/INVALID_EMBED_METADATA",
+    ),
+  );
 
   assert.deepEqual(reasons(request({ queries: [validQuery({ columns: [] })] })), ["QUERY/MISSING_RESULT_COLUMNS"]);
   for (const cmd of [":execrows", ":execlastid", ":execresult"]) {
@@ -175,7 +252,10 @@ test("bind shapes that cannot be reproduced as a SQLite binding are rejected", (
     cmd: ":exec",
     columns: [],
     text: "DELETE FROM users WHERE id = ?1 AND owner_id = ?3",
-    params: [new Parameter({ number: 1, column: named("id") }), new Parameter({ number: 3, column: named("owner_id") })],
+    params: [
+      new Parameter({ number: 1, column: named("id") }),
+      new Parameter({ number: 3, column: named("owner_id") }),
+    ],
   });
   assert.deepEqual(reasons(request({ queries: [gap] })), ["QUERY/BIND_NUMBER_GAP"]);
 
@@ -201,13 +281,17 @@ test("bind shapes that cannot be reproduced as a SQLite binding are rejected", (
       new Parameter({ number: 2, column: column("age") }),
     ],
   });
-  assert.throws(() => validateGenerateRequest(request({ queries: [repeatedThenDescending] })), (error) => {
-    assert.ok(error instanceof GenerationDiagnosticError);
-    assert.deepEqual(error.diagnostics.map(({ reason, fieldPath, fieldIndex }) => ({ reason, fieldPath, fieldIndex })), [
-      { reason: "UNSUPPORTED_BIND_ORDER", fieldPath: "params[2]", fieldIndex: 2 },
-    ]);
-    return true;
-  });
+  assert.throws(
+    () => validateGenerateRequest(request({ queries: [repeatedThenDescending] })),
+    (error) => {
+      assert.ok(error instanceof GenerationDiagnosticError);
+      assert.deepEqual(
+        error.diagnostics.map(({ reason, fieldPath, fieldIndex }) => ({ reason, fieldPath, fieldIndex })),
+        [{ reason: "UNSUPPORTED_BIND_ORDER", fieldPath: "params[2]", fieldIndex: 2 }],
+      );
+      return true;
+    },
+  );
 
   // Ascending numbers in text order are reproducible, whatever their spelling.
   const ascending = validQuery({
@@ -243,10 +327,7 @@ test("bind-shape validation is suppressed by an earlier diagnostic for the same 
     cmd: ":exec",
     columns: [],
     text: "DELETE FROM users WHERE id = ?2 AND owner = ?2",
-    params: [
-      new Parameter({ number: 2, column: column("id") }),
-      new Parameter({ number: 2, column: column("owner") }),
-    ],
+    params: [new Parameter({ number: 2, column: column("id") }), new Parameter({ number: 2, column: column("owner") })],
   });
   assert.deepEqual(reasons(request({ queries: [conflicting] })), ["QUERY/CONFLICTING_BIND_NUMBER"]);
 
@@ -264,7 +345,9 @@ test("bind-shape validation is suppressed by an earlier diagnostic for the same 
 test("duplicate physical result keys are rejected only where rows are mapped", () => {
   const repeated = [column(), column()];
   for (const cmd of [":one", ":many"]) {
-    assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: repeated })] })), ["QUERY/DUPLICATE_PHYSICAL_COLUMN"]);
+    assert.deepEqual(reasons(request({ queries: [validQuery({ cmd, columns: repeated })] })), [
+      "QUERY/DUPLICATE_PHYSICAL_COLUMN",
+    ]);
   }
   // The exec family never reads a result column, so colliding physical keys are not its problem.
   for (const cmd of [":exec", ":execrows", ":execlastid", ":execresult"]) {

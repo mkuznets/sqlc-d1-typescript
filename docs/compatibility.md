@@ -9,12 +9,12 @@ This page separates the compatibility surface promised to consumers from the exa
 - Versions newer than the ceiling are not automatically rejected. They produce `[COMPATIBILITY/UNTESTED_SQLC_VERSION]` and continue generation unless another incompatibility is found.
 - The strategic samples below are tested; this is not a claim that every intervening release has an individual test cell.
 
-| sqlc | Role | Evidence rationale |
-|---|---|---|
-| v1.18.0 | floor | Oldest supported Plugin protocol baseline. |
-| v1.20.0 | intervening | Includes the material `sqlc.slice` generation fix. |
+| sqlc    | Role        | Evidence rationale                                       |
+| ------- | ----------- | -------------------------------------------------------- |
+| v1.18.0 | floor       | Oldest supported Plugin protocol baseline.               |
+| v1.20.0 | intervening | Includes the material `sqlc.slice` generation fix.       |
 | v1.24.0 | intervening | Refactors the Plugin interface around `GenerateRequest`. |
-| v1.31.1 | ceiling | Newest release verified by the compatibility suite. |
+| v1.31.1 | ceiling     | Newest release verified by the compatibility suite.      |
 
 Known evidence exceptions:
 
@@ -25,24 +25,24 @@ See [sqlc-to-D1 translation](sqlc-to-d1.md) for the commands, macros, metadata, 
 
 ## TypeScript evidence
 
-| Role | Version |
-|---|---|
-| supported floor compiler | 5.2.2 |
-| current compiler evidence | 5.9.3 |
+| Role                      | Version |
+| ------------------------- | ------- |
+| supported floor compiler  | 5.2.2   |
+| current compiler evidence | 5.9.3   |
 
 Generated public API and documentation excerpts compile against both versions for the same publication candidate.
 
 ## Cloudflare local evidence baseline
 
-| Input | Exact evidence value |
-|---|---|
-| Workers types | 4.20260214.0 |
-| Wrangler | 4.63.0 |
-| Vitest Pool Workers | 0.12.21 |
-| Miniflare | 4.20260310.0 |
-| workerd | 1.20260310.1 |
-| compatibility date | 2026-02-05 |
-| compatibility flags | none (`[]`) |
+| Input               | Exact evidence value |
+| ------------------- | -------------------- |
+| Workers types       | 4.20260214.0         |
+| Wrangler            | 4.63.0               |
+| Vitest Pool Workers | 0.12.21              |
+| Miniflare           | 4.20260310.0         |
+| workerd             | 1.20260310.1         |
+| compatibility date  | 2026-02-05           |
+| compatibility flags | none (`[]`)          |
 
 These versions describe the repository's exact local verification environment. They are **not** minimum consumer dependencies and do not require consumers to copy the repository lockfiles.
 

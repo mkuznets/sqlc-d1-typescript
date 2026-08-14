@@ -1,5 +1,5 @@
-import { env } from "cloudflare:test";
-import { beforeEach, expect } from "vitest";
+import { env } from 'cloudflare:test';
+import { beforeEach, expect } from 'vitest';
 
 beforeEach(async () => {
 	const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
@@ -9,7 +9,7 @@ beforeEach(async () => {
 
 export async function seedUsers(): Promise<void> {
 	await env.DB.batch([
-		env.DB.prepare("INSERT INTO users (id, name, nickname) VALUES (?, ?, ?)").bind(1, "Ada", "ada"),
-		env.DB.prepare("INSERT INTO users (id, name, nickname) VALUES (?, ?, ?)").bind(2, "Grace", null),
+		env.DB.prepare('INSERT INTO users (id, name, nickname) VALUES (?, ?, ?)').bind(1, 'Ada', 'ada'),
+		env.DB.prepare('INSERT INTO users (id, name, nickname) VALUES (?, ?, ?)').bind(2, 'Grace', null),
 	]);
 }

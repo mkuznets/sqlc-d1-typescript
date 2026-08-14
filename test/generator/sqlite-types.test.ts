@@ -13,13 +13,35 @@ import { Column, Identifier } from "../../src/gen/plugin/codegen_pb";
 const declared = (name: string) => new Column({ name: "value", type: new Identifier({ name }), notNull: true });
 
 test("exact lowercase declared names map to their documented value kind", () => {
-  for (const name of ["int", "integer", "tinyint", "smallint", "mediumint", "bigint", "unsignedbigint", "int2", "int8"]) {
+  for (const name of [
+    "int",
+    "integer",
+    "tinyint",
+    "smallint",
+    "mediumint",
+    "bigint",
+    "unsignedbigint",
+    "int2",
+    "int8",
+  ]) {
     assert.equal(valueKindForColumn(declared(name)), "integer", name);
   }
   for (const name of ["real", "double", "doubleprecision", "float", "numeric", "decimal"]) {
     assert.equal(valueKindForColumn(declared(name)), "number", name);
   }
-  for (const name of ["text", "clob", "character", "varchar", "varyingcharacter", "nchar", "nativecharacter", "nvarchar", "date", "datetime", "timestamp"]) {
+  for (const name of [
+    "text",
+    "clob",
+    "character",
+    "varchar",
+    "varyingcharacter",
+    "nchar",
+    "nativecharacter",
+    "nvarchar",
+    "date",
+    "datetime",
+    "timestamp",
+  ]) {
     assert.equal(valueKindForColumn(declared(name)), "text", name);
   }
   for (const name of ["boolean", "bool"]) assert.equal(valueKindForColumn(declared(name)), "boolean", name);
@@ -75,7 +97,12 @@ test("an absent column or absent declared type maps to the unknown value kind", 
 test("schema-qualified identifiers are not bare SQLite declared types", () => {
   assert.equal(normalizeDeclaredTypeName(new Identifier({ schema: "main", name: "INTEGER" })), "");
   assert.equal(normalizeDeclaredTypeName(new Identifier({ catalog: "db", name: "INTEGER" })), "");
-  assert.equal(valueKindForColumn(new Column({ name: "value", type: new Identifier({ schema: "main", name: "INTEGER" }), notNull: true })), "unknown");
+  assert.equal(
+    valueKindForColumn(
+      new Column({ name: "value", type: new Identifier({ schema: "main", name: "INTEGER" }), notNull: true }),
+    ),
+    "unknown",
+  );
 });
 
 test("lowering is ASCII only so normalization is engine independent", () => {
@@ -91,6 +118,7 @@ test("the value-kind table is the exhaustive, self-consistent dispatch site", ()
   // and a kind added to VALUE_KINDS fails here.
   const kinds: readonly ValueKind[] = ["integer", "number", "text", "boolean", "blob", "json", "unknown"];
   assert.deepEqual(Object.keys(VALUE_KINDS).slice().sort(), kinds.slice().sort());
+
   // Every kind a declared type can normalize to has a spelling.
   for (const kind of DECLARED_TYPE_KINDS.values()) assert.ok(kinds.includes(kind), kind);
 

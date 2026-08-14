@@ -916,547 +916,397 @@
     {
       "id": "command-one",
       "category": "command",
-      "primary": [
-        "miniflare/command-one-returning"
-      ],
-      "smoke": [
-        "generator/command-results"
-      ]
+      "primary": ["miniflare/command-one-returning"],
+      "smoke": ["generator/command-results"]
     },
     {
       "id": "command-many",
       "category": "command",
-      "primary": [
-        "miniflare/command-many-returning"
-      ],
-      "smoke": [
-        "generator/command-results"
-      ]
+      "primary": ["miniflare/command-many-returning"],
+      "smoke": ["generator/command-results"]
     },
     {
       "id": "command-exec",
       "category": "command",
-      "primary": [
-        "miniflare/command-all-batch"
-      ],
-      "smoke": [
-        "generator/command-results"
-      ]
+      "primary": ["miniflare/command-all-batch"],
+      "smoke": ["generator/command-results"]
     },
     {
       "id": "command-execrows",
       "category": "command",
-      "primary": [
-        "miniflare/command-execrows"
-      ],
-      "smoke": [
-        "generator/command-results"
-      ]
+      "primary": ["miniflare/command-execrows"],
+      "smoke": ["generator/command-results"]
     },
     {
       "id": "command-execlastid",
       "category": "command",
-      "primary": [
-        "miniflare/command-execlastid"
-      ],
-      "smoke": [
-        "generator/command-results"
-      ]
+      "primary": ["miniflare/command-execlastid"],
+      "smoke": ["generator/command-results"]
     },
     {
       "id": "command-execresult",
       "category": "command",
-      "primary": [
-        "miniflare/command-execresult"
-      ],
-      "smoke": [
-        "generator/command-results"
-      ]
+      "primary": ["miniflare/command-execresult"],
+      "smoke": ["generator/command-results"]
     },
     {
       "id": "macro-positional",
       "category": "macro",
-      "primary": [
-        "generator/argument-model"
-      ],
+      "primary": ["generator/argument-model"],
       "smoke": []
     },
     {
       "id": "macro-arg",
       "category": "macro",
-      "primary": [
-        "miniflare/argument-arg"
-      ],
+      "primary": ["miniflare/argument-arg"],
       "smoke": []
     },
     {
       "id": "macro-narg",
       "category": "macro",
-      "primary": [
-        "miniflare/argument-narg"
-      ],
+      "primary": ["miniflare/argument-narg"],
       "smoke": []
     },
     {
       "id": "macro-slice",
       "category": "macro",
-      "primary": [
-        "miniflare/argument-slice"
-      ],
+      "primary": ["miniflare/argument-slice"],
       "smoke": []
     },
     {
       "id": "macro-embed",
       "category": "macro",
-      "primary": [
-        "miniflare/embed-reconstruction"
-      ],
+      "primary": ["miniflare/embed-reconstruction"],
       "smoke": []
     },
     {
       "id": "error-sqlc-d1",
       "category": "error",
-      "primary": [
-        "generator/current-commands"
-      ],
+      "primary": ["generator/current-commands"],
       "smoke": []
     },
     {
       "id": "error-argument",
       "category": "error",
-      "primary": [
-        "miniflare/error-argument"
-      ],
+      "primary": ["miniflare/error-argument"],
       "smoke": []
     },
     {
       "id": "error-usage",
       "category": "error",
-      "primary": [
-        "miniflare/batch-empty"
-      ],
+      "primary": ["miniflare/batch-empty"],
       "smoke": []
     },
     {
       "id": "error-result",
       "category": "error",
-      "primary": [
-        "miniflare/error-result"
-      ],
+      "primary": ["miniflare/error-result"],
       "smoke": []
     },
     {
       "id": "error-native-identity",
       "category": "error",
-      "primary": [
-        "miniflare/error-native-identity"
-      ],
+      "primary": ["miniflare/error-native-identity"],
       "smoke": []
     },
     {
       "id": "conversion-integer",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-number",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-text",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-null",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-boolean",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-physical-values"
-      ],
+      "primary": ["miniflare/conversion-physical-values"],
       "smoke": []
     },
     {
       "id": "conversion-json",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-blob",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-opaque",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "conversion-row-renaming",
       "category": "conversion",
-      "primary": [
-        "miniflare/conversion-round-trip"
-      ],
+      "primary": ["miniflare/conversion-round-trip"],
       "smoke": []
     },
     {
       "id": "diagnostic-protocol",
       "category": "diagnostic",
-      "primary": [
-        "generator/protocol-boundary"
-      ],
+      "primary": ["generator/protocol-boundary"],
       "smoke": []
     },
     {
       "id": "diagnostic-options",
       "category": "diagnostic",
-      "primary": [
-        "generator/options-boundary"
-      ],
+      "primary": ["generator/options-boundary"],
       "smoke": []
     },
     {
       "id": "diagnostic-query",
       "category": "diagnostic",
-      "primary": [
-        "generator/query-boundary"
-      ],
+      "primary": ["generator/query-boundary"],
       "smoke": []
     },
     {
       "id": "diagnostic-unsupported-command",
       "category": "diagnostic",
-      "primary": [
-        "generator/unsupported-commands"
-      ],
+      "primary": ["generator/unsupported-commands"],
       "smoke": []
     },
     {
       "id": "diagnostic-unsupported-bind",
       "category": "diagnostic",
-      "primary": [
-        "generator/argument-boundary"
-      ],
+      "primary": ["generator/argument-boundary"],
       "smoke": []
     },
     {
       "id": "diagnostic-unsupported-embed",
       "category": "diagnostic",
-      "primary": [
-        "generator/embed-boundary"
-      ],
+      "primary": ["generator/embed-boundary"],
       "smoke": []
     },
     {
       "id": "diagnostic-aggregation",
       "category": "diagnostic",
-      "primary": [
-        "generator/diagnostic-aggregation"
-      ],
+      "primary": ["generator/diagnostic-aggregation"],
       "smoke": []
     },
     {
       "id": "diagnostic-redaction",
       "category": "diagnostic",
-      "primary": [
-        "generator/safe-emission"
-      ],
+      "primary": ["generator/safe-emission"],
       "smoke": []
     },
     {
       "id": "diagnostic-sqlc-version",
       "category": "diagnostic",
-      "primary": [
-        "generator/sqlc-compatibility"
-      ],
+      "primary": ["generator/sqlc-compatibility"],
       "smoke": []
     },
     {
       "id": "generation-file-grouping",
       "category": "generation",
-      "primary": [
-        "generator/file-grouping"
-      ],
+      "primary": ["generator/file-grouping"],
       "smoke": []
     },
     {
       "id": "generation-portable-names",
       "category": "generation",
-      "primary": [
-        "generator/emission-diagnostics"
-      ],
+      "primary": ["generator/emission-diagnostics"],
       "smoke": []
     },
     {
       "id": "generation-source-escaping",
       "category": "generation",
-      "primary": [
-        "generator/safe-emission"
-      ],
+      "primary": ["generator/safe-emission"],
       "smoke": []
     },
     {
       "id": "generation-determinism",
       "category": "generation",
-      "primary": [
-        "generator/emission-determinism"
-      ],
+      "primary": ["generator/emission-determinism"],
       "smoke": []
     },
     {
       "id": "generation-atomic-failure",
       "category": "generation",
-      "primary": [
-        "generator/emission-readiness"
-      ],
+      "primary": ["generator/emission-readiness"],
       "smoke": []
     },
     {
       "id": "generation-no-query-runtime",
       "category": "generation",
-      "primary": [
-        "generator/no-query-runtime"
-      ],
+      "primary": ["generator/no-query-runtime"],
       "smoke": []
     },
     {
       "id": "generation-checked-regeneration",
       "category": "generation",
-      "primary": [
-        "verification/generated-drift"
-      ],
+      "primary": ["verification/generated-drift"],
       "smoke": []
     },
     {
       "id": "execution-descriptor-opacity",
       "category": "execution",
-      "primary": [
-        "types/typescript-5-2"
-      ],
+      "primary": ["types/typescript-5-2"],
       "smoke": []
     },
     {
       "id": "execution-direct",
       "category": "execution",
-      "primary": [
-        "generator/command-results"
-      ],
+      "primary": ["generator/command-results"],
       "smoke": []
     },
     {
       "id": "execution-batch",
       "category": "execution",
-      "primary": [
-        "miniflare/command-all-batch"
-      ],
+      "primary": ["miniflare/command-all-batch"],
       "smoke": []
     },
     {
       "id": "execution-rollback-local",
       "category": "execution",
-      "primary": [
-        "miniflare/batch-native-rollback"
-      ],
-      "smoke": [
-        "managed-d1/batch-rollback"
-      ]
+      "primary": ["miniflare/batch-native-rollback"],
+      "smoke": ["managed-d1/batch-rollback"]
     },
     {
       "id": "execution-batch-post-mapping",
       "category": "execution",
-      "primary": [
-        "miniflare/batch-post-success-mapping"
-      ],
+      "primary": ["miniflare/batch-post-success-mapping"],
       "smoke": []
     },
     {
       "id": "execution-session-starts",
       "category": "execution",
-      "primary": [
-        "miniflare/session-starts"
-      ],
+      "primary": ["miniflare/session-starts"],
       "smoke": []
     },
     {
       "id": "execution-bookmark-transfer-local",
       "category": "execution",
-      "primary": [
-        "miniflare/session-bookmark-transfer"
-      ],
-      "smoke": [
-        "managed-d1/bookmark-transfer"
-      ]
+      "primary": ["miniflare/session-bookmark-transfer"],
+      "smoke": ["managed-d1/bookmark-transfer"]
     },
     {
       "id": "compatibility-typescript-5-2",
       "category": "compatibility",
-      "primary": [
-        "types/typescript-5-2"
-      ],
+      "primary": ["types/typescript-5-2"],
       "smoke": []
     },
     {
       "id": "compatibility-typescript-current",
       "category": "compatibility",
-      "primary": [
-        "types/typescript-current"
-      ],
+      "primary": ["types/typescript-current"],
       "smoke": []
     },
     {
       "id": "compatibility-exact-candidate",
       "category": "compatibility",
-      "primary": [
-        "candidate/retained-bytes"
-      ],
+      "primary": ["candidate/retained-bytes"],
       "smoke": []
     },
     {
       "id": "compatibility-candidate-digest",
       "category": "compatibility",
-      "primary": [
-        "candidate/digest-validation"
-      ],
+      "primary": ["candidate/digest-validation"],
       "smoke": []
     },
     {
       "id": "compatibility-workers-flags",
       "category": "compatibility",
-      "primary": [
-        "example/list-users"
-      ],
+      "primary": ["example/list-users"],
       "smoke": []
     },
     {
       "id": "compatibility-coverage-contract",
       "category": "compatibility",
-      "primary": [
-        "verification/coverage-graph"
-      ],
+      "primary": ["verification/coverage-graph"],
       "smoke": []
     },
     {
       "id": "compatibility-candidate-generation",
       "category": "compatibility",
-      "primary": [
-        "verification/generate-candidate-retained"
-      ],
+      "primary": ["verification/generate-candidate-retained"],
       "smoke": []
     },
     {
       "id": "interaction-slice-batch",
       "category": "interaction",
-      "primary": [
-        "miniflare/interaction-slice-batch"
-      ],
+      "primary": ["miniflare/interaction-slice-batch"],
       "smoke": []
     },
     {
       "id": "interaction-embed-batch",
       "category": "interaction",
-      "primary": [
-        "miniflare/interaction-embed-batch"
-      ],
+      "primary": ["miniflare/interaction-embed-batch"],
       "smoke": []
     },
     {
       "id": "interaction-slice-embed",
       "category": "interaction",
-      "primary": [
-        "miniflare/interaction-slice-embed"
-      ],
+      "primary": ["miniflare/interaction-slice-embed"],
       "smoke": []
     },
     {
       "id": "interaction-write-returning",
       "category": "interaction",
-      "primary": [
-        "miniflare/command-one-returning"
-      ],
+      "primary": ["miniflare/command-one-returning"],
       "smoke": []
     },
     {
       "id": "interaction-post-write-mapping",
       "category": "interaction",
-      "primary": [
-        "miniflare/interaction-post-write-mapping"
-      ],
+      "primary": ["miniflare/interaction-post-write-mapping"],
       "smoke": []
     },
     {
       "id": "interaction-bookmark-after-failure",
       "category": "interaction",
-      "primary": [
-        "miniflare/session-bookmark-after-failure"
-      ],
+      "primary": ["miniflare/session-bookmark-after-failure"],
       "smoke": []
     },
     {
       "id": "compatibility-strategic-sqlc-samples",
       "category": "compatibility",
-      "primary": [
-        "verification/sqlc-matrix"
-      ],
-      "smoke": [
-        "verification/compatibility-config"
-      ]
+      "primary": ["verification/sqlc-matrix"],
+      "smoke": ["verification/compatibility-config"]
     },
     {
       "id": "compatibility-exact-tool-baseline",
       "category": "compatibility",
-      "primary": [
-        "verification/compatibility-config"
-      ],
+      "primary": ["verification/compatibility-config"],
       "smoke": []
     },
     {
       "id": "compatibility-shared-worker-configuration",
       "category": "compatibility",
-      "primary": [
-        "verification/compatibility-mutations"
-      ],
+      "primary": ["verification/compatibility-mutations"],
       "smoke": []
     },
     {
       "id": "compatibility-upstream-drift",
       "category": "compatibility",
-      "primary": [
-        "verification/upstream-comparison"
-      ],
+      "primary": ["verification/upstream-comparison"],
       "smoke": []
     },
     {
       "id": "compatibility-uncredentialed-ci",
       "category": "compatibility",
-      "primary": [
-        "verification/ci-security-contract"
-      ],
+      "primary": ["verification/ci-security-contract"],
       "smoke": []
     }
   ]

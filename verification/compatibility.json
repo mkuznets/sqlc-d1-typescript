@@ -6,7 +6,11 @@
     "samples": [
       { "version": "v1.18.0", "role": "floor", "rationale": "Oldest supported Plugin protocol baseline." },
       { "version": "v1.20.0", "role": "intervening", "rationale": "Includes the material sqlc.slice generation fix." },
-      { "version": "v1.24.0", "role": "intervening", "rationale": "Refactors the Plugin interface around GenerateRequest." },
+      {
+        "version": "v1.24.0",
+        "role": "intervening",
+        "rationale": "Refactors the Plugin interface around GenerateRequest."
+      },
       { "version": "v1.31.1", "role": "ceiling", "rationale": "Newest release verified by the compatibility suite." }
     ],
     "knownExceptions": [

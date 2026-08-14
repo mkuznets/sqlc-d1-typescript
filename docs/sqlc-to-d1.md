@@ -4,26 +4,26 @@ sqlc remains responsible for parsing SQL, resolving schema types, and defining a
 
 ## Commands
 
-| sqlc command | Generated descriptor result | D1 operation |
-|---|---|---|
-| `:one` | `Row \| null` | first row, including write-returning rows |
-| `:many` | `Row[]` | all rows |
-| `:exec` | `void` | execute and discard native result |
-| `:execrows` | safe-integer `number` | validate `meta.changes` |
-| `:execlastid` | safe-integer `number` | validate `meta.last_row_id` |
-| `:execresult` | `D1Result<Record<string, unknown>>` | return the native result |
+| sqlc command  | Generated descriptor result         | D1 operation                              |
+| ------------- | ----------------------------------- | ----------------------------------------- |
+| `:one`        | `Row \| null`                       | first row, including write-returning rows |
+| `:many`       | `Row[]`                             | all rows                                  |
+| `:exec`       | `void`                              | execute and discard native result         |
+| `:execrows`   | safe-integer `number`               | validate `meta.changes`                   |
+| `:execlastid` | safe-integer `number`               | validate `meta.last_row_id`               |
+| `:execresult` | `D1Result<Record<string, unknown>>` | return the native result                  |
 
 Other commands fail generation with `[QUERY/UNSUPPORTED_COMMAND]`. In particular, sqlc's batch annotation family is unsupported. Runtime `DB.batch()` is a separate API for batching already-generated query descriptors.
 
 ## Parameters and macros
 
-| sqlc metadata | Generated outcome |
-|---|---|
-| positional parameter | required property derived from sqlc's parameter column metadata |
-| `sqlc.arg` / named parameter | required property in the generated argument interface |
-| `sqlc.narg` | required property whose type includes `null` |
-| `sqlc.slice` | required `ReadonlyArray<T>` property; expanded to bind placeholders |
-| `sqlc.embed` | nested public row object reconstructed from privately rewritten physical aliases |
+| sqlc metadata                | Generated outcome                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| positional parameter         | required property derived from sqlc's parameter column metadata                  |
+| `sqlc.arg` / named parameter | required property in the generated argument interface                            |
+| `sqlc.narg`                  | required property whose type includes `null`                                     |
+| `sqlc.slice`                 | required `ReadonlyArray<T>` property; expanded to bind placeholders              |
+| `sqlc.embed`                 | nested public row object reconstructed from privately rewritten physical aliases |
 
 The Plugin follows sqlc's metadata rather than reparsing macro syntax.
 
@@ -36,15 +36,15 @@ The Plugin follows sqlc's metadata rather than reparsing macro syntax.
 
 Type names are normalized without case, whitespace, or parenthesized size. Nullability adds `| null` where applicable.
 
-| SQLite declared-type families | Bind type | Row type and check |
-|---|---|---|
-| integer families | `number` | safe-integer `number` |
-| real, numeric, decimal families | `number` | finite `number` |
-| text, character, date, time families | `string` | `string`; no `Date` conversion or format promise |
-| boolean / bool | `boolean` | `boolean`, mapped only from physical integer `0` or `1` |
-| BLOB | `Uint8Array` | copied `Uint8Array` |
-| JSON / JSONB | checked `JsonValue` | parsed `unknown` |
-| unknown declared type | `D1NonNullValue` / `D1Value` | `unknown` |
+| SQLite declared-type families        | Bind type                    | Row type and check                                      |
+| ------------------------------------ | ---------------------------- | ------------------------------------------------------- |
+| integer families                     | `number`                     | safe-integer `number`                                   |
+| real, numeric, decimal families      | `number`                     | finite `number`                                         |
+| text, character, date, time families | `string`                     | `string`; no `Date` conversion or format promise        |
+| boolean / bool                       | `boolean`                    | `boolean`, mapped only from physical integer `0` or `1` |
+| BLOB                                 | `Uint8Array`                 | copied `Uint8Array`                                     |
+| JSON / JSONB                         | checked `JsonValue`          | parsed `unknown`                                        |
+| unknown declared type                | `D1NonNullValue` / `D1Value` | `unknown`                                               |
 
 JSON arguments must be acyclic JSON values with finite numbers and plain string-keyed objects. They are serialized to text. Unknown bind types accept only the D1 value union, not arbitrary JavaScript objects.
 

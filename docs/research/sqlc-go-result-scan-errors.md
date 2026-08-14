@@ -8,13 +8,13 @@ A write with `RETURNING` can have reached result production before conversion fa
 
 ## Scope and direct answers
 
-| Question | Finding |
-|---|---|
-| (1) Does sqlc wrap `Scan` errors? | **No.** Generated code returns the exact error value produced by `Scan` (or by `Rows.Err`/`Close`) without `%w`, replacement, or a sqlc error type. |
-| (2) Does generated code distinguish execution from decoding? | **No stable generated distinction.** `QueryRow` deliberately defers query errors to `Scan`, so both emerge from the same generated `return i, err`. `:many` has a separate immediate `Query` error branch, but scan/iteration errors remain plain driver/API errors. |
-| (3) Does it attach query identity/context? | **No.** SQL text and generated method name exist in code, but are not added to the returned error. `database/sql` and pgx may add column/destination context. |
-| (4) Commit state or retry safety after `RETURNING`? | **No.** No sqlc template, `database/sql` scan error, or pgx scan error reviewed carries committed/rolled-back/indeterminate or retry-safe metadata. |
-| (5) Transaction versus autocommit? | **Same scan-error shape.** `WithTx` changes the executor stored in `Queries`; it does not change scanning. In an explicit transaction, the caller separately decides `Commit`/`Rollback`. With a `*sql.DB`/`*pgx.Conn`, statement transaction handling is outside the generated method, so a scan failure is not evidence of rollback. |
+| Question                                                     | Finding                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (1) Does sqlc wrap `Scan` errors?                            | **No.** Generated code returns the exact error value produced by `Scan` (or by `Rows.Err`/`Close`) without `%w`, replacement, or a sqlc error type.                                                                                                                                                                                    |
+| (2) Does generated code distinguish execution from decoding? | **No stable generated distinction.** `QueryRow` deliberately defers query errors to `Scan`, so both emerge from the same generated `return i, err`. `:many` has a separate immediate `Query` error branch, but scan/iteration errors remain plain driver/API errors.                                                                   |
+| (3) Does it attach query identity/context?                   | **No.** SQL text and generated method name exist in code, but are not added to the returned error. `database/sql` and pgx may add column/destination context.                                                                                                                                                                          |
+| (4) Commit state or retry safety after `RETURNING`?          | **No.** No sqlc template, `database/sql` scan error, or pgx scan error reviewed carries committed/rolled-back/indeterminate or retry-safe metadata.                                                                                                                                                                                    |
+| (5) Transaction versus autocommit?                           | **Same scan-error shape.** `WithTx` changes the executor stored in `Queries`; it does not change scanning. In an explicit transaction, the caller separately decides `Commit`/`Rollback`. With a `*sql.DB`/`*pgx.Conn`, statement transaction handling is outside the generated method, so a scan failure is not evidence of rollback. |
 
 ## Findings
 
@@ -118,14 +118,14 @@ Accordingly:
 
 This comparison describes deltas, not a product recommendation.
 
-| Candidate property | Established sqlc Go behavior |
-|---|---|
-| Dedicated `QueryResultError` | No sqlc-owned equivalent. Scan errors retain the standard-library/driver concrete error and identity. |
+| Candidate property                     | Established sqlc Go behavior                                                                                                                               |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dedicated `QueryResultError`           | No sqlc-owned equivalent. Scan errors retain the standard-library/driver concrete error and identity.                                                      |
 | Distinct post-execution decoding phase | Not represented by a stable generated type. Some `:many` control flow separates initial `Query` failure; `:one` execution errors are deferred into `Scan`. |
-| Preserve underlying cause | Direct return preserves exact identity. `database/sql` and pgx may themselves wrap while retaining a cause. |
-| Query identity/context | Generated method/SQL constant is not attached to errors. Only scan-column/destination context may be supplied below sqlc. |
-| `effectsMayHaveCommitted` | No analogue in sqlc, `database/sql` scan errors, pgx scan errors, or the reviewed SQLite driver API. |
-| Retry-safety meaning | No reviewed API labels scan failures retry-safe. Commit/rollback is handled through transaction APIs, not inferred from mapping failure. |
+| Preserve underlying cause              | Direct return preserves exact identity. `database/sql` and pgx may themselves wrap while retaining a cause.                                                |
+| Query identity/context                 | Generated method/SQL constant is not attached to errors. Only scan-column/destination context may be supplied below sqlc.                                  |
+| `effectsMayHaveCommitted`              | No analogue in sqlc, `database/sql` scan errors, pgx scan errors, or the reviewed SQLite driver API.                                                       |
+| Retry-safety meaning                   | No reviewed API labels scan failures retry-safe. Commit/rollback is handled through transaction APIs, not inferred from mapping failure.                   |
 
 A candidate wrapper would therefore be a deliberately richer contract than first-party sqlc Go output. If it preserves `cause`, it can retain the useful low-level conversion detail, but query identity, explicit phase, and a conservative effects-hazard flag would all be additions rather than parity behavior. Conversely, matching sqlc exactly would mean no runtime-owned classification and no commit-hazard signal.
 

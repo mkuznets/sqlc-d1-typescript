@@ -44,7 +44,10 @@ function resolveModuleId(directory: string, specifier: string): string {
 }
 
 export class FakeStatement {
-  constructor(private readonly executor: FakeExecutor, private readonly sql: string) {}
+  constructor(
+    private readonly executor: FakeExecutor,
+    private readonly sql: string,
+  ) {}
 
   bind(...params: unknown[]): FakeStatement {
     this.executor.bound.push({ sql: this.sql, params });
@@ -90,10 +93,12 @@ export class FakeExecutor {
   async batch(statements: FakeStatement[]): Promise<Record<string, unknown>[]> {
     this.batches.push(statements);
     this.throwFailure();
-    const results = statements.map((_, index) => this.produce(
-      [...(this.batchRows?.[index] ?? this.rows)],
-      this.batchMetas === undefined ? this.meta : this.batchMetas[index],
-    ));
+    const results = statements.map((_, index) =>
+      this.produce(
+        [...(this.batchRows?.[index] ?? this.rows)],
+        this.batchMetas === undefined ? this.meta : this.batchMetas[index],
+      ),
+    );
     this.nativeBatchCompleted = true;
     return results;
   }

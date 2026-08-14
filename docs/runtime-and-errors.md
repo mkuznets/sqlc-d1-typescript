@@ -10,15 +10,15 @@ Do not inspect, forge, serialize, or persist descriptors. Regenerate rather than
 
 ## Bind and row values
 
-| Kind | Accepted bind | Checked row mapping |
-|---|---|---|
-| integer | safe-integer `number` | safe-integer `number` |
-| real/numeric | finite `number` | finite `number` |
-| text/date/time | `string` | `string` |
-| boolean | `boolean` | physical integer `0` or `1` only |
-| BLOB | `Uint8Array` (copied) | copied `Uint8Array` from D1 byte representations |
-| JSON | `JsonValue`, serialized | parsed `unknown` |
-| unknown | `D1NonNullValue` / `D1Value` | `unknown` |
+| Kind           | Accepted bind                | Checked row mapping                              |
+| -------------- | ---------------------------- | ------------------------------------------------ |
+| integer        | safe-integer `number`        | safe-integer `number`                            |
+| real/numeric   | finite `number`              | finite `number`                                  |
+| text/date/time | `string`                     | `string`                                         |
+| boolean        | `boolean`                    | physical integer `0` or `1` only                 |
+| BLOB           | `Uint8Array` (copied)        | copied `Uint8Array` from D1 byte representations |
+| JSON           | `JsonValue`, serialized      | parsed `unknown`                                 |
+| unknown        | `D1NonNullValue` / `D1Value` | `unknown`                                        |
 
 Rows are fresh public objects. Missing fields, malformed JSON, unsafe metadata numbers, and contradictory physical values fail closed with `QueryResultError`.
 
@@ -33,24 +33,17 @@ Rows are fresh public objects. Missing fields, malformed JSON, unsafe metadata n
 ### Static heterogeneous shape
 
 <!-- compile: runtime-static-batch -->
+
 ```ts
 import { DB } from "./runtime";
-import {
-  getUser,
-  listUsers,
-  renameUser,
-  type GetUserRow,
-  type ListUsersRow,
-  type RenameUserRow,
-} from "./queries_sql";
+import { getUser, listUsers, renameUser, type GetUserRow, type ListUsersRow, type RenameUserRow } from "./queries_sql";
 
 declare const binding: D1Database;
-const result: [GetUserRow | null, ListUsersRow[], RenameUserRow | null] =
-  await new DB(binding).batch(
-    getUser({ id: 1 }),
-    listUsers(),
-    renameUser({ name: "Ada", id: 1 }),
-  );
+const result: [GetUserRow | null, ListUsersRow[], RenameUserRow | null] = await new DB(binding).batch(
+  getUser({ id: 1 }),
+  listUsers(),
+  renameUser({ name: "Ada", id: 1 }),
+);
 ```
 
 Use this when each position is statically known; the result tuple preserves exact positional types.
@@ -58,6 +51,7 @@ Use this when each position is statically known; the result tuple preserves exac
 ### Meaningful head with a dynamic homogeneous side-effect tail
 
 <!-- compile: runtime-dynamic-tail -->
+
 ```ts
 import { DB, type QueryDescriptor } from "./runtime";
 import { getUser, type GetUserRow } from "./queries_sql";
@@ -65,8 +59,7 @@ import { getUser, type GetUserRow } from "./queries_sql";
 declare const binding: D1Database;
 declare const updateUsers: QueryDescriptor<void>[];
 
-const [user]: [GetUserRow | null, ...void[]] =
-  await new DB(binding).batch(getUser({ id: 1 }), ...updateUsers);
+const [user]: [GetUserRow | null, ...void[]] = await new DB(binding).batch(getUser({ id: 1 }), ...updateUsers);
 
 void user;
 ```
@@ -86,6 +79,7 @@ D1 defines native batch atomicity: if a native statement fails, the native batch
 ## Sessions and bookmarks
 
 <!-- compile: runtime-session -->
+
 ```ts
 import { DB } from "./runtime";
 import { getUser } from "./queries_sql";
@@ -105,13 +99,13 @@ Keep a session executor request-flow-local. Await operations in the order your f
 
 ## Public error classes
 
-| Error | Phase | Meaning | Was D1 called? |
-|---|---|---|---|
-| `SqlcD1Error` | base class | common stable context and `Error` identity | depends on subclass |
-| `QueryArgumentError` | descriptor construction | a bind value or required argument shape is invalid | no |
-| `QueryUsageError` | construction/executor use | invalid descriptor, empty batch, or invalid session input | normally no native operation; see context |
-| `QueryResultError` | post-native mapping | D1 returned successfully but rows or metadata contradicted the generated contract | yes |
-| native D1 error | native execution | D1 rejected prepare/bind/run/batch behavior | attempted; unchanged identity |
+| Error                | Phase                     | Meaning                                                                           | Was D1 called?                            |
+| -------------------- | ------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------- |
+| `SqlcD1Error`        | base class                | common stable context and `Error` identity                                        | depends on subclass                       |
+| `QueryArgumentError` | descriptor construction   | a bind value or required argument shape is invalid                                | no                                        |
+| `QueryUsageError`    | construction/executor use | invalid descriptor, empty batch, or invalid session input                         | normally no native operation; see context |
+| `QueryResultError`   | post-native mapping       | D1 returned successfully but rows or metadata contradicted the generated contract | yes                                       |
+| native D1 error      | native execution          | D1 rejected prepare/bind/run/batch behavior                                       | attempted; unchanged identity             |
 
 `SqlcD1Error` exposes safe structural context where applicable: `operation`, `queryName`, `batchIndex`, `rowIndex`, `path`, `expected`, `received`, and `cause`. A native D1 error is not wrapped and does not become `SqlcD1Error`.
 
