@@ -931,6 +931,13 @@
       "file": "test/managed-d1-contracts.test.ts",
       "title": "verification/managed-route-propagation",
       "availability": "local"
+    },
+    {
+      "id": "verification/managed-secret-rollout",
+      "layer": "verification",
+      "file": "test/managed-d1-contracts.test.ts",
+      "title": "verification/managed-secret-rollout",
+      "availability": "local"
     }
   ],
   "promises": [

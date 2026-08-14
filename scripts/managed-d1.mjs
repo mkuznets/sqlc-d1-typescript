@@ -20,8 +20,21 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const OUTPUT_TAIL_LINES = 40;
 const BODY_EXCERPT_BYTES = 500;
 const FAILURE_DETAIL_LIMIT = 2000;
-const PROPAGATION_ATTEMPTS = 10;
-const PROPAGATION_DELAY_MS = 1_000;
+const ROUTE_ATTEMPTS = 60;
+const SECRET_ATTEMPTS = 60;
+const SECRET_CONSISTENT_RUNS = 5;
+const DATA_CHANNEL_ATTEMPTS = 30;
+const POLL_INTERVAL_MS = 1_000;
+const STREAK_INTERVAL_MS = 300;
+
+class ProtocolBreach extends Error {
+  constructor(detail) {
+    super("scenario protocol breach");
+    this.detail = detail;
+  }
+}
+
+const brief = (text) => (text.length > 160 ? `${text.slice(0, 160)}…` : text);
 
 export function tailLines(text, limit = OUTPUT_TAIL_LINES) {
   const trimmed = String(text ?? "").trimEnd();
@@ -386,78 +399,99 @@ export async function verifyManagedD1(options) {
 
     enter(
       "authorization-probe",
-      `Probing the endpoint without credentials until the route is live; it must answer 401 within ${PROPAGATION_ATTEMPTS} attempts`,
+      `Waiting for the workers.dev route to go live; an unauthenticated POST must answer 401 within ${ROUTE_ATTEMPTS} attempts`,
     );
-    let authorized = false,
-      lastUnauthorizedStatus = "none",
-      lastUnauthorizedBody = "";
-    for (let attempt = 0; attempt < PROPAGATION_ATTEMPTS; attempt++) {
+    let routeLive = false,
+      lastRoute = "no attempt was made";
+    for (let attempt = 1; attempt <= ROUTE_ATTEMPTS; attempt++) {
       let status, body;
       try {
         const unauthorized = await fetchImpl(endpoint, { method: "POST" });
         status = unauthorized.status;
-        if (status === 401) {
-          note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered HTTP 401: the route is live and closed`);
-          authorized = true;
-          break;
-        }
-        body = await excerptResponse(unauthorized);
         // A live route that serves an unauthenticated request is a protocol breach, never a race.
-        if (status === 200)
-          throw new Error(`scenario endpoint served an unauthenticated request with HTTP 200: ${body}`);
+        if (status === 200) throw new ProtocolBreach(await excerptResponse(unauthorized));
+        body = status === 401 ? "" : brief(await excerptResponse(unauthorized));
       } catch (error) {
-        const message = String(error?.message ?? error);
-        if (message.startsWith("scenario endpoint served")) throw error;
+        if (error instanceof ProtocolBreach)
+          throw new Error(`scenario endpoint served an unauthenticated request with HTTP 200: ${error.detail}`);
         status = "unreachable";
-        body = message;
+        body = brief(String(error?.message ?? error));
       }
-      lastUnauthorizedStatus = String(status);
-      lastUnauthorizedBody = body;
-      note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered ${status}: ${body}; the route is not live yet`);
-      if (attempt < PROPAGATION_ATTEMPTS - 1) await delay(PROPAGATION_DELAY_MS);
+      if (status === 401) {
+        note(`attempt ${attempt}: HTTP 401 — the route is live and closed`);
+        routeLive = true;
+        break;
+      }
+      lastRoute = `${status}: ${body}`;
+      if (attempt <= 2 || attempt % 10 === 0) note(`attempt ${attempt}/${ROUTE_ATTEMPTS}: ${lastRoute} — not live yet`);
+      await delay(POLL_INTERVAL_MS);
     }
-    if (!authorized)
+    if (!routeLive)
       throw new Error(
-        `scenario endpoint never answered 401 after ${PROPAGATION_ATTEMPTS} attempts; last response was ${lastUnauthorizedStatus}: ${lastUnauthorizedBody}. The workers.dev route did not become live, or it answers something other than the scenario protocol`,
+        `the workers.dev route never answered 401 after ${ROUTE_ATTEMPTS} attempts; last response was ${lastRoute}. The route did not become live, or it answers something other than the scenario protocol`,
       );
 
-    enter("secret-propagation", "Waiting for the Worker secret to propagate; an unknown scenario must answer 404");
+    // `wrangler secret put` rolls out a new Worker version gradually, so a single 404 only
+    // proves one instance has the secret. Requests keep landing on pre-secret instances -
+    // which answer 401 - until the rollout finishes, so wait for a run of consistent answers.
+    enter(
+      "secret-propagation",
+      `Waiting for the secret to reach every Worker instance: ${SECRET_CONSISTENT_RUNS} consecutive authenticated probes must answer 404`,
+    );
     const authenticatedHeaders = { authorization: `Bearer ${auth}`, "content-type": "application/json" };
-    let ready = false,
-      lastStatus = "none",
-      lastBody = "";
-    for (let attempt = 0; attempt < PROPAGATION_ATTEMPTS; attempt++) {
+    let secretReady = false,
+      streak = 0,
+      lastSecret = "no attempt was made";
+    for (let attempt = 1; attempt <= SECRET_ATTEMPTS; attempt++) {
       const response = await fetchImpl(endpoint, {
         method: "POST",
         headers: authenticatedHeaders,
         body: '{"scenario":"unknown"}',
       });
-      lastStatus = String(response.status);
       if (response.status === 404) {
-        note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered HTTP 404: the secret is live`);
-        ready = true;
-        break;
+        streak++;
+        if (streak >= SECRET_CONSISTENT_RUNS) {
+          note(`attempt ${attempt}: ${streak} consecutive 404s — the secret has reached every instance`);
+          secretReady = true;
+          break;
+        }
+        await delay(STREAK_INTERVAL_MS);
+        continue;
       }
-      lastBody = await excerptResponse(response);
-      note(`attempt ${attempt + 1}/${PROPAGATION_ATTEMPTS} answered HTTP ${response.status}: ${lastBody}`);
-      if (attempt < PROPAGATION_ATTEMPTS - 1) await delay(PROPAGATION_DELAY_MS);
+      lastSecret = `HTTP ${response.status}: ${brief(await excerptResponse(response))}`;
+      if (streak > 0)
+        note(`attempt ${attempt}: ${lastSecret} after a run of ${streak}; the rollout is still in progress`);
+      else if (attempt <= 2 || attempt % 10 === 0) note(`attempt ${attempt}/${SECRET_ATTEMPTS}: ${lastSecret}`);
+      streak = 0;
+      await delay(POLL_INTERVAL_MS);
     }
-    if (!ready)
+    if (!secretReady)
       throw new Error(
-        `scenario authentication did not become ready after ${PROPAGATION_ATTEMPTS} attempts; last response was HTTP ${lastStatus}: ${lastBody}`,
+        `the Worker secret never answered ${SECRET_CONSISTENT_RUNS} consecutive probes within ${SECRET_ATTEMPTS} attempts; last rejection was ${lastSecret}`,
       );
 
     enter("data-channel-probe", "Probing with a prohibited data field; the Worker must reject it with 400");
-    const prohibited = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: authenticatedHeaders,
-      body: '{"scenario":"managed-d1/batch-success","sql":"x"}',
-    });
-    note(`prohibited-field POST answered HTTP ${prohibited.status}`);
-    if (prohibited.status !== 400)
-      throw new Error(
-        `scenario protocol data-channel probe returned HTTP ${prohibited.status}, expected 400: ${await excerptResponse(prohibited)}`,
-      );
+    let dataChannelClosed = false,
+      lastProhibited = "no attempt was made";
+    for (let attempt = 1; attempt <= DATA_CHANNEL_ATTEMPTS; attempt++) {
+      const prohibited = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: authenticatedHeaders,
+        body: '{"scenario":"managed-d1/batch-success","sql":"x"}',
+      });
+      if (prohibited.status === 400) {
+        note(`attempt ${attempt}: HTTP 400 — the data channel is closed`);
+        dataChannelClosed = true;
+        break;
+      }
+      lastProhibited = `HTTP ${prohibited.status}: ${brief(await excerptResponse(prohibited))}`;
+      // Only a 401 is a leftover pre-secret instance; anything else is a real protocol failure.
+      if (prohibited.status !== 401) break;
+      note(`attempt ${attempt}/${DATA_CHANNEL_ATTEMPTS}: ${lastProhibited}; a pre-secret instance is still serving`);
+      await delay(POLL_INTERVAL_MS);
+    }
+    if (!dataChannelClosed)
+      throw new Error(`scenario protocol data-channel probe never returned 400; last response was ${lastProhibited}`);
 
     enter("scenarios", `Running ${scenarios.length} managed scenarios against real D1`);
     scenarioStarted = true;
@@ -472,6 +506,9 @@ export async function verifyManagedD1(options) {
           body: JSON.stringify({ scenario: scenario.id }),
           signal: controller.signal,
         });
+        // A 401 here is a pre-secret instance answering, not a scenario that genuinely failed.
+        if (response.status === 401)
+          throw new Error("the Worker rejected the scenario token; a pre-secret instance served the request");
         const body = await response.json();
         scenario.status = response.ok && body.status === "passed" ? "passed" : "failed";
         if (scenario.status === "passed") note(`${scenario.id}: passed`);
