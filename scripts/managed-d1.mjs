@@ -340,6 +340,12 @@ export async function verifyManagedD1(options) {
         });
         const body = await response.json();
         scenario.status = response.ok && body.status === "passed" ? "passed" : "failed";
+        if (
+          scenario.status === "failed" &&
+          typeof body.errorKind === "string" &&
+          ["native", "generated", "result"].includes(body.errorKind)
+        )
+          console.error(`managed scenario ${scenario.id} failed with ${body.errorKind} error`);
       } catch {
         scenario.status = "ambiguous";
         break;
