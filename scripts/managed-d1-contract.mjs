@@ -15,7 +15,7 @@ export const MANAGED_SCENARIO_IDS = Object.freeze([
   "managed-d1/native-error-identity",
   "managed-d1/post-execution-result-error",
 ]);
-export const RESOURCE_NAME_PATTERN = /^sqlc-d1-ci-(\d{8}T\d{6}Z)-([1-9]\d*)-([1-9]\d*)-([0-9a-f]{8})$/;
+export const RESOURCE_NAME_PATTERN = /^sqlc-d1-ci-(\d{8}[Tt]\d{6}[Zz])-([1-9]\d*)-([1-9]\d*)-([0-9a-f]{8})$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FORBIDDEN_KEYS =
   /^(?:sql|sqlSource|params|values|rows|bookmark|authorization|token|credentials|headers|stack|cause|responseBody)$/i;
@@ -27,17 +27,19 @@ function fail(message) {
 }
 
 function exactUtc(text) {
-  if (!/^\d{8}T\d{6}Z$/.test(text)) return null;
-  const iso = `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}T${text.slice(9, 11)}:${text.slice(11, 13)}:${text.slice(13, 15)}Z`;
+  if (!/^\d{8}[Tt]\d{6}[Zz]$/.test(text)) return null;
+  const normalized = text.toUpperCase();
+  const iso = `${normalized.slice(0, 4)}-${normalized.slice(4, 6)}-${normalized.slice(6, 8)}T${normalized.slice(9, 11)}:${normalized.slice(11, 13)}:${normalized.slice(13, 15)}Z`;
   const date = new Date(iso);
-  return Number.isNaN(date.valueOf()) || compactTimestamp(date) !== text ? null : date;
+  return Number.isNaN(date.valueOf()) || compactTimestamp(date) !== text.toLowerCase() ? null : date;
 }
 
 export function compactTimestamp(date) {
   return date
     .toISOString()
     .replace(/[-:]/g, "")
-    .replace(/\.\d{3}Z$/, "Z");
+    .replace(/\.\d{3}Z$/, "Z")
+    .toLowerCase();
 }
 
 export function formatManagedResourceName({
