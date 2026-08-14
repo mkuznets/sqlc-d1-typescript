@@ -195,6 +195,7 @@ test("verification/managed-workflow-security - isolates credentials and exact ca
   assert.match(reusable, /vars\.CLOUDFLARE_ACCOUNT_ID/);
   assert.doesNotMatch(reusable, /  verify:[\s\S]*?\n    env:\s*\n\s+CLOUDFLARE/);
   assert.match(reusable, /artifact-ids: "\$\{\{ inputs\.candidate-artifact-id \}\}"/);
+  assert.equal((reusable.match(/merge-multiple: true/g) ?? []).length, 2);
   assert.equal((reusable.match(/make build/g) ?? []).length, 0);
   assert.match(reusable, /managed-d1-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.match(reusable, /--prefix "managed-d1-evidence-\$\{\{ github\.run_id \}\}-"/);
