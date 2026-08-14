@@ -138,5 +138,6 @@ export const executableCatalog: readonly CatalogTest[] = [
     "managed-lifecycle-diagnostics",
     "managed-command-output",
     "managed-route-propagation",
+    "managed-secret-rollout",
   ].map((id) => entry(`verification/${id}`, "verification", "test/managed-d1-contracts.test.ts")),
 ];

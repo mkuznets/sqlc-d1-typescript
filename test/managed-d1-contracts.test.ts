@@ -9,6 +9,10 @@ const contract = () => import("../scripts/managed-d1-contract.mjs");
 const reaper = () => import("../scripts/reap-managed-d1.mjs");
 const lifecycle = () => import("../scripts/managed-d1.mjs");
 
+// The route probe must see 401, then the secret gate needs a run of consecutive 404s,
+// then the data-channel probe must see 400.
+const PROTOCOL_PROBES = [401, 404, 404, 404, 404, 404, 400];
+
 const digest = "a".repeat(64),
   sourceCommit = "b".repeat(40),
   resource = "sqlc-d1-ci-20260205T120000Z-123-1-deadbeef";
@@ -395,7 +399,7 @@ test("verification/managed-lifecycle-attempts - records ambiguity once, stops su
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
       if (url.includes("workers.dev")) {
-        const status = [401, 404, 400][probes++];
+        const status = PROTOCOL_PROBES[probes++];
         if (status) return new Response("{}", { status });
         scenarioBodies.push(String(init?.body));
         throw new Error("timeout");
@@ -484,7 +488,7 @@ test("verification/managed-route-propagation - waits for the workers.dev route b
   const fixture = await lifecycleFixture();
   try {
     // The edge answers 404, then 522, until the route is live; the probe must wait, not fail.
-    const protocol = [404, 522, 401, 404, 400];
+    const protocol = [404, 522, ...PROTOCOL_PROBES];
     let probes = 0;
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
@@ -536,6 +540,71 @@ test("verification/managed-route-propagation - waits for the workers.dev route b
   }
 });
 
+test("verification/managed-secret-rollout - survives a non-monotonic secret rollout and never blames a scenario for it", async () => {
+  const { verifyManagedD1 } = await lifecycle();
+  const run = async (_command: string, args: string[]) =>
+    args[0] === "d1" && args[1] === "create"
+      ? { stdout: '{"uuid":"123e4567-e89b-42d3-a456-426614174000"}', stderr: "" }
+      : { stdout: "", stderr: "" };
+
+  const fixture = await lifecycleFixture();
+  try {
+    // A pre-secret instance answers 401 in the middle of the run of 404s, and again on the
+    // data-channel probe; both are the rollout finishing, not a protocol failure.
+    const protocol = [401, 404, 404, 401, 404, 404, 404, 404, 404, 401, 400];
+    let probes = 0;
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
+      if (url.includes("workers.dev")) {
+        const status = protocol[probes++];
+        return status ? new Response('{"status":"rejected"}', { status }) : new Response('{"status":"passed"}');
+      }
+      if (init?.method === "DELETE") return new Response("{}");
+      return new Response("{}", { status: 404 });
+    };
+    const result = await verifyManagedD1({
+      ...lifecycleOptions(fixture),
+      run,
+      fetchImpl: fetchImpl as typeof fetch,
+      delay: async () => {},
+    });
+    assert.equal(result.test.status, "passed");
+    assert.equal(result.failure, undefined);
+    assert.equal(probes, protocol.length + 8);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+
+  const stale = await lifecycleFixture();
+  try {
+    // The gate passed, then a pre-secret instance served a scenario: that is ambiguous, not failed.
+    const protocol = [401, 404, 404, 404, 404, 404, 400];
+    let probes = 0;
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
+      if (url.includes("workers.dev")) {
+        const status = protocol[probes++];
+        return new Response('{"status":"rejected"}', { status: status ?? 401 });
+      }
+      if (init?.method === "DELETE") return new Response("{}");
+      return new Response("{}", { status: 404 });
+    };
+    const result = await verifyManagedD1({
+      ...lifecycleOptions(stale),
+      run,
+      fetchImpl: fetchImpl as typeof fetch,
+      delay: async () => {},
+    });
+    assert.equal(result.scenarios[0].status, "ambiguous");
+    assert.equal(result.test.status, "ambiguous");
+    assert.equal(result.failure.phase, "scenarios");
+    assert.match(result.failure.detail, /pre-secret instance/);
+    assert.equal(result.cleanup.status, "confirmed");
+  } finally {
+    await rm(stale.root, { recursive: true, force: true });
+  }
+});
+
 test("verification/managed-lifecycle-timeout - aborts one hung stateful request and records ambiguity", async () => {
   const { verifyManagedD1 } = await lifecycle();
   const fixture = await lifecycleFixture();
@@ -548,7 +617,7 @@ test("verification/managed-lifecycle-timeout - aborts one hung stateful request 
     const fetchImpl = async (url: string, init?: RequestInit) => {
       if (url.includes("workers/subdomain")) return new Response('{"result":{"subdomain":"example"}}');
       if (url.includes("workers.dev")) {
-        const status = [401, 404, 400][requests++];
+        const status = PROTOCOL_PROBES[requests++];
         if (status) return new Response("{}", { status });
         return await new Promise<Response>((_resolve, reject) =>
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
