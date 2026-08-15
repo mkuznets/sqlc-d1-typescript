@@ -5,8 +5,14 @@ import { resolve, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { readCandidate, usageError } from "./candidate-utils.mjs";
-import { validateManagedD1Evidence } from "./managed-d1-contract.mjs";
 
+// `intent` and `validate-candidate` run before any job installs dependencies, so this
+// module must load with the Node standard library alone. Everything that needs a
+// package — Ajv, and the schema-validating contracts built on it — is imported by the
+// command that needs it, not by the file.
+async function validateManagedD1Evidence(options) {
+  return (await import("./managed-d1-contract.mjs")).validateManagedD1Evidence(options);
+}
 async function loadConfig(options) {
   return (await import("./compatibility-config.mjs")).loadCompatibilityConfig(options);
 }
