@@ -7,7 +7,7 @@ import {
   renderWarningDiagnostics,
   sortDiagnostics,
   type Diagnostic,
-} from "../../src/diagnostics";
+} from "../../src/diagnostics.ts";
 
 test("diagnostic values are quoted on one safe line", () => {
   assert.equal(

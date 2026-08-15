@@ -8,5 +8,5 @@
     "erasableSyntaxOnly": true,
     "types": ["node"]
   },
-  "include": ["./**/*.ts", "../build.ts", "../test/build.ts"]
+  "include": ["./**/*.ts", "../build.ts"]
 }

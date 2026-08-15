@@ -28,7 +28,7 @@ sql:
           interface: workers
 ```
 
-The SHA-256 is part of the selected-release configuration, not a placeholder to omit. The release manifest also binds the version, source commit, artifact size, compatibility evidence, URL, and digest to the same published artifact.
+The SHA-256 is part of the selected-release configuration, not a placeholder to omit. The release manifest binds the version, tag, source commit, artifact size, URL, and digest to the same published artifact, alongside the tool versions it was tested against.
 
 ## Generate your first query
 
@@ -92,7 +92,7 @@ Calling `getUser` validates and snapshots bind values synchronously, then return
 - [Generated-code tour](docs/generated-code-tour.md)
 - [sqlc-to-D1 translation](docs/sqlc-to-d1.md)
 - [Runtime, batches, sessions, and errors](docs/runtime-and-errors.md)
-- [Compatibility and release evidence](docs/compatibility.md)
+- [Compatibility](docs/compatibility.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Complete runnable D1 Worker](examples/d1-worker/)
 
@@ -110,13 +110,12 @@ git clone --depth 1 --branch "v$VERSION" https://github.com/mkuznets/sqlc-d1-typ
 mkdir -p .claude/skills
 rm -rf .claude/skills/sqlc-d1-typescript
 cp -R /tmp/sqlc-d1-typescript/skills/sqlc-d1-typescript .claude/skills/
-printf 'v%s\n' "$VERSION" >.claude/skills/sqlc-d1-typescript/INSTALLED_TAG
 rm -rf /tmp/sqlc-d1-typescript
 ```
 
 Substitute your agent harness's skills directory for `.claude/skills` if it uses another one; the skill itself is plain Markdown.
 
-The install command records the tag it cloned in `INSTALLED_TAG`. The skill reads that file first and stops when it does not match the version in `sqlc.yaml`, because its guidance describes one Plugin version. Upgrading the Plugin therefore means re-running the command above with the new version: it removes the previous install before copying, so no stale file and no stale tag stamp survive an upgrade.
+The skill's guidance describes one Plugin version, so clone the tag that matches your `sqlc.yaml`. Upgrading the Plugin means re-running the command above with the new version; it removes the previous install before copying, so no stale file survives an upgrade.
 
 ## Known rough edges
 

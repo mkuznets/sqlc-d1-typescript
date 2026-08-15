@@ -113,4 +113,4 @@ Keep a session executor request-flow-local. Await operations in the order your f
 
 Log the selected Plugin/release version and SHA-256, sqlc version, public error class, and safe context fields. Do not automatically log SQL, bind values, returned rows, bookmarks, credentials, authorization headers, or production identifiers. Treat `cause` as untrusted and potentially sensitive before logging it.
 
-See [troubleshooting](troubleshooting.md) for phase-based triage and [compatibility](compatibility.md) for evidence boundaries.
+See [troubleshooting](troubleshooting.md) for phase-based triage and [compatibility](compatibility.md) for the boundaries of the compatibility surface.

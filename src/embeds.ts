@@ -1,4 +1,4 @@
-import type { Catalog, Column, Identifier } from "./gen/plugin/codegen_pb";
+import type { Catalog, Column, Identifier } from "./gen/plugin/codegen_pb.ts";
 
 /** Private physical aliases are generator-owned and never part of the compatibility surface. */
 export const EMBED_ALIAS_PREFIX = "d1_embed_";

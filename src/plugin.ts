@@ -4,10 +4,10 @@ import {
   renderFailureDiagnostics,
   renderWarningDiagnostics,
   type Diagnostic,
-} from "./diagnostics";
-import { GenerateRequest } from "./gen/plugin/codegen_pb";
-import { generateValidated } from "./generator";
-import { validateGenerateRequest } from "./validation";
+} from "./diagnostics.ts";
+import { GenerateRequest } from "./gen/plugin/codegen_pb.ts";
+import { generateValidated } from "./generator.ts";
+import { validateGenerateRequest } from "./validation.ts";
 
 export interface PluginRunResult {
   ok: boolean;

@@ -1,5 +1,5 @@
 import ts from "typescript";
-import type { GenerateResponse } from "../../src/gen/plugin/codegen_pb";
+import type { GenerateResponse } from "../../src/gen/plugin/codegen_pb.ts";
 
 export interface BoundStatement {
   readonly sql: string;
@@ -44,10 +44,13 @@ function resolveModuleId(directory: string, specifier: string): string {
 }
 
 export class FakeStatement {
-  constructor(
-    private readonly executor: FakeExecutor,
-    private readonly sql: string,
-  ) {}
+  private readonly executor: FakeExecutor;
+  private readonly sql: string;
+
+  constructor(executor: FakeExecutor, sql: string) {
+    this.executor = executor;
+    this.sql = sql;
+  }
 
   bind(...params: unknown[]): FakeStatement {
     this.executor.bound.push({ sql: this.sql, params });

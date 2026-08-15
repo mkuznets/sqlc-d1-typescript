@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,7 +5,6 @@ import { pathToFileURL } from "node:url";
 export interface Candidate {
   bytes: Buffer;
   path: string;
-  sha256: string;
 }
 
 export class UsageError extends Error {
@@ -17,24 +15,14 @@ export function usageError(message: string): UsageError {
   return new UsageError(message);
 }
 
-export async function readCandidate(candidate: string | undefined, sha256: string | undefined): Promise<Candidate> {
+export async function readCandidate(candidate: string | undefined): Promise<Candidate> {
   if (!candidate) throw usageError("--candidate is required");
-  if (!sha256) throw usageError("--sha256 is required");
-  if (!/^[0-9a-f]{64}$/.test(sha256)) throw usageError("SHA-256 must be exactly 64 lowercase hexadecimal characters");
   const candidatePath = resolve(candidate);
-  let bytes: Buffer;
   try {
-    bytes = await readFile(candidatePath);
+    return { bytes: await readFile(candidatePath), path: candidatePath };
   } catch {
     throw usageError(`candidate is not readable: ${candidatePath}`);
   }
-  const actual = createHash("sha256").update(bytes).digest("hex");
-  if (actual !== sha256) throw usageError(`candidate SHA-256 mismatch: expected ${sha256}, received ${actual}`);
-  return { bytes, path: candidatePath, sha256 };
-}
-
-export async function validateCandidate(candidate: string, sha256: string): Promise<string> {
-  return (await readCandidate(candidate, sha256)).path;
 }
 
 export function parseArguments(

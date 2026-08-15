@@ -7,9 +7,9 @@ import {
   type RowValueFieldPlan,
   type SlicePlan,
   type ValueFieldPlan,
-} from "./emission-plan";
-import { RUNTIME } from "./runtime";
-import { VALUE_KINDS } from "./sqlite-types";
+} from "./emission-plan.ts";
+import { RUNTIME } from "./runtime.ts";
+import { VALUE_KINDS } from "./sqlite-types.ts";
 
 type SliceArgumentFieldPlan = ArgumentFieldPlan & { readonly slice: SlicePlan };
 

@@ -1,30 +1,16 @@
-import { createHash } from "node:crypto";
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WASI } from "node:wasi";
-import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb";
-import { GeneratorHarness, GeneratorOutcome } from "./harness";
+import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb.ts";
+import type { GeneratorHarness, GeneratorOutcome } from "./harness.ts";
 
 export type CandidateSource = { path: string } | { bytes: Uint8Array };
 
-export async function createCandidateHarness(
-  source: CandidateSource,
-  expectedSha256: string,
-): Promise<GeneratorHarness> {
-  if (!/^[0-9a-f]{64}$/.test(expectedSha256)) {
-    throw new Error("candidate SHA-256 must be exactly 64 lowercase hexadecimal characters");
-  }
-
+export async function createCandidateHarness(source: CandidateSource): Promise<GeneratorHarness> {
   const retainedBytes = Uint8Array.from("path" in source ? readFileSync(source.path) : source.bytes);
-  const actualSha256 = createHash("sha256").update(retainedBytes).digest("hex");
-  if (actualSha256 !== expectedSha256) {
-    throw new Error(`candidate SHA-256 mismatch: expected ${expectedSha256}, got ${actualSha256}`);
-  }
-
   const module = new WebAssembly.Module(retainedBytes);
   return {
-    candidateSha256: actualSha256,
     async run(request: GenerateRequest): Promise<GeneratorOutcome> {
       return runCandidate(module, request.toBinary());
     },

@@ -1,4 +1,4 @@
-import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb";
+import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb.ts";
 
 export interface GeneratorOutcome {
   response?: GenerateResponse;
@@ -8,7 +8,6 @@ export interface GeneratorOutcome {
 }
 
 export interface GeneratorHarness {
-  readonly candidateSha256?: string;
   run(request: GenerateRequest): Promise<GeneratorOutcome>;
   runBytes(input: Uint8Array): Promise<GeneratorOutcome>;
 }

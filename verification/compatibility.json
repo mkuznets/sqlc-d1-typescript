@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "sqlc": {
     "supportedFloor": "v1.18.0",
     "testedCeiling": "v1.31.1",
@@ -19,20 +18,9 @@
     ]
   },
   "typescript": { "floor": "5.2.2", "current": "5.9.3" },
-  "cloudflare": {
-    "workersTypes": "4.20260214.0",
-    "wrangler": "4.63.0",
-    "vitestPoolWorkers": "0.12.21",
-    "miniflare": "4.20260310.0",
-    "workerd": "1.20260310.1",
-    "compatibilityDate": "2026-02-05",
-    "compatibilityFlags": []
-  },
   "tools": {
     "node": "24.12.0",
     "npm": "11.6.2",
-    "bun": "1.3.10",
-    "buf": "1.65.0",
-    "javy": "8.0.0"
+    "bun": "1.3.10"
   }
 }
