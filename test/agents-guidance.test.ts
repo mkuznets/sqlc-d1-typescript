@@ -9,6 +9,7 @@ const BRANCHES = [
   "docs/agents/verification.md",
   "docs/agents/release.md",
   "docs/agents/workflows.md",
+  "docs/agents/consumer-skill.md",
 ];
 const TOOLING = ["docs/agents/issue-tracker.md", "docs/agents/triage-labels.md", "docs/agents/domain.md"];
 const GUIDANCE = [ROUTER, ...BRANCHES];

@@ -16,6 +16,7 @@
     "./release-scripts.test.ts",
     "./managed-d1-contracts.test.ts",
     "./agents-guidance.test.ts",
+    "./consumer-skill.test.ts",
     "./managed-d1/src/**/*.ts",
     "../scripts/*.d.mts",
     "../src/**/*.ts"

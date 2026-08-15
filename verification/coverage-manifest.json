@@ -499,6 +499,13 @@
       "availability": "local"
     },
     {
+      "id": "verification/consumer-skill",
+      "layer": "verification",
+      "file": "test/consumer-skill.test.ts",
+      "title": "verification/consumer-skill",
+      "availability": "local"
+    },
+    {
       "id": "miniflare/command-execrows",
       "layer": "miniflare",
       "file": "test/miniflare/test/commands.spec.ts",
