@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import Ajv, { AnySchema } from "ajv";
@@ -125,6 +125,34 @@ function extractRegisteredIds(source: string): string[] {
   ].map((match) => match[1]);
 }
 
+// A scope GitHub does not know is not a narrower permission, it is a workflow that
+// fails to parse, and it fails at dispatch time rather than in any test.
+test("every workflow names only permission scopes GitHub accepts", () => {
+  const scopes = new Set([
+    "actions",
+    "attestations",
+    "checks",
+    "contents",
+    "deployments",
+    "discussions",
+    "id-token",
+    "issues",
+    "models",
+    "packages",
+    "pages",
+    "pull-requests",
+    "repository-projects",
+    "security-events",
+    "statuses",
+  ]);
+  for (const file of readdirSync(resolve(process.cwd(), ".github/workflows"))) {
+    const workflow = readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8");
+    for (const block of workflow.matchAll(/^(\s*)permissions:\s*\n((?:\1\s+[a-z-]+:\s*\S+\n)+)/gm))
+      for (const entry of block[2].matchAll(/^\s+([a-z-]+):\s*(read|write|none)\s*$/gm))
+        assert.ok(scopes.has(entry[1]), `${file} requests unknown permission scope ${entry[1]}`);
+  }
+});
+
 test("release workflow is an exact-artifact managed-D1-gated publication spine", () => {
   const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /tags: \["v\*"\]/);
@@ -209,7 +237,7 @@ test("verification/publication-workflow-security - confines writing and R2 crede
   const others = workflow.replace(preflight, "").replace(publish, "");
 
   for (const job of [preflight, publish]) assert.match(job, /environment: release-publication/);
-  assert.match(preflight, /permissions:\s*\n\s+contents: read\s*\n\s+administration: read/);
+  assert.match(preflight, /permissions:\s*\n\s+contents: read\s*\n/);
   assert.match(publish, /permissions:\s*\n\s+contents: write\s*\n\s+actions: read/);
   assert.doesNotMatch(others, /contents: write|secrets\.R2_|environment: release-publication/);
 
