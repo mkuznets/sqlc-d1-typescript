@@ -17,4 +17,8 @@ test -n "${R2_SECRET_ACCESS_KEY:-}" ||
 test -n "${CLOUDFLARE_ACCOUNT_ID:-}" ||
   fail "CLOUDFLARE_ACCOUNT_ID is empty; the repository variable is missing"
 
+command -v aws >/dev/null ||
+  fail "the aws CLI is not on PATH; publication uploads to R2 through it and GitHub runners normally preinstall it"
+
 log "Publication credentials are present for the release-publication environment"
+detail "$(aws --version 2>&1)"

@@ -9,7 +9,7 @@ Everything below is executed by `.github/workflows/release.yml`. Nothing here is
 1. **Preflight** — read-only proof that immutable releases are enabled, the `sqlc` bucket is reachable, the R2 credential is scoped to that bucket alone, and the public custom domain answers for a known-absent key. It runs as its own job off the release identity, so a misconfigured account fails within a minute rather than after the full gate.
 2. **Draft release** — create or reuse a draft whose body is byte-identical to the body this run would publish, and attach the retained WASM and its release manifest.
 3. **Draft verification** — download both assets again through the API and hash them.
-4. **Version key** — `PutObject` with `If-None-Match: *` and `Content-MD5`. A `412` is accepted only after a full-byte comparison proves the existing object is this candidate.
+4. **Version key** — `aws s3api put-object` with `--if-none-match '*'` and `--content-md5`. A `412` is accepted only after a full-byte comparison proves the existing object is this candidate.
 5. **Direct verification** — `GetObject` from the S3 endpoint, hash the complete body, and assert `Content-Type`, `Content-Disposition`, `Cache-Control`, and the SHA-256 object metadata.
 6. **Public verification** — fetch the public URL unauthenticated, exactly as a consumer does, and hash the body. A `404` is propagation and is polled; a `200` with different bytes is an immediate hard failure.
 7. **Digest agreement** — one SHA-256 must equal the retained candidate, the release asset, the object metadata, the direct download, the public download, the manifest, and the digest quoted in the release body.
@@ -38,6 +38,14 @@ Configure these identifiers (never commit their values):
 GitHub credentials are the job-scoped `GITHUB_TOKEN` only. `contents: write` appears on the publish job and nowhere else; there is no PAT and no OIDC token.
 
 Repository Actions artifact retention must permit at least 30 days.
+
+## How R2 is reached
+
+Uploads and read-backs go through the **AWS CLI** (`aws s3api`), which GitHub runners preinstall and which already speaks S3 conditional writes. `scripts/publish-release.mjs` is the only caller; credentials reach it through the child process environment, never through argv, so they cannot appear in a process listing or a log.
+
+Two environment settings matter and are set automatically: `AWS_ENDPOINT_URL` points at the account's R2 S3 endpoint, and `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` stops aws-cli v2 adding the CRC32 checksum that R2 rejects. The integrity check that matters is the `Content-MD5` sent with the object.
+
+The CLI version is not pinned; it is reported in the job log so a change is visible.
 
 ## R2 API token
 

@@ -226,7 +226,9 @@ test("verification/publication-workflow-security - confines writing and R2 crede
   assert.match(preflight, /node scripts\/publish-release\.mjs preflight/);
   assert.match(publish, /node scripts\/publish-release\.mjs publish/);
   assert.match(publish, /node scripts\/publish-release\.mjs teardown/);
-  assert.doesNotMatch(workflow, /\bgh api\b|\bwrangler\b|aws s3/);
+  // R2 is reached through the aws CLI, but only from inside publish-release.mjs, so
+  // ordering and the version-key boundary stay readable in one place.
+  assert.doesNotMatch(workflow, /\bgh api\b|\bwrangler\b|\baws s3\b/);
 
   // The mode a publication runs in is derived from the validated dry-run identity,
   // and the script refuses to advertise anything when that mode is a dry run.

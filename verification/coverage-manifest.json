@@ -982,10 +982,10 @@
       "availability": "local"
     },
     {
-      "id": "verification/publication-signature",
+      "id": "verification/publication-object-command",
       "layer": "verification",
       "file": "test/publication-scripts.test.ts",
-      "title": "verification/publication-signature",
+      "title": "verification/publication-object-command",
       "availability": "local"
     },
     {

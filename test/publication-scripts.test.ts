@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 
 const publication = () => import("../scripts/publication-contract.mjs");
-const s3 = () => import("../scripts/s3-r2.mjs");
+const r2 = () => import("../scripts/r2-cli.mjs");
 const github = () => import("../scripts/github-release-api.mjs");
 const publisher = () => import("../scripts/publish-release.mjs");
 const release = () => import("../scripts/release-contract.mjs");
@@ -179,9 +180,9 @@ test("verification/publication-object-contract binds keys, headers, and object m
     "cache-control": "public, max-age=31536000, immutable",
   });
   assert.deepEqual(objectUserMetadata({ sha256: "a".repeat(64), version: "0.2.0", sourceCommit }), {
-    "x-amz-meta-sha256": "a".repeat(64),
-    "x-amz-meta-version": "0.2.0",
-    "x-amz-meta-source-commit": sourceCommit,
+    sha256: "a".repeat(64),
+    version: "0.2.0",
+    "source-commit": sourceCommit,
   });
   assert.throws(() => objectUserMetadata({ sha256: "A".repeat(64), version: "0.2.0", sourceCommit }), /lowercase/);
 
@@ -390,8 +391,17 @@ test("verification/publication-record-contract keeps the record closed, redacted
   }
 });
 
-test("verification/publication-signature signs create-only writes without leaking the secret", async () => {
-  const { signS3Request, putObjectCreateOnly, md5Base64, sha256Hex, r2Endpoint } = await s3();
+test("verification/publication-object-command writes create-only and keeps credentials out of argv", async () => {
+  const {
+    putObjectCreateOnly,
+    getObject,
+    listBuckets,
+    headBucket,
+    deleteObject,
+    commandEnvironment,
+    r2Endpoint,
+    md5Base64,
+  } = await r2();
   const { objectHttpMetadata, objectUserMetadata, canonicalObjectKey } = await publication();
 
   assert.equal(r2Endpoint("0123456789abcdef0123456789abcdef"), R2.endpoint);
@@ -399,121 +409,146 @@ test("verification/publication-signature signs create-only writes without leakin
 
   const body = Buffer.from("retained candidate bytes");
   const key = canonicalObjectKey("0.2.0");
-  const headers = {
-    ...objectHttpMetadata({ filename: "sqlc-gen-d1-typescript_0.2.0.wasm" }),
-    ...objectUserMetadata({ sha256: sha256Hex(body), version: "0.2.0", sourceCommit }),
-    "content-md5": md5Base64(body),
-    "if-none-match": "*",
-    "content-length": String(body.length),
-  };
-  const signed = signS3Request({
-    method: "PUT",
-    url: `${R2.endpoint}/sqlc/${key}`,
-    headers,
-    payloadSha256: sha256Hex(body),
-    ...R2.credentials,
-    now: fixedClock(),
-  });
+  const httpMetadata = objectHttpMetadata({ filename: "sqlc-gen-d1-typescript_0.2.0.wasm" });
+  const metadata = objectUserMetadata({ sha256: "a".repeat(64), version: "0.2.0", sourceCommit });
 
-  assert.equal(
-    signed.signedHeaders,
-    "cache-control;content-disposition;content-md5;content-type;host;if-none-match;x-amz-content-sha256;x-amz-date;x-amz-meta-sha256;x-amz-meta-source-commit;x-amz-meta-version",
-    "content-length is set by the transport and must not be signed",
-  );
-  assert.equal(
-    signed.canonicalRequest.split("\n").slice(0, 3).join("|"),
-    `PUT|/sqlc/plugins/sqlc-gen-d1-typescript_0.2.0.wasm|`,
-  );
-  assert.match(
-    signed.stringToSign,
-    /^AWS4-HMAC-SHA256\n20260205T120000Z\n20260205\/auto\/s3\/aws4_request\n[0-9a-f]{64}$/,
-  );
-  // Pinned so a change to signing is a deliberate edit. The string-to-sign shape and
-  // key-derivation chain were checked against AWS's published get-vanilla vector.
-  assert.equal(signed.signature, "54f9aa4f36027fe8838f009a6aa614695688bed443347f8cf3ddf41980189be3");
-  assert.equal(
-    signed.headers.authorization,
-    `AWS4-HMAC-SHA256 Credential=AKIDTEST/20260205/auto/s3/aws4_request, SignedHeaders=${signed.signedHeaders}, Signature=${signed.signature}`,
-  );
+  // Metadata is a plain map; the x-amz-meta- prefix is the transport's business.
+  assert.deepEqual(metadata, { sha256: "a".repeat(64), version: "0.2.0", "source-commit": sourceCommit });
+
+  const runs: { args: string[]; env: Record<string, string> }[] = [];
+  const runner =
+    (outcome: { code: number; stdout?: string; stderr?: string }) => async (args: string[], options: any) => {
+      runs.push({ args, env: options.env });
+      return { code: outcome.code, stdout: outcome.stdout ?? "", stderr: outcome.stderr ?? "" };
+    };
+
   assert.deepEqual(
-    signS3Request({
-      method: "PUT",
-      url: `${R2.endpoint}/sqlc/${key}`,
-      headers,
-      payloadSha256: sha256Hex(body),
-      ...R2.credentials,
-      now: fixedClock(),
+    await putObjectCreateOnly({
+      endpoint: R2.endpoint,
+      bucket: "sqlc",
+      key,
+      bodyPath: "/tmp/candidate.wasm",
+      contentMd5: md5Base64(body),
+      httpMetadata,
+      metadata,
+      credentials: R2.credentials,
+      run: runner({ code: 0 }),
     }),
-    signed,
-    "signing must be a pure function of its inputs",
+    { outcome: "created" },
   );
 
-  const serialized = JSON.stringify(signed.headers);
-  assert.ok(!serialized.includes(R2.credentials.secretAccessKey), "the secret must never appear in a header");
-  assert.ok(serialized.includes("AKIDTEST"), "the access key ID is public and identifies the credential");
+  const args = runs[0].args;
+  assert.deepEqual(args.slice(0, 2), ["s3api", "put-object"]);
+  const flag = (name: string) => args[args.indexOf(name) + 1];
+  assert.equal(flag("--if-none-match"), "*", "the write must be create-only");
+  assert.equal(flag("--content-md5"), md5Base64(body));
+  assert.equal(flag("--bucket"), "sqlc");
+  assert.equal(flag("--key"), key);
+  assert.equal(flag("--body"), "/tmp/candidate.wasm");
+  assert.equal(flag("--content-type"), "application/wasm");
+  assert.equal(flag("--cache-control"), "public, max-age=31536000, immutable");
+  assert.equal(flag("--content-disposition"), 'attachment; filename="sqlc-gen-d1-typescript_0.2.0.wasm"');
+  assert.deepEqual(JSON.parse(flag("--metadata")), metadata);
 
-  assert.throws(
-    () => signS3Request({ method: "PUT", url: `${R2.endpoint}/sqlc/${key}`, payloadSha256: sha256Hex(body) } as any),
-    /credentials are required/,
-  );
+  // Credentials travel in the child environment, never in argv where a process
+  // listing or a workflow log would pick them up.
+  assert.ok(!args.join(" ").includes(R2.credentials.secretAccessKey));
+  assert.ok(!args.join(" ").includes(R2.credentials.accessKeyId));
+  assert.equal(runs[0].env.AWS_SECRET_ACCESS_KEY, R2.credentials.secretAccessKey);
+  assert.equal(runs[0].env.AWS_ENDPOINT_URL, R2.endpoint);
+  assert.equal(runs[0].env.AWS_DEFAULT_REGION, "auto");
+  // aws-cli v2 would otherwise add a CRC32 checksum that R2 rejects.
+  assert.equal(runs[0].env.AWS_REQUEST_CHECKSUM_CALCULATION, "when_required");
 
-  const created = fetchDouble({
-    "PUT /sqlc/plugins/": () => new Response("", { status: 200, headers: { etag: '"x"' } }),
-  });
   assert.deepEqual(
-    (
-      await putObjectCreateOnly({
-        endpoint: R2.endpoint,
-        bucket: "sqlc",
-        key,
-        body,
-        headers: objectHttpMetadata({ filename: "sqlc-gen-d1-typescript_0.2.0.wasm" }),
-        credentials: R2.credentials,
-        fetchImpl: created.impl,
-        now: fixedClock,
-      })
-    ).outcome,
-    "created",
+    await putObjectCreateOnly({
+      endpoint: R2.endpoint,
+      bucket: "sqlc",
+      key,
+      bodyPath: "/tmp/candidate.wasm",
+      contentMd5: md5Base64(body),
+      httpMetadata,
+      metadata,
+      credentials: R2.credentials,
+      run: runner({ code: 254, stderr: "An error occurred (PreconditionFailed) when calling the PutObject operation" }),
+    }),
+    { outcome: "exists" },
+    "a rejected conditional write is an answer, not a crash",
   );
-  const sentHeaders = created.calls[0].init.headers;
-  assert.equal(sentHeaders["if-none-match"], "*");
-  assert.equal(sentHeaders["content-md5"], md5Base64(body));
-  assert.equal(sentHeaders["x-amz-content-sha256"], sha256Hex(body));
-  assert.equal(sentHeaders["content-type"], "application/wasm");
 
-  const exists = fetchDouble({
-    "PUT /sqlc/plugins/": () => new Response("<Error>PreconditionFailed</Error>", { status: 412 }),
-  });
-  const conditional = await putObjectCreateOnly({
-    endpoint: R2.endpoint,
-    bucket: "sqlc",
-    key,
-    body,
-    credentials: R2.credentials,
-    fetchImpl: exists.impl,
-    now: fixedClock,
-  });
-  assert.equal(conditional.outcome, "exists");
-  assert.equal(conditional.status, 412);
-
-  const broken = fetchDouble({
-    "PUT /sqlc/plugins/": () => new Response(`denied for SECRETTESTSECRETTESTSECRETTEST00`, { status: 403 }),
-  });
   await assert.rejects(
     putObjectCreateOnly({
       endpoint: R2.endpoint,
       bucket: "sqlc",
       key,
-      body,
+      bodyPath: "/tmp/candidate.wasm",
+      contentMd5: md5Base64(body),
+      httpMetadata,
+      metadata,
       credentials: R2.credentials,
-      fetchImpl: broken.impl,
-      now: fixedClock,
+      run: runner({ code: 1, stderr: `boom for ${R2.credentials.secretAccessKey}` }),
     }),
     (error: Error) =>
-      /HTTP 403/.test(error.message) &&
+      /aws exited 1/.test(error.message) &&
       error.message.includes("[REDACTED]") &&
       !error.message.includes(R2.credentials.secretAccessKey),
   );
+
+  assert.deepEqual(
+    await listBuckets({
+      endpoint: R2.endpoint,
+      credentials: R2.credentials,
+      run: runner({ code: 0, stdout: JSON.stringify({ Buckets: [{ Name: "sqlc" }] }) }),
+    }),
+    { denied: false, buckets: ["sqlc"] },
+  );
+  assert.deepEqual(
+    await listBuckets({
+      endpoint: R2.endpoint,
+      credentials: R2.credentials,
+      run: runner({ code: 254, stderr: "An error occurred (AccessDenied)" }),
+    }),
+    { denied: true, buckets: null },
+    "a bucket-scoped credential is denied here, and that denial is the evidence",
+  );
+
+  assert.equal(
+    (
+      await headBucket({
+        endpoint: R2.endpoint,
+        bucket: "sqlc",
+        credentials: R2.credentials,
+        run: runner({ code: 254, stderr: "An error occurred (404) when calling the HeadBucket operation: Not Found" }),
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await getObject({
+        endpoint: R2.endpoint,
+        bucket: "sqlc",
+        key,
+        credentials: R2.credentials,
+        run: runner({ code: 254, stderr: "An error occurred (NoSuchKey)" }),
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await deleteObject({
+        endpoint: R2.endpoint,
+        bucket: "sqlc",
+        key,
+        credentials: R2.credentials,
+        run: runner({ code: 0 }),
+      })
+    ).status,
+    204,
+  );
+
+  assert.equal(commandEnvironment({ credentials: R2.credentials, endpoint: R2.endpoint, env: {} }).AWS_PAGER, "");
 });
 
 test("verification/publication-download-verification hashes what it downloaded, never what a server claimed", async () => {
@@ -672,9 +707,10 @@ interface WorldSetup {
  */
 function publicationWorld(setup: WorldSetup = {}) {
   const calls: string[] = [];
-  const objects = new Map<string, { bytes: Buffer; headers: Record<string, string> }>(
-    (setup.objects ?? []).map(([key, bytes]) => [key, { bytes, headers: {} }]),
-  );
+  const objects = new Map<
+    string,
+    { bytes: Buffer; httpMetadata: Record<string, string>; metadata: Record<string, string> }
+  >((setup.objects ?? []).map(([key, bytes]) => [key, { bytes, httpMetadata: {}, metadata: {} }]));
   const releases: any[] = setup.releases ? structuredClone(setup.releases) : [];
   const assets = new Map<string, any[]>();
   for (const release of releases) assets.set(String(release.id), release.assets ?? []);
@@ -699,15 +735,6 @@ function publicationWorld(setup: WorldSetup = {}) {
         ? new Response("", { status: setup.environmentStatus })
         : json({ name: "release-publication", deployment_branch_policy: { protected_branches: false } });
 
-    if (url === `${R2.endpoint}/`) {
-      if (setup.buckets === "denied") return new Response("<Error>AccessDenied</Error>", { status: 403 });
-      const names = setup.buckets ?? ["sqlc"];
-      return new Response(
-        `<ListAllMyBucketsResult><Buckets>${names.map((name) => `<Bucket><Name>${name}</Name></Bucket>`).join("")}</Buckets></ListAllMyBucketsResult>`,
-      );
-    }
-    if (url === `${R2.endpoint}/sqlc`) return new Response("", { status: setup.bucketStatus ?? 200 });
-
     if (url.startsWith("https://sqlc.mkuznets.com/")) {
       const key = decodeURIComponent(url.slice("https://sqlc.mkuznets.com/".length));
       if (setup.probeStatus && key.includes("preflight-probe")) return new Response("", { status: setup.probeStatus });
@@ -715,29 +742,8 @@ function publicationWorld(setup: WorldSetup = {}) {
       const stored = objects.get(key);
       if (!stored || publicMisses-- > 0) return new Response("", { status: 404 });
       return new Response(new Uint8Array(setup.publicBytes ?? stored.bytes), {
-        headers: setup.publicHeaders ?? stored.headers,
+        headers: setup.publicHeaders ?? (stored.httpMetadata as Record<string, string>),
       });
-    }
-
-    if (url.startsWith(objectPrefix)) {
-      const key = decodeURIComponent(url.slice(objectPrefix.length));
-      if (method === "PUT") {
-        const headers = Object.fromEntries(
-          Object.entries(init.headers as Record<string, string>).map(([name, value]) => [name.toLowerCase(), value]),
-        );
-        if (objects.has(key) || setup.conflictOn === key)
-          return new Response("<Error><Code>PreconditionFailed</Code></Error>", { status: 412 });
-        objects.set(key, { bytes: Buffer.from(init.body), headers });
-        return new Response("", { status: 200, headers: { etag: '"stored"' } });
-      }
-      const stored = objects.get(key);
-      if (method === "DELETE") {
-        objects.delete(key);
-        return new Response(null, { status: 204 });
-      }
-      if (!stored) return new Response("", { status: 404 });
-      if (method === "HEAD") return new Response("", { status: 200, headers: stored.headers });
-      return new Response(new Uint8Array(setup.directBytes ?? stored.bytes), { headers: stored.headers });
     }
 
     if (url.startsWith(`${api}/releases/assets/`)) {
@@ -802,7 +808,62 @@ function publicationWorld(setup: WorldSetup = {}) {
     throw new Error(`unexpected request ${method} ${url}`);
   };
 
-  return { impl: impl as unknown as typeof fetch, calls, objects, releases, assets };
+  // The aws CLI seam. Only the s3api verbs publication uses are answered; anything
+  // else is a test failure rather than a silently tolerated command.
+  const run = async (args: string[], options: any = {}) => {
+    const flag = (name: string) => args[args.indexOf(name) + 1];
+    const key = flag("--key");
+    calls.push(`aws ${args[1]} ${key ?? flag("--bucket") ?? ""}`.trimEnd());
+    const ok = (stdout: unknown = "") => ({
+      code: 0,
+      stdout: typeof stdout === "string" ? stdout : JSON.stringify(stdout),
+      stderr: "",
+    });
+    const boom = (stderr: string) => ({ code: 254, stdout: "", stderr });
+    assert.equal(options.env?.AWS_SECRET_ACCESS_KEY, R2.credentials.secretAccessKey);
+
+    switch (args[1]) {
+      case "list-buckets":
+        if (setup.buckets === "denied") return boom("An error occurred (AccessDenied)");
+        return ok({ Buckets: (setup.buckets ?? ["sqlc"]).map((Name) => ({ Name })) });
+      case "head-bucket":
+        return (setup.bucketStatus ?? 200) === 200 ? ok() : boom("An error occurred (404): Not Found");
+      case "put-object": {
+        if (objects.has(key) || setup.conflictOn === key)
+          return boom("An error occurred (PreconditionFailed) when calling the PutObject operation");
+        objects.set(key, {
+          bytes: readFileSync(flag("--body")),
+          httpMetadata: {
+            "content-type": flag("--content-type"),
+            "content-disposition": flag("--content-disposition"),
+            "cache-control": flag("--cache-control"),
+          },
+          metadata: JSON.parse(flag("--metadata")),
+        });
+        return ok({ ETag: '"stored"' });
+      }
+      case "head-object":
+      case "get-object": {
+        const stored = objects.get(key);
+        if (!stored) return boom("An error occurred (NoSuchKey)");
+        if (args[1] === "get-object") writeFileSync(args[args.length - 1], setup.directBytes ?? stored.bytes);
+        return ok({
+          ContentLength: (setup.directBytes ?? stored.bytes).length,
+          ContentType: stored.httpMetadata["content-type"],
+          ContentDisposition: stored.httpMetadata["content-disposition"],
+          CacheControl: stored.httpMetadata["cache-control"],
+          Metadata: stored.metadata,
+        });
+      }
+      case "delete-object":
+        objects.delete(key);
+        return ok();
+      default:
+        throw new Error(`unexpected aws command ${args.join(" ")}`);
+    }
+  };
+
+  return { impl: impl as unknown as typeof fetch, run, calls, objects, releases, assets };
 }
 
 type Fixture = Awaited<ReturnType<typeof publicationFixture>>;
@@ -817,6 +878,7 @@ const publishOptions = (fixture: Fixture, world: World, overrides: Record<string
   notes: "- first change",
   credentials,
   fetchImpl: world.impl,
+  run: world.run,
   now: fixedClock,
   delay: async () => {},
   logger: () => {},
@@ -837,6 +899,7 @@ test("verification/publication-preflight proves every surface before anything is
       intent: fixture.intent,
       credentials,
       fetchImpl: world.impl,
+      run: world.run,
       logger: (line) => logs.push(line),
       now: fixedClock,
       output: resolve(fixture.root, "publication-preflight.json"),
@@ -870,6 +933,7 @@ test("verification/publication-preflight proves every surface before anything is
           intent: fixture.intent,
           credentials,
           fetchImpl: failing.impl,
+          run: failing.run,
           logger: (line) => captured.push(line),
           now: fixedClock,
         }),
@@ -891,6 +955,7 @@ test("verification/publication-preflight proves every surface before anything is
       intent: fixture.intent,
       credentials,
       fetchImpl: unverifiable.impl,
+      run: unverifiable.run,
       logger: () => {},
       now: fixedClock,
     });
@@ -911,6 +976,7 @@ test("verification/publication-preflight proves every surface before anything is
         intent: fixture.intent,
         credentials,
         fetchImpl: openWorld.impl,
+        run: open.run,
         logger: (line) => openLogs.push(line),
         now: fixedClock,
       }),
@@ -925,6 +991,7 @@ test("verification/publication-preflight proves every surface before anything is
           intent: fixture.intent,
           credentials: { ...credentials, [missing]: "" },
           fetchImpl: publicationWorld().impl,
+          run: publicationWorld().run,
           logger: () => {},
         }),
         /is empty; add the missing secret or variable to the release-publication environment/,
@@ -934,17 +1001,17 @@ test("verification/publication-preflight proves every surface before anything is
   }
 });
 
+/** Every call in the log that changed something, in the order it happened. */
 const mutating = (calls: string[]) =>
   calls
-    .filter((call) => /^(?:PUT|POST|PATCH|DELETE) /.test(call))
-    .map(
-      (call) =>
-        call.split(" ")[0] +
-        " " +
-        call
-          .split(" ")[1]
-          .replace(/^https:\/\/[^/]+/, "")
-          .replace(/\?.*$/, ""),
+    .filter((call) => /^(?:POST|PATCH|DELETE) |^aws (?:put|delete)-object /.test(call))
+    .map((call) =>
+      call.startsWith("aws ")
+        ? call
+        : `${call.split(" ")[0]} ${call
+            .split(" ")[1]
+            .replace(/^https:\/\/[^/]+/, "")
+            .replace(/\?.*$/, "")}`,
     );
 
 test("verification/publication-order writes the version key before it advertises, and advertises last", async () => {
@@ -987,21 +1054,26 @@ test("verification/publication-order writes the version key before it advertises
       `POST /repos/${REPOSITORY}/releases`,
       `POST /repos/${REPOSITORY}/releases/5000/assets`,
       `POST /repos/${REPOSITORY}/releases/5000/assets`,
-      `PUT /sqlc/plugins/${fixture.candidate.filename}`,
+      `aws put-object plugins/${fixture.candidate.filename}`,
       `PATCH /repos/${REPOSITORY}/releases/5000`,
     ]);
-    const put = world.calls.findIndex((call) => call.startsWith("PUT "));
+    const put = world.calls.findIndex((call) => call.startsWith("aws put-object "));
     const patch = world.calls.findIndex((call) => call.startsWith("PATCH "));
     const publicGet = world.calls.findIndex(
       (call) => call === `GET https://sqlc.mkuznets.com/plugins/${fixture.candidate.filename}`,
     );
     assert.ok(put < publicGet && publicGet < patch, "the public download must sit between the write and the publish");
-    assert.equal(world.calls.filter((call) => call.startsWith("PUT ")).length, 1, "the create-only write happens once");
+    assert.equal(
+      world.calls.filter((call) => call.startsWith("aws put-object ")).length,
+      1,
+      "the create-only write happens once",
+    );
 
     const stored = world.objects.get(`plugins/${fixture.candidate.filename}`)!;
-    assert.equal(stored.headers["cache-control"], "public, max-age=31536000, immutable");
-    assert.equal(stored.headers["content-type"], "application/wasm");
-    assert.equal(stored.headers["x-amz-meta-source-commit"], sourceCommit);
+    assert.equal(stored.httpMetadata["cache-control"], "public, max-age=31536000, immutable");
+    assert.equal(stored.httpMetadata["content-type"], "application/wasm");
+    assert.equal(stored.metadata["source-commit"], sourceCommit);
+    assert.equal(stored.metadata.sha256, fixture.candidate.sha256);
     assert.equal(world.releases[0].draft, false);
     assert.equal(world.releases[0].make_latest, "true");
 
@@ -1070,7 +1142,7 @@ test("verification/publication-retry converges on the retained candidate without
     assert.equal(record.r2.outcome, "existing-identical");
     assert.equal(record.github.published, true);
     assert.deepEqual(mutating(second.calls), [
-      `PUT /sqlc/plugins/${fixture.candidate.filename}`,
+      `aws put-object plugins/${fixture.candidate.filename}`,
       `PATCH /repos/${REPOSITORY}/releases/7001`,
     ]);
     assert.ok(
@@ -1156,7 +1228,7 @@ test("verification/publication-conflict halts on any surface that disagrees with
     const mismatched = await publishPublication(publishOptions(fixture, staleBytes));
     assert.equal(mismatched.failure?.phase, "draft-assets");
     assert.match(mismatched.failure!.detail, /differs from the retained candidate; publication is halted/);
-    assert.ok(!staleBytes.calls.some((call) => call.startsWith("PUT ")));
+    assert.ok(!staleBytes.calls.some((call) => call.startsWith("aws put-object ")));
     assert.equal(mismatched.r2.outcome, "not-created");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -1255,7 +1327,7 @@ test("verification/publication-dry-run rehearses everything and consumes nothing
     assert.deepEqual(record.teardown, { object: "deleted", draft: "deleted" });
     assert.ok(!world.calls.some((call) => call.startsWith("PATCH ")), "a dry run never publishes");
     assert.ok(
-      !world.calls.some((call) => /^(?:PUT|POST|PATCH|DELETE) /.test(call) && call.includes("/sqlc/plugins/")),
+      !world.calls.some((call) => /^aws (?:put|delete)-object plugins\//.test(call)),
       "a dry run never writes to a version key",
     );
     assert.equal(world.objects.size, 0, "the rehearsal object is deleted");
@@ -1275,7 +1347,13 @@ test("verification/publication-dry-run rehearses everything and consumes nothing
     );
     const refusing = publicationWorld();
     await assert.rejects(
-      teardownPublication({ statePath: publishState, credentials, fetchImpl: refusing.impl, logger: () => {} }),
+      teardownPublication({
+        statePath: publishState,
+        credentials,
+        fetchImpl: refusing.impl,
+        run: refusing.run,
+        logger: () => {},
+      }),
       /teardown refuses to act on a publish publication/,
     );
     assert.deepEqual(refusing.calls, [], "a refused teardown makes no request at all");
@@ -1301,6 +1379,7 @@ test("verification/publication-dry-run rehearses everything and consumes nothing
       statePath,
       credentials,
       fetchImpl: orphan.impl,
+      run: orphan.run,
       logger: () => {},
       reportPath: resolve(fixture.root, "publication-teardown.json"),
     });

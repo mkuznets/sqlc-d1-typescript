@@ -1,5 +1,6 @@
 import type { PublicationMode, PublicationRecord, TeardownOutcome } from "./publication-contract.mjs";
 import type { ReleaseIntent } from "./release-contract.mjs";
+import type { CommandRunner } from "./r2-cli.mjs";
 
 export const ENVIRONMENT: "release-publication";
 
@@ -42,6 +43,7 @@ export function preflightPublication(options: {
   intent: ReleaseIntent;
   credentials: PublicationCredentials;
   fetchImpl?: typeof fetch;
+  run?: CommandRunner;
   logger?: (line: string) => void;
   now?: () => Date;
   output?: string;
@@ -55,6 +57,7 @@ export function publishPublication(options: {
   artifactId?: string | null;
   credentials: PublicationCredentials;
   fetchImpl?: typeof fetch;
+  run?: CommandRunner;
   now?: () => Date;
   delay?: (milliseconds: number) => Promise<void>;
   logger?: (line: string) => void;
@@ -69,6 +72,7 @@ export function teardownPublication(options: {
   statePath: string;
   credentials: PublicationCredentials;
   fetchImpl?: typeof fetch;
+  run?: CommandRunner;
   logger?: (line: string) => void;
   reportPath?: string;
 }): Promise<{
