@@ -29,14 +29,16 @@ import {
   writePublicationJson,
 } from "./publication-contract.mjs";
 import {
+  commandRunner,
   deleteObject,
   getObject,
   headBucket,
   headObject,
   listBuckets,
+  md5Base64,
   putObjectCreateOnly,
   r2Endpoint,
-} from "./s3-r2.mjs";
+} from "./r2-cli.mjs";
 import {
   createDraftRelease,
   deleteRelease,
@@ -117,6 +119,7 @@ export async function preflightPublication({
   intent,
   credentials,
   fetchImpl = fetch,
+  run = commandRunner,
   logger,
   now = () => new Date(),
   output,
@@ -126,11 +129,11 @@ export async function preflightPublication({
   assertCredentials(credentials);
 
   const endpoint = r2Endpoint(credentials.accountId);
-  const r2Options = () => ({ endpoint, credentials: { ...credentials }, fetchImpl, now, signal: readTimeout() });
+  const r2Options = () => ({ endpoint, credentials, run, signal: readTimeout() });
   const checks = [];
-  const record = async (name, run) => {
+  const check = async (name, probe) => {
     try {
-      const result = await run();
+      const result = await probe();
       checks.push({ name, status: result.status, detail: result.detail });
       note(`${result.status.padEnd(14)} ${name}: ${result.detail}`);
       return result;
@@ -142,7 +145,7 @@ export async function preflightPublication({
     }
   };
 
-  const immutable = await record("immutable-releases", async () => {
+  const immutable = await check("immutable-releases", async () => {
     const setting = await getImmutableReleases({ repository, token: credentials.githubToken, fetchImpl });
     if (!setting.enabled)
       throw new Error(
@@ -151,7 +154,7 @@ export async function preflightPublication({
     return { status: "passed", detail: `enabled (enforced by owner: ${setting.enforced_by_owner})`, setting };
   });
 
-  await record("environment-ref-policy", async () => {
+  await check("environment-ref-policy", async () => {
     const response = await fetchImpl(`https://api.github.com/repos/${repository}/environments/${ENVIRONMENT}`, {
       headers: {
         accept: "application/vnd.github+json",
@@ -172,7 +175,7 @@ export async function preflightPublication({
     return { status: "passed", detail: "deployment refs are restricted" };
   });
 
-  await record("r2-credential-scope", async () => {
+  await check("r2-credential-scope", async () => {
     const listed = await listBuckets(r2Options());
     if (listed.denied) return { status: "passed", detail: "ListBuckets is denied, so the credential is bucket-scoped" };
     const foreign = (listed.buckets ?? []).filter((bucket) => bucket !== R2_BUCKET);
@@ -185,14 +188,14 @@ export async function preflightPublication({
     return { status: "passed", detail: `the credential sees only ${R2_BUCKET}` };
   });
 
-  await record("r2-bucket", async () => {
+  await check("r2-bucket", async () => {
     const { status } = await headBucket({ ...r2Options(), bucket: R2_BUCKET });
     if (status !== 200)
       throw new Error(`the ${R2_BUCKET} bucket answered HTTP ${status}; confirm the bucket name and the token scope`);
     return { status: "passed", detail: `bucket ${R2_BUCKET} is reachable` };
   });
 
-  await record("public-origin", async () => {
+  await check("public-origin", async () => {
     const url = publicUrlForKey(ABSENT_PROBE_KEY);
     const response = await fetchImpl(url, { signal: readTimeout() });
     if (response.status === 200)
@@ -205,7 +208,7 @@ export async function preflightPublication({
   });
 
   const versionKey = canonicalObjectKey(intent.version);
-  await record("version-key", async () => {
+  await check("version-key", async () => {
     const { status } = await headObject({ ...r2Options(), bucket: R2_BUCKET, key: versionKey });
     if (status === 404)
       return { status: "passed", detail: `${versionKey} does not exist; version ${intent.version} is free` };
@@ -238,7 +241,7 @@ export async function preflightPublication({
   return { ...result, immutableReleases: immutable.setting ?? { enabled: false, enforced_by_owner: false } };
 }
 
-async function removeRehearsalResources({ state, credentials, fetchImpl, logger }) {
+async function removeRehearsalResources({ state, credentials, fetchImpl, run, logger }) {
   const { say, note } = reporter({ logger, credentials });
   const outcome = {
     object: state.object?.status === "created" ? "failed" : "not-created",
@@ -256,7 +259,7 @@ async function removeRehearsalResources({ state, credentials, fetchImpl, logger 
         bucket: state.object.bucket,
         key: state.object.key,
         credentials,
-        fetchImpl,
+        run,
         signal: readTimeout(),
       });
       const { status } = await headObject({
@@ -264,7 +267,7 @@ async function removeRehearsalResources({ state, credentials, fetchImpl, logger 
         bucket: state.object.bucket,
         key: state.object.key,
         credentials,
-        fetchImpl,
+        run,
         signal: readTimeout(),
       });
       outcome.object = status === 404 ? "deleted" : "failed";
@@ -291,14 +294,21 @@ async function removeRehearsalResources({ state, credentials, fetchImpl, logger 
   return outcome;
 }
 
-export async function teardownPublication({ statePath, credentials, fetchImpl = fetch, logger, reportPath }) {
+export async function teardownPublication({
+  statePath,
+  credentials,
+  fetchImpl = fetch,
+  run = commandRunner,
+  logger,
+  reportPath,
+}) {
   const state = JSON.parse(await readFile(resolve(statePath), "utf8"));
   if (state.mode !== "dry-run")
     throw new Error(
       `teardown refuses to act on a ${state.mode} publication: a published version and its artifacts are permanent and must never be deleted`,
     );
   assertCredentials(credentials);
-  const teardown = await removeRehearsalResources({ state, credentials, fetchImpl, logger });
+  const teardown = await removeRehearsalResources({ state, credentials, fetchImpl, run, logger });
   const report = {
     schemaVersion: 1,
     mode: state.mode,
@@ -319,6 +329,7 @@ export async function publishPublication(options) {
     artifactId = null,
     credentials,
     fetchImpl = fetch,
+    run = commandRunner,
     now = () => new Date(),
     delay = (milliseconds) => new Promise((ok) => setTimeout(ok, milliseconds)),
     logger,
@@ -337,7 +348,8 @@ export async function publishPublication(options) {
   assertCredentials(credentials);
 
   const candidate = await validateCandidateBundle({ directory: candidateDir, intent });
-  const candidateBytes = await readFile(resolve(candidateDir, candidate.filename));
+  const candidatePath = resolve(candidateDir, candidate.filename);
+  const candidateBytes = await readFile(candidatePath);
   const manifestBytes = await readFile(resolve(manifestPath));
   const manifestName = canonicalManifestFilename(intent.version);
   if (basename(manifestPath) !== manifestName)
@@ -364,7 +376,7 @@ export async function publishPublication(options) {
   const tagName = mode === "dry-run" ? `dry-run-v${intent.version}-${intent.workflowRunId}` : intent.tag;
   const prerelease = intent.version.includes("-");
   const endpoint = r2Endpoint(credentials.accountId);
-  const bucketOptions = { endpoint, bucket: R2_BUCKET, credentials, fetchImpl, now };
+  const bucketOptions = { endpoint, bucket: R2_BUCKET, credentials, run };
   const githubOptions = { repository, token: credentials.githubToken, fetchImpl };
 
   const body = buildReleaseBody({ manifest, intent, notes, manifestSha256 });
@@ -418,7 +430,7 @@ export async function publishPublication(options) {
 
   try {
     enter("preflight", `Re-asserting the publication surfaces before writing anything (mode: ${mode})`);
-    const preflight = await preflightPublication({ repository, intent, credentials, fetchImpl, logger, now });
+    const preflight = await preflightPublication({ repository, intent, credentials, fetchImpl, run, logger, now });
     githubRecord.immutable_releases = preflight.immutableReleases;
 
     enter("draft-release", `Creating or reusing the draft release for ${tagName}`);
@@ -525,11 +537,14 @@ export async function publishPublication(options) {
     const written = await putObjectCreateOnly({
       ...bucketOptions,
       key,
-      body: candidateBytes,
-      headers: {
-        ...httpMetadata,
-        ...objectUserMetadata({ sha256: candidate.sha256, version: intent.version, sourceCommit: intent.sourceCommit }),
-      },
+      bodyPath: candidatePath,
+      contentMd5: md5Base64(candidateBytes),
+      httpMetadata,
+      metadata: objectUserMetadata({
+        sha256: candidate.sha256,
+        version: intent.version,
+        sourceCommit: intent.sourceCommit,
+      }),
       signal: uploadTimeout(),
     });
     if (written.outcome === "created") {
@@ -537,13 +552,13 @@ export async function publishPublication(options) {
       r2Record.outcome = "created";
       state = { ...state, object: { status: "created", bucket: R2_BUCKET, key } };
       await writePublicationJson(statePath, state);
-      note(`created ${key} (HTTP ${written.status})`);
+      note(`created ${key}`);
     } else {
       // The key is occupied from here on, whoever wrote it. Recording that before the
       // byte comparison is what makes a conflict report the post-key recovery: the
       // version is consumed, so recreating the tag can never succeed.
       keyExists = true;
-      note(`${key} already exists (HTTP ${written.status}); comparing every byte before continuing`);
+      note(`${key} already exists; comparing every byte before continuing`);
       const existingObject = await getObject({ ...bucketOptions, key, signal: readTimeout() });
       if (existingObject.status !== 200 || !existingObject.bytes)
         throw new Error(`${key} exists but could not be read back (HTTP ${existingObject.status})`);
@@ -564,15 +579,15 @@ export async function publishPublication(options) {
     r2Record.direct_download_sha256 = sha256(direct.bytes);
     if (r2Record.direct_download_sha256 !== candidate.sha256)
       throw new Error(`${key} hashes to ${r2Record.direct_download_sha256}, expected ${candidate.sha256}`);
-    assertHttpMetadata(direct.headers, httpMetadata);
+    assertHttpMetadata(direct.httpMetadata, httpMetadata);
     r2Record.http_metadata = {
       content_type: httpMetadata["content-type"],
       content_disposition: httpMetadata["content-disposition"],
       cache_control: httpMetadata["cache-control"],
     };
-    const metadataDigest = direct.headers["x-amz-meta-sha256"];
+    const metadataDigest = direct.metadata?.sha256;
     if (metadataDigest !== candidate.sha256)
-      throw new Error(`${key} carries x-amz-meta-sha256 ${metadataDigest ?? "(absent)"}, expected ${candidate.sha256}`);
+      throw new Error(`${key} carries sha256 metadata ${metadataDigest ?? "(absent)"}, expected ${candidate.sha256}`);
     r2Record.metadata_sha256 = metadataDigest;
     note(`direct download: ${direct.bytes.length} bytes, SHA-256 ${r2Record.direct_download_sha256}`);
 
@@ -693,7 +708,7 @@ export async function publishPublication(options) {
   }
 
   if (mode === "dry-run") {
-    teardown = await removeRehearsalResources({ state, credentials, fetchImpl, logger });
+    teardown = await removeRehearsalResources({ state, credentials, fetchImpl, run, logger });
   }
 
   order.push({ phase: "record", at: now().toISOString() });

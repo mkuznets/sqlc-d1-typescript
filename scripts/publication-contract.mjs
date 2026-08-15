@@ -110,14 +110,12 @@ export function objectHttpMetadata({ filename }) {
   };
 }
 
+// User metadata as a plain key/value map. S3 stores these under `x-amz-meta-`, but
+// that prefix is the transport's business, not the contract's.
 export function objectUserMetadata({ sha256, version, sourceCommit }) {
   if (!SHA.test(sha256 ?? "")) fail("object metadata requires a 64-character lowercase SHA-256");
   if (!SOURCE_SHA.test(sourceCommit ?? "")) fail("object metadata requires a full 40-character source commit");
-  return {
-    "x-amz-meta-sha256": sha256,
-    "x-amz-meta-version": parseSemver(version),
-    "x-amz-meta-source-commit": sourceCommit,
-  };
+  return { sha256, version: parseSemver(version), "source-commit": sourceCommit };
 }
 
 export function assertHttpMetadata(observed, expected) {

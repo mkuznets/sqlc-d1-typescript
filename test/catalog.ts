@@ -50,7 +50,7 @@ export const executableCatalog: readonly CatalogTest[] = [
     "publication-object-contract",
     "publication-release-body",
     "publication-record-contract",
-    "publication-signature",
+    "publication-object-command",
     "publication-preflight",
     "publication-order",
     "publication-retry",

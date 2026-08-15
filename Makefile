@@ -21,7 +21,7 @@ ROOT_SCRIPTS := \
 	scripts/write-compatibility-evidence.mjs scripts/release-contract.mjs \
 	scripts/github-run-artifacts.mjs scripts/select-managed-d1-evidence.mjs scripts/managed-d1-contract.mjs \
 	scripts/managed-d1.mjs scripts/reap-managed-d1.mjs \
-	scripts/publication-contract.mjs scripts/s3-r2.mjs scripts/github-release-api.mjs scripts/publish-release.mjs
+	scripts/publication-contract.mjs scripts/r2-cli.mjs scripts/github-release-api.mjs scripts/publish-release.mjs
 ROOT_DIST := \
 	test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs \
 	test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs \
