@@ -37,7 +37,7 @@ export async function compareGeneratedTrees(
   for (const path of expected.filter((path) => actual.includes(path))) {
     const left = await readFile(resolve(expectedDirectory, path));
     const right = await readFile(resolve(actualDirectory, path));
-    if (!left.equals(right)) differences.push({ kind: "changed", path });
+    if (Buffer.compare(left, right) !== 0) differences.push({ kind: "changed", path });
   }
   return differences;
 }

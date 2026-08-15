@@ -1,5 +1,5 @@
-declare module "cloudflare:test" {
-  interface ProvidedEnv extends Env {
+declare namespace Cloudflare {
+  interface Env {
     TEST_SCHEMA_QUERIES: string;
   }
 }

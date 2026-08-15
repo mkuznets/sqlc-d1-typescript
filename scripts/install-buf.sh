@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="v1.65.0"
+VERSION="v1.72.0"
 BASE_URL="https://github.com/bufbuild/buf/releases/download/${VERSION}"
 
 OS="$(uname -s)"

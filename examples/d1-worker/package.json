@@ -12,11 +12,11 @@
     "test:run": "vitest --run"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.10",
-    "@types/node": "^25.2.1",
-    "typescript": "^5.5.2",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.63.0"
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.123.0"
   },
   "dependencies": {
     "hono": "^4.13.2"
