@@ -52,13 +52,13 @@ test-candidate: node_modules
 
 .PHONY: test-miniflare
 test-miniflare:
-	cd test/miniflare && bun install --frozen-lockfile
-	cd test/miniflare && bun run typecheck && bun run typecheck:test && bun run test:run
+	cd test/miniflare && npm ci
+	cd test/miniflare && npm run typecheck && npm run typecheck:test && npm run test:run
 
 .PHONY: test-example
 test-example:
-	cd examples/d1-worker && bun install --frozen-lockfile
-	cd examples/d1-worker && bun run typecheck && bun run typecheck:test && bun run test:run
+	cd examples/d1-worker && npm ci
+	cd examples/d1-worker && npm run typecheck && npm run typecheck:test && npm run test:run
 
 # Regenerates every fixture in a throwaway copy and diffs it against what is checked
 # in. Needs sqlc on PATH; never touches the working tree.
