@@ -14,7 +14,7 @@ Generated code is strict-mode TypeScript, compiled and verified against a curren
 
 ## Cloudflare
 
-Local verification runs the plugin's output under Miniflare and workerd, at the versions pinned in `test/miniflare/bun.lock` and the compatibility date in `test/miniflare/wrangler.jsonc`. Those are the repository's own test environment, **not** minimum consumer dependencies — nothing here asks you to copy the repository lockfiles.
+Local verification runs the plugin's output under Miniflare and workerd, at the versions pinned in `test/miniflare/package-lock.json` and the compatibility date in `test/miniflare/wrangler.jsonc`. Those are the repository's own test environment, **not** minimum consumer dependencies — nothing here asks you to copy the repository lockfiles.
 
 ## What a release binds
 

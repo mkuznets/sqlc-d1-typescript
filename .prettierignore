@@ -18,5 +18,3 @@ test/miniflare/worker-configuration.d.ts
 
 # Lockfiles are owned by their package managers.
 package-lock.json
-examples/d1-worker/bun.lock
-test/miniflare/bun.lock

@@ -1,14 +1,14 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "sqlc-d1-miniflare-fixture",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-02-05",
-	"compatibility_flags": [],
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "sqlc-d1-local-fixture",
-			"database_id": "00000000-0000-0000-0000-000000000001",
-		},
-	],
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sqlc-d1-miniflare-fixture",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-05",
+  "compatibility_flags": [],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sqlc-d1-local-fixture",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+    },
+  ],
 }

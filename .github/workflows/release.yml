@@ -32,7 +32,6 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
         with:
-          bun: "true"
           sqlc: 1.31.1
 
       - name: Validate the release identity before building anything

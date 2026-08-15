@@ -1,15 +1,15 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "sqlc-d1-users-example",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-02-05",
-	"compatibility_flags": [],
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "sqlc-d1-users-example",
-			"database_id": "00000000-0000-0000-0000-000000000002",
-			"migrations_dir": "migrations",
-		},
-	],
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sqlc-d1-users-example",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-05",
+  "compatibility_flags": [],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sqlc-d1-users-example",
+      "database_id": "00000000-0000-0000-0000-000000000002",
+      "migrations_dir": "migrations",
+    },
+  ],
 }

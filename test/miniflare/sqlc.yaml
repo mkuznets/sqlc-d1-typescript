@@ -1,12 +1,12 @@
-version: '2'
+version: "2"
 plugins:
   - name: ts
     wasm:
       url: file:///candidate-required/plugin.wasm
 sql:
-  - schema: 'schema.sql'
-    queries: 'queries.sql'
-    engine: 'sqlite'
+  - schema: "schema.sql"
+    queries: "queries.sql"
+    engine: "sqlite"
     codegen:
       - plugin: ts
         out: src
