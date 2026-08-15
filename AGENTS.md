@@ -68,8 +68,6 @@ for dir in test/miniflare examples/d1-worker; do
 done
 ```
 
-**Sub-project formatting.** `examples/d1-worker/` and `test/miniflare/` are bun sub-projects that keep their own Prettier configuration; Prettier resolves configuration per file, so their hand-written sources stay tab-indented. Use bun inside those directories.
-
 **The supported sqlc range is two literals.** `src/compatibility.ts` holds the supported floor and the tested ceiling; validation enforces the floor, `docs/compatibility.md` presents both to consumers, and the CI matrix runs exactly those two versions. Every other pinned version lives with the thing it pins — Node, npm and Bun in `.github/actions/setup/action.yml`, the Cloudflare versions in the fixtures' `bun.lock` and `wrangler.jsonc`, the buf and javy pins in their install scripts.
 
 **The floor cell does not run on macOS.** `make test-sqlc-compatibility SQLC_VERSION=1.25.0` dies with `SIGKILL` on macOS arm64: that sqlc's wasm runtime cannot execute the plugin there, though the binary itself runs. It passes on the Linux x64 CI runner, which is where that cell is meant to run. Reproduce it locally with Docker rather than concluding the plugin is broken.
