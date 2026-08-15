@@ -314,7 +314,7 @@ test("verification/publication-record-contract keeps the record closed, redacted
         draft_outcome: "created",
         asset_sha256: { wasm: digest, manifest: fixture.manifestSha256 },
         published: true,
-        immutable_releases: { enabled: true, enforced_by_owner: false },
+        immutable_releases: { enabled: true, enforced_by_owner: false, readable: true },
       },
       order: [
         { phase: "draft-release", at: "2026-02-05T12:00:00.000Z" },
@@ -611,17 +611,23 @@ test("verification/publication-download-verification hashes what it downloaded, 
   const missing = fetchDouble({ "GET git/ref/tags/v0.2.0": () => new Response("", { status: 404 }) });
   assert.equal(await resolveTagCommit({ repository, tagName: "v0.2.0", token, fetchImpl: missing.impl }), null);
 
-  const absentSetting = fetchDouble({ "GET immutable-releases": () => new Response("", { status: 404 }) });
-  await assert.rejects(
-    getImmutableReleases({ repository, token, fetchImpl: absentSetting.impl }),
-    /confirm it manually in repository settings/,
-  );
+  // A job-scoped token may not read repository settings at all, and an unreadable
+  // setting must never be reported as a disabled one.
+  for (const status of [403, 404]) {
+    const unreadable = fetchDouble({ "GET immutable-releases": () => new Response("", { status }) });
+    assert.deepEqual(await getImmutableReleases({ repository, token, fetchImpl: unreadable.impl }), {
+      enabled: false,
+      enforced_by_owner: false,
+      readable: false,
+    });
+  }
   const setting = fetchDouble({
     "GET immutable-releases": () => new Response(JSON.stringify({ enabled: true, enforced_by_owner: false })),
   });
   assert.deepEqual(await getImmutableReleases({ repository, token, fetchImpl: setting.impl }), {
     enabled: true,
     enforced_by_owner: false,
+    readable: true,
   });
 
   // The publication path hashes complete bodies. A convincing HEAD, a matching ETag,
@@ -687,6 +693,7 @@ interface WorldSetup {
   objects?: [string, Buffer][];
   releases?: any[];
   immutable?: { enabled: boolean; enforced_by_owner: boolean };
+  immutableStatus?: number;
   buckets?: string[] | "denied";
   bucketStatus?: number;
   publicMisses?: number;
@@ -729,7 +736,10 @@ function publicationWorld(setup: WorldSetup = {}) {
     const url = String(rawUrl);
     calls.push(`${method} ${url}`);
 
-    if (url.startsWith(`${api}/immutable-releases`)) return json(immutable);
+    if (url.startsWith(`${api}/immutable-releases`))
+      return setup.immutableStatus && setup.immutableStatus !== 200
+        ? new Response("", { status: setup.immutableStatus })
+        : json(immutable);
     if (url.startsWith(`${api}/environments/`))
       return setup.environmentStatus && setup.environmentStatus !== 200
         ? new Response("", { status: setup.environmentStatus })
@@ -960,6 +970,22 @@ test("verification/publication-preflight proves every surface before anything is
       now: fixedClock,
     });
     assert.equal(result.checks.find(({ name }) => name === "environment-ref-policy")?.status, "not-verifiable");
+
+    // Neither is a token that may not read whether immutable releases are enabled,
+    // which is what every job-scoped token gets from that endpoint.
+    const unreadable = publicationWorld({ immutableStatus: 403 });
+    const unreadableResult = await preflightPublication({
+      repository: REPOSITORY,
+      intent: fixture.intent,
+      credentials,
+      fetchImpl: unreadable.impl,
+      run: unreadable.run,
+      logger: () => {},
+      now: fixedClock,
+    });
+    assert.equal(unreadableResult.status, "passed");
+    assert.equal(unreadableResult.checks.find(({ name }) => name === "immutable-releases")?.status, "not-verifiable");
+    assert.equal(unreadableResult.immutableReleases.readable, false);
 
     const open = publicationWorld();
     const openWorld = {

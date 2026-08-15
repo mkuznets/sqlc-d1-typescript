@@ -147,6 +147,14 @@ export async function preflightPublication({
 
   const immutable = await check("immutable-releases", async () => {
     const setting = await getImmutableReleases({ repository, token: credentials.githubToken, fetchImpl });
+    if (!setting.readable)
+      // Reading it needs the Administration permission, which no job-scoped token can
+      // hold; the manual audit checklist covers it instead.
+      return {
+        status: "not-verifiable",
+        detail: `the job-scoped token may not read repository settings; confirm with "gh api repos/${repository}/immutable-releases"`,
+        setting,
+      };
     if (!setting.enabled)
       throw new Error(
         `immutable releases are disabled; enable them with "gh api -X PUT repos/${repository}/immutable-releases" before publishing`,
@@ -410,7 +418,7 @@ export async function publishPublication(options) {
     draft_outcome: "not-created",
     asset_sha256: { wasm: null, manifest: null },
     published: false,
-    immutable_releases: { enabled: false, enforced_by_owner: false },
+    immutable_releases: { enabled: false, enforced_by_owner: false, readable: false },
   };
 
   const order = [];
@@ -684,7 +692,7 @@ export async function publishPublication(options) {
       githubRecord.release_url = published.html_url ?? githubRecord.release_url;
       const setting = await getImmutableReleases({ ...githubOptions });
       githubRecord.immutable_releases = setting;
-      if (!setting.enabled) throw new Error("immutable releases were disabled during this run");
+      if (setting.readable && !setting.enabled) throw new Error("immutable releases were disabled during this run");
       const tagCommit = await resolveTagCommit({ ...githubOptions, tagName, signal: readTimeout() });
       if (tagCommit !== intent.sourceCommit)
         throw new Error(`tag ${tagName} resolves to ${tagCommit ?? "no commit"}, expected ${intent.sourceCommit}`);

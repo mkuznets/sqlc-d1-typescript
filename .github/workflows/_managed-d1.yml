@@ -103,6 +103,7 @@ jobs:
         with:
           artifact-ids: "${{ steps.lookup.outputs.artifact-id }}"
           path: reused
+          merge-multiple: true
       - name: Adopt the reused evidence instead of provisioning again
         if: steps.lookup.outputs.mode == 'reuse'
         run: |

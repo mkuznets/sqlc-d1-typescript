@@ -46,7 +46,7 @@ export interface PublicationRecord {
     draft_outcome: DraftOutcome;
     asset_sha256: { wasm: string | null; manifest: string | null };
     published: boolean;
-    immutable_releases: { enabled: boolean; enforced_by_owner: boolean };
+    immutable_releases: { enabled: boolean; enforced_by_owner: boolean; readable: boolean };
   };
   order: { phase: string; at: string }[];
   teardown: { object: TeardownOutcome; draft: TeardownOutcome };

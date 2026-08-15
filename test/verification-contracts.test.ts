@@ -153,6 +153,24 @@ test("every workflow names only permission scopes GitHub accepts", () => {
   }
 });
 
+// download-artifact extracts straight into `path` only when it downloads one artifact
+// selected by name. Selected by numeric ID it nests the files under a directory named
+// after the artifact, and every step that reads `path/<file>` afterwards sees nothing.
+test("every artifact download by ID extracts into the path the next step reads", () => {
+  let byId = 0;
+  for (const file of readdirSync(resolve(process.cwd(), ".github/workflows"))) {
+    const workflow = readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8");
+    for (const step of workflow.matchAll(
+      /uses: actions\/download-artifact@[0-9a-f]{40}[^\n]*\n((?:^(?![ \t]*-)[ \t]+[^\n]*\n)+)/gm,
+    ))
+      if (/artifact-ids:/.test(step[1])) {
+        byId += 1;
+        assert.match(step[1], /merge-multiple: true/, `${file}: a download by artifact ID does not set merge-multiple`);
+      }
+  }
+  assert.ok(byId >= 12, `expected the release spine's downloads by ID, found ${byId}`);
+});
+
 // The intent job validates the release identity before anything is installed, and the
 // candidate reuse path never installs at all. A package pulled in by a static import
 // anywhere in that graph turns both into ERR_MODULE_NOT_FOUND at run time.
@@ -327,7 +345,10 @@ test("verification/managed-workflow-security - isolates credentials and exact ca
   assert.match(reusable, /vars\.CLOUDFLARE_ACCOUNT_ID/);
   assert.doesNotMatch(reusable, /  verify:[\s\S]*?\n    env:\s*\n\s+CLOUDFLARE/);
   assert.match(reusable, /artifact-ids: "\$\{\{ inputs\.candidate-artifact-id \}\}"/);
-  assert.equal((reusable.match(/merge-multiple: true/g) ?? []).length, 2);
+  assert.equal(
+    (reusable.match(/merge-multiple: true/g) ?? []).length,
+    (reusable.match(/uses: actions\/download-artifact@/g) ?? []).length,
+  );
   assert.equal((reusable.match(/make build/g) ?? []).length, 0);
   assert.match(reusable, /managed-d1-evidence-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
   assert.match(reusable, /--prefix "managed-d1-evidence-\$\{\{ github\.run_id \}\}-"/);
