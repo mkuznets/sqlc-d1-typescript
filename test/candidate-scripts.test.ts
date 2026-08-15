@@ -9,7 +9,7 @@ const bytes = Buffer.from("candidate");
 const digest = createHash("sha256").update(bytes).digest("hex");
 
 test("verification/generate-candidate-digest rejects mismatch before invoking sqlc", async () => {
-  const { generateCandidate } = await import("../scripts/generate-candidate.mjs");
+  const { generateCandidate } = await import("../scripts/generate-candidate.ts");
   const directory = mkdtempSync(join(tmpdir(), "candidate-generation-"));
   try {
     const candidate = join(directory, "plugin.wasm");
@@ -27,7 +27,7 @@ test("verification/generate-candidate-digest rejects mismatch before invoking sq
 });
 
 test("verification/generated-tree-comparison detects changed, added, and deleted output", async () => {
-  const { compareGeneratedTrees } = await import("../scripts/check-generated-drift.mjs");
+  const { compareGeneratedTrees } = await import("../scripts/check-generated-drift.ts");
   const directory = mkdtempSync(join(tmpdir(), "generated-trees-"));
   try {
     const expected = join(directory, "expected");
@@ -52,7 +52,7 @@ test("verification/generated-tree-comparison detects changed, added, and deleted
 });
 
 test("verification/generate-candidate-retained uses retained protected bytes and cleans temporary files", async () => {
-  const { generateCandidate } = await import("../scripts/generate-candidate.mjs");
+  const { generateCandidate } = await import("../scripts/generate-candidate.ts");
   const directory = mkdtempSync(join(tmpdir(), "candidate-generation-"));
   try {
     const candidate = join(directory, "plugin.wasm");

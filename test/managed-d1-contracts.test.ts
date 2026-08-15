@@ -5,9 +5,9 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { createScenarioHandler, MANAGED_SCENARIO_IDS as WORKER_SCENARIO_IDS } from "./managed-d1/src/protocol";
 
-const contract = () => import("../scripts/managed-d1-contract.mjs");
-const reaper = () => import("../scripts/reap-managed-d1.mjs");
-const lifecycle = () => import("../scripts/managed-d1.mjs");
+const contract = () => import("../scripts/managed-d1-contract.ts");
+const reaper = () => import("../scripts/reap-managed-d1.ts");
+const lifecycle = () => import("../scripts/managed-d1.ts");
 
 // The route probe must see 401, then the secret gate needs a run of consecutive 404s,
 // then the data-channel probe must see 400. Every one of these is the Worker answering
@@ -305,10 +305,6 @@ async function lifecycleFixture() {
     await readFile(resolve(process.cwd(), "verification/compatibility.json")),
   );
   await writeFile(
-    resolve(root, "verification/compatibility.schema.json"),
-    await readFile(resolve(process.cwd(), "verification/compatibility.schema.json")),
-  );
-  await writeFile(
     resolve(stage, "test/managed-d1/wrangler.template.jsonc"),
     '{"name":"__RESOURCE_NAME__","compatibility_date":"__COMPATIBILITY_DATE__","compatibility_flags":__COMPATIBILITY_FLAGS__,"d1_databases":[{"database_name":"__RESOURCE_NAME__","database_id":"__DATABASE_ID__"}]}',
   );
@@ -477,8 +473,8 @@ test("verification/managed-lifecycle-diagnostics - names the failing phase in th
       logger: (line: string) => lines.push(line),
     });
 
-    assert.equal(result.failure.phase, "worker-secret");
-    assert.match(result.failure.detail, /Authentication error \[code: 10000\]/);
+    assert.equal(result.failure!.phase, "worker-secret");
+    assert.match(result.failure!.detail, /Authentication error \[code: 10000\]/);
     assert.equal(result.test.status, "failed");
     assert.equal(result.cleanup.status, "confirmed");
     assert.ok(lines.some((line) => line.startsWith("==> [worker-deploy]")));
@@ -536,8 +532,8 @@ test("verification/managed-route-propagation - waits for the workers.dev route b
       fetchImpl: fetchImpl as typeof fetch,
       delay: async () => {},
     });
-    assert.equal(result.failure.phase, "authorization-probe");
-    assert.match(result.failure.detail, /answered HTTP 200 to an unauthenticated POST/);
+    assert.equal(result.failure!.phase, "authorization-probe");
+    assert.match(result.failure!.detail, /answered HTTP 200 to an unauthenticated POST/);
     assert.equal(result.test.status, "failed");
     assert.deepEqual(
       result.scenarios.map(({ status }: { status: string }) => status),
@@ -601,8 +597,8 @@ test("verification/managed-secret-rollout - survives a non-monotonic secret roll
     });
     assert.equal(result.scenarios[0].status, "ambiguous");
     assert.equal(result.test.status, "ambiguous");
-    assert.equal(result.failure.phase, "scenarios");
-    assert.match(result.failure.detail, /pre-secret instance/);
+    assert.equal(result.failure!.phase, "scenarios");
+    assert.match(result.failure!.detail, /pre-secret instance/);
     assert.equal(result.cleanup.status, "confirmed");
   } finally {
     await rm(stale.root, { recursive: true, force: true });
@@ -626,7 +622,7 @@ test("verification/managed-secret-rollout - survives a non-monotonic secret roll
       delay: async () => {},
     });
     assert.equal(result.scenarios[0].status, "ambiguous");
-    assert.match(result.failure.detail, /edge answered with HTTP 404; the route flapped/);
+    assert.match(result.failure!.detail, /edge answered with HTTP 404; the route flapped/);
     assert.equal(result.cleanup.status, "confirmed");
   } finally {
     await rm(flapped.root, { recursive: true, force: true });

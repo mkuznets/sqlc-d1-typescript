@@ -44,7 +44,7 @@ jobs:
           path: retained
           merge-multiple: true
       - name: Verify the retained candidate before spending Cloudflare resources
-        run: node scripts/workflows/verify-candidate-artifact.mjs --candidate "retained/${{ inputs.candidate-filename }}" --sha256 "${{ inputs.candidate-sha256 }}"
+        run: node scripts/workflows/verify-candidate-artifact.ts --candidate "retained/${{ inputs.candidate-filename }}" --sha256 "${{ inputs.candidate-sha256 }}"
   verify:
     name: Verify against real D1
     needs: preflight
@@ -91,9 +91,9 @@ jobs:
           GITHUB_TOKEN: "${{ github.token }}"
         run: |
           echo "==> Listing managed evidence artifacts already uploaded by run ${{ github.run_id }}"
-          node scripts/github-run-artifacts.mjs --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --prefix "managed-d1-evidence-${{ github.run_id }}-" --output managed-artifacts.json
+          node scripts/github-run-artifacts.ts --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --prefix "managed-d1-evidence-${{ github.run_id }}-" --output managed-artifacts.json
           echo "==> Selecting evidence that attests this exact candidate, if a previous attempt produced any"
-          node scripts/select-managed-d1-evidence.mjs --artifacts managed-artifacts.json --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --sha256 "${{ inputs.candidate-sha256 }}" --source-commit "${{ inputs.source-commit }}" --trigger "${{ inputs.trigger }}" --output selection.json --github-output "$GITHUB_OUTPUT"
+          node scripts/select-managed-d1-evidence.ts --artifacts managed-artifacts.json --repository "${{ github.repository }}" --run-id "${{ github.run_id }}" --sha256 "${{ inputs.candidate-sha256 }}" --source-commit "${{ inputs.source-commit }}" --trigger "${{ inputs.trigger }}" --output selection.json --github-output "$GITHUB_OUTPUT"
           echo "==> Selection:"
           cat selection.json
 
@@ -124,7 +124,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID is empty; the repository variable is missing"; exit 1; }
           echo "==> Provisioning disposable D1 resources and verifying candidate ${{ inputs.candidate-sha256 }} (mode: ${{ inputs.mode }})"
           echo "    exact state is persisted to managed-d1-state.json so cleanup can run even if this step dies"
-          node scripts/managed-d1.mjs verify --candidate "$PWD/retained/${{ inputs.candidate-filename }}" --sha256 "${{ inputs.candidate-sha256 }}" --source-commit "${{ inputs.source-commit }}" --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --trigger "${{ inputs.trigger }}" --mode "${{ inputs.mode }}" --evidence-path managed-d1-evidence.json --state-path managed-d1-state.json --sqlc "$(command -v sqlc)"
+          node scripts/managed-d1.ts verify --candidate "$PWD/retained/${{ inputs.candidate-filename }}" --sha256 "${{ inputs.candidate-sha256 }}" --source-commit "${{ inputs.source-commit }}" --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --trigger "${{ inputs.trigger }}" --mode "${{ inputs.mode }}" --evidence-path managed-d1-evidence.json --state-path managed-d1-state.json --sqlc "$(command -v sqlc)"
       - name: Last-resort cleanup from persisted exact state
         if: ${{ always() && steps.lookup.outputs.mode == 'create' && !hashFiles('managed-d1-evidence.json') }}
         env:
@@ -132,7 +132,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           echo "::warning::verification produced no evidence file; deleting every resource recorded in managed-d1-state.json"
-          node scripts/managed-d1.mjs cleanup --state-path managed-d1-state.json --report cleanup-recovery.json
+          node scripts/managed-d1.ts cleanup --state-path managed-d1-state.json --report cleanup-recovery.json
 
       - id: upload
         name: Upload the managed evidence
