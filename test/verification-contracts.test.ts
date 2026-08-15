@@ -153,6 +153,36 @@ test("every workflow names only permission scopes GitHub accepts", () => {
   }
 });
 
+// The intent job validates the release identity before anything is installed, and the
+// candidate reuse path never installs at all. A package pulled in by a static import
+// anywhere in that graph turns both into ERR_MODULE_NOT_FOUND at run time.
+test("the scripts that run before any job installs dependencies import no packages", () => {
+  const seen = new Set<string>();
+  const visit = (file: string): void => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const source = readFileSync(file, "utf8");
+    for (const found of source.matchAll(/^import\s+(?:[^"']*?\sfrom\s+)?["']([^"']+)["']/gm)) {
+      const specifier = found[1];
+      assert.ok(
+        specifier.startsWith("node:") || specifier.startsWith("."),
+        `${file.replace(`${process.cwd()}/`, "")} statically imports the package ${specifier}, which is absent until a job runs npm ci`,
+      );
+      if (specifier.startsWith(".")) visit(resolve(file, "..", specifier));
+    }
+  };
+  for (const entry of [
+    "scripts/release-contract.mjs",
+    "scripts/candidate-utils.mjs",
+    "scripts/github-run-artifacts.mjs",
+    "scripts/workflows/write-release-intent.mjs",
+    "scripts/workflows/emit-release-intent-outputs.mjs",
+    "scripts/workflows/emit-compatibility-outputs.mjs",
+    "scripts/workflows/emit-candidate-outputs.mjs",
+  ])
+    visit(resolve(process.cwd(), entry));
+});
+
 test("release workflow is an exact-artifact managed-D1-gated publication spine", () => {
   const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /tags: \["v\*"\]/);
