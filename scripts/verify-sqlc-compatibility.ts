@@ -69,7 +69,15 @@ export async function verifySqlcCompatibility({
 
       const tsconfig = JSON.parse(await readFile(resolve(destination, "tsconfig.json"), "utf8")) as any;
       tsconfig.compilerOptions.types = [resolve(root, "node_modules/@cloudflare/workers-types")];
-      tsconfig.exclude = ["test", "vitest.config.ts"];
+      // Compile the emitted files and nothing else. The mirror has no node_modules,
+      // so a hand-written source importing a dependency cannot resolve here — and
+      // excluding those files is not enough, because `wrangler types` writes
+      // `mainModule: typeof import("./src/index")` into worker-configuration.d.ts,
+      // and a file reached through a reference cannot be excluded. Their real
+      // type-check is `make test-example` and `make test-miniflare`, against
+      // installed dependencies. D1 types come from compilerOptions.types above.
+      tsconfig.include = [`${fixture.generatedDirectory}/**/*.ts`];
+      tsconfig.exclude = fixture.staticFiles.map((file) => `${fixture.generatedDirectory}/${file}`);
       const matrixTsconfig = resolve(destination, ".matrix-tsconfig.json");
       await writeFile(matrixTsconfig, JSON.stringify(tsconfig));
 
