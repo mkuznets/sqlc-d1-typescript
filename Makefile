@@ -13,7 +13,8 @@ ROOT_TESTS := \
 	test/generator/embeds.test.ts test/generator/source.test.ts \
 	test/verification-contracts.test.ts test/candidate-scripts.test.ts \
 	test/compatibility-scripts.test.ts test/release-scripts.test.ts \
-	test/managed-d1-contracts.test.ts test/agents-guidance.test.ts
+	test/managed-d1-contracts.test.ts test/agents-guidance.test.ts \
+	test/consumer-skill.test.ts
 ROOT_SCRIPTS := \
 	scripts/compatibility-config.mjs scripts/check-compatibility.mjs \
 	scripts/verify-sqlc-compatibility.mjs scripts/check-upstream-compatibility.mjs \
@@ -26,7 +27,8 @@ ROOT_DIST := \
 	test/dist/generator-embeds.test.cjs test/dist/generator-source.test.cjs \
 	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
 	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs \
-	test/dist/managed-d1-contracts.test.cjs test/dist/agents-guidance.test.cjs
+	test/dist/managed-d1-contracts.test.cjs test/dist/agents-guidance.test.cjs \
+	test/dist/consumer-skill.test.cjs
 
 build: build/plugin.wasm
 

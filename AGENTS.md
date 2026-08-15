@@ -17,6 +17,8 @@ Prettier owns formatting. Run `make fmt` before committing; `make fmt-check` gat
 - Preparing a release, changing `.github/workflows/release.yml`, or touching candidate identity, the release
   manifest, or the R2 publication contract: `docs/agents/release.md`.
 - Editing anything under `.github/workflows/` or `scripts/workflows/`: `docs/agents/workflows.md`.
+- Changing the consumer skill under `skills/sqlc-d1-typescript/` or its installation guidance:
+  `docs/agents/consumer-skill.md`.
 
 ## Agent skills
 
