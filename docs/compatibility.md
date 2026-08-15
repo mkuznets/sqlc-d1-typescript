@@ -65,6 +65,10 @@ A selected GitHub release and its release manifest identify:
 - compatibility evidence associated with those bytes;
 - a managed-D1 pass date and numeric evidence artifact ID, after all scenarios and primary cleanup pass.
 
+Those values are not copied by hand. Before a release is published, automation downloads the artifact from the GitHub release asset, from the R2 object directly, and from the public URL unauthenticated, and requires one identical SHA-256 from all three plus the manifest and the release body. Only then is the release published, so a release you can see is a release whose artifact was already proven downloadable at that digest.
+
+The versioned URL is permanent. It is created once with a create-only write and served with `Cache-Control: immutable`; the bytes behind it never change. A correction is always a new version, never a replacement, so a digest you pinned stays valid.
+
 Use URL and digest values from the same release record. Repository documentation stays evergreen and therefore does not invent a concrete first-release version or SHA. The immutable URL shape is:
 
 ```text

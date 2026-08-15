@@ -14,13 +14,14 @@ ROOT_TESTS := \
 	test/verification-contracts.test.ts test/candidate-scripts.test.ts \
 	test/compatibility-scripts.test.ts test/release-scripts.test.ts \
 	test/managed-d1-contracts.test.ts test/agents-guidance.test.ts \
-	test/consumer-skill.test.ts
+	test/consumer-skill.test.ts test/publication-scripts.test.ts
 ROOT_SCRIPTS := \
 	scripts/compatibility-config.mjs scripts/check-compatibility.mjs \
 	scripts/verify-sqlc-compatibility.mjs scripts/check-upstream-compatibility.mjs \
 	scripts/write-compatibility-evidence.mjs scripts/release-contract.mjs \
 	scripts/github-run-artifacts.mjs scripts/select-managed-d1-evidence.mjs scripts/managed-d1-contract.mjs \
-	scripts/managed-d1.mjs scripts/reap-managed-d1.mjs
+	scripts/managed-d1.mjs scripts/reap-managed-d1.mjs \
+	scripts/publication-contract.mjs scripts/s3-r2.mjs scripts/github-release-api.mjs scripts/publish-release.mjs
 ROOT_DIST := \
 	test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs \
 	test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs \
@@ -28,7 +29,7 @@ ROOT_DIST := \
 	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
 	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs \
 	test/dist/managed-d1-contracts.test.cjs test/dist/agents-guidance.test.cjs \
-	test/dist/consumer-skill.test.cjs
+	test/dist/consumer-skill.test.cjs test/dist/publication-scripts.test.cjs
 
 build: build/plugin.wasm
 
@@ -66,8 +67,27 @@ define validate_candidate
 	@$(MAKE) --no-print-directory validate-candidate CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 endef
 
+.PHONY: test-publication-contract
+test-publication-contract: node_modules $(ROOT_SCRIPTS) verification/publication-record.schema.json
+	npx tsc -p test/tsconfig.json --noEmit
+	node test/build.mjs test/publication-scripts.test.ts
+	node --test test/dist/publication-scripts.test.cjs
+
+.PHONY: validate-publication-record
+validate-publication-record:
+	@test -n "$(RECORD)" || (echo "RECORD is required" >&2; exit 2)
+	node scripts/publication-contract.mjs validate-record --path "$(RECORD)"
+
+# Needs GITHUB_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and CLOUDFLARE_ACCOUNT_ID
+# in the environment. Reads only; it writes nothing to GitHub or R2.
+.PHONY: publication-preflight
+publication-preflight:
+	@test -n "$(REPOSITORY)" || (echo "REPOSITORY is required" >&2; exit 2)
+	@test -n "$(VERSION)" || (echo "VERSION is required" >&2; exit 2)
+	node scripts/publish-release.mjs preflight --repository "$(REPOSITORY)" --version "$(VERSION)" --output publication-preflight.json
+
 .PHONY: test-generator
-test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json verification/compatibility.schema.json verification/managed-d1-evidence.schema.json
+test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json verification/compatibility.schema.json verification/managed-d1-evidence.schema.json verification/publication-record.schema.json
 	npx tsc -p test/tsconfig.json --noEmit
 	npx tsc -p test/managed-d1/tsconfig.json --noEmit
 	node test/build.mjs $(ROOT_TESTS)

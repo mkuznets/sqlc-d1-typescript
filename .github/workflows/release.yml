@@ -21,6 +21,7 @@ concurrency:
 env:
   CANDIDATE_ARTIFACT: publication-candidate-${{ github.run_id }}
   MANIFEST_ARTIFACT: release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+  PUBLICATION_ARTIFACT: release-publication-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   intent:
@@ -371,7 +372,59 @@ jobs:
       mode: normal
     secrets: inherit
 
-  # Issues #41/#44 add documentation readiness and publication; this workflow deliberately cannot publish.
+  # Hangs off `intent` alone: a misconfigured account fails within a minute instead of
+  # after the full gate and a round of live Cloudflare resources. It writes nothing.
+  publication-preflight:
+    name: Prove the publication surfaces are configured
+    needs: [intent]
+    runs-on: ubuntu-latest
+    environment: release-publication
+    permissions:
+      contents: read
+      administration: read
+    env:
+      RELEASE_VERSION: "${{ needs.intent.outputs.version }}"
+      RELEASE_TAG: "${{ needs.intent.outputs.tag }}"
+      RELEASE_SOURCE_COMMIT: "${{ needs.intent.outputs.source-commit }}"
+      RELEASE_DEFAULT_BRANCH: "${{ github.event.repository.default_branch }}"
+      RELEASE_DRY_RUN: "${{ needs.intent.outputs.dry-run }}"
+      RELEASE_RUN_ID: "${{ github.run_id }}"
+      RELEASE_WORKFLOW_URL: "${{ needs.intent.outputs.workflow-url }}"
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "${{ needs.intent.outputs.node }}"
+          cache: npm
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.intent.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.intent.outputs.npm }}
+          npm ci
+      - name: Reconstruct validated intent
+        run: node scripts/workflows/write-release-intent.mjs
+      - name: Prove immutable releases, the bucket, the credential scope, and the public origin
+        env:
+          GITHUB_TOKEN: "${{ github.token }}"
+          R2_ACCESS_KEY_ID: "${{ secrets.R2_ACCESS_KEY_ID }}"
+          R2_SECRET_ACCESS_KEY: "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          CLOUDFLARE_ACCOUNT_ID: "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+        run: |
+          bash scripts/workflows/require-publication-credentials.sh
+          echo "==> Checking the publication surfaces read-only; nothing is written by this job"
+          node scripts/publish-release.mjs preflight --repository "${{ github.repository }}" --intent intent.json --output publication-preflight.json
+      - name: Upload the preflight result
+        if: ${{ always() && hashFiles('publication-preflight.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: "publication-preflight-${{ github.run_id }}-${{ github.run_attempt }}"
+          path: publication-preflight.json
+          retention-days: 30
+          if-no-files-found: error
+
+  # Issue #41 adds documentation readiness; publication itself lives in the publish job.
   release-spine-complete:
     name: Assemble the release manifest
     needs: [intent, candidate, uncredentialed-gates, managed-d1]
@@ -474,3 +527,116 @@ jobs:
           OUTPUT_NAME: artifact-id
           LABEL: manifest
         run: bash scripts/workflows/emit-artifact-id.sh
+
+  # The only job that writes anything outside this run. Everything permanent happens
+  # inside one process, in one order: draft, assets, create-only R2 write, independent
+  # downloads, and the release publish last of all.
+  publish:
+    name: Publish the release
+    needs: [intent, candidate, uncredentialed-gates, managed-d1, release-spine-complete, publication-preflight]
+    runs-on: ubuntu-latest
+    environment: release-publication
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      release-url: ${{ steps.finalize.outputs.release-url }}
+      object-key: ${{ steps.finalize.outputs.object-key }}
+    env:
+      RELEASE_VERSION: "${{ needs.intent.outputs.version }}"
+      RELEASE_TAG: "${{ needs.intent.outputs.tag }}"
+      RELEASE_SOURCE_COMMIT: "${{ needs.intent.outputs.source-commit }}"
+      RELEASE_DEFAULT_BRANCH: "${{ github.event.repository.default_branch }}"
+      RELEASE_DRY_RUN: "${{ needs.intent.outputs.dry-run }}"
+      RELEASE_RUN_ID: "${{ github.run_id }}"
+      RELEASE_WORKFLOW_URL: "${{ needs.intent.outputs.workflow-url }}"
+      PUBLICATION_MODE: "${{ needs.intent.outputs.dry-run == 'true' && 'dry-run' || 'publish' }}"
+    steps:
+      - name: Check out the tagged source with tags for the changelog
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Install the pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "${{ needs.intent.outputs.node }}"
+          cache: npm
+      - name: Install the pinned npm and project dependencies
+        run: |
+          echo "==> Installing npm@${{ needs.intent.outputs.npm }} and dependencies"
+          npm install --global npm@${{ needs.intent.outputs.npm }}
+          npm ci
+
+      - name: Download the retained candidate by exact artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: "${{ needs.candidate.outputs.artifact-id }}"
+          path: retained
+      - name: Download the release manifest by exact artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: "${{ needs.release-spine-complete.outputs.manifest-artifact-id }}"
+          path: manifest
+      - name: Download exact managed evidence artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: "${{ needs.managed-d1.outputs.evidence-artifact-id }}"
+          path: managed
+
+      - name: Revalidate the exact candidate and its manifest before publishing
+        run: |
+          node scripts/workflows/write-release-intent.mjs
+          echo "==> Validating the retained candidate bundle against the validated intent"
+          node scripts/release-contract.mjs validate-candidate --directory retained --intent intent.json
+          echo "==> Validating the manifest against the candidate and the managed D1 evidence"
+          node scripts/release-contract.mjs validate-manifest --manifest "manifest/${{ needs.release-spine-complete.outputs.manifest-filename }}" --candidate retained --intent intent.json --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --managed-evidence managed/managed-d1-evidence.json --managed-evidence-artifact-id "${{ needs.managed-d1.outputs.evidence-artifact-id }}"
+      - name: Read the changelog from the annotated tag message
+        env:
+          NOTES_PATH: release-notes.md
+        run: bash scripts/workflows/read-tag-notes.sh
+
+      - id: execute
+        name: Publish the candidate to R2 and GitHub, in that order
+        # Allowed to continue so teardown and the record upload below always run; the
+        # finalize step turns a failed publication back into a failed job.
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: "${{ github.token }}"
+          R2_ACCESS_KEY_ID: "${{ secrets.R2_ACCESS_KEY_ID }}"
+          R2_SECRET_ACCESS_KEY: "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          CLOUDFLARE_ACCOUNT_ID: "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+        run: |
+          bash scripts/workflows/require-publication-credentials.sh
+          echo "==> Publishing version ${{ needs.intent.outputs.version }} in mode $PUBLICATION_MODE"
+          echo "    exact state is persisted to publication-state.json so a dry run is torn down even if this step dies"
+          node scripts/publish-release.mjs publish --repository "${{ github.repository }}" --intent intent.json --candidate retained --manifest "manifest/${{ needs.release-spine-complete.outputs.manifest-filename }}" --artifact-id "${{ needs.candidate.outputs.artifact-id }}" --notes release-notes.md --mode "$PUBLICATION_MODE" --record publication-record.json --state publication-state.json
+      - name: Last-resort teardown of rehearsal surfaces
+        if: ${{ always() && needs.intent.outputs.dry-run == 'true' && !hashFiles('publication-record.json') }}
+        env:
+          GITHUB_TOKEN: "${{ github.token }}"
+          R2_ACCESS_KEY_ID: "${{ secrets.R2_ACCESS_KEY_ID }}"
+          R2_SECRET_ACCESS_KEY: "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          CLOUDFLARE_ACCOUNT_ID: "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+        run: |
+          echo "::warning::the dry run produced no publication record; deleting every rehearsal surface recorded in publication-state.json"
+          node scripts/publish-release.mjs teardown --state publication-state.json --report publication-teardown.json
+
+      - name: Upload the publication record as run evidence
+        if: ${{ always() && hashFiles('publication-record.json', 'publication-teardown.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: "${{ env.PUBLICATION_ARTIFACT }}"
+          path: |
+            publication-record.json
+            publication-teardown.json
+          retention-days: 30
+          if-no-files-found: error
+      - id: finalize
+        name: Validate the publication record and decide the job outcome
+        if: ${{ always() }}
+        env:
+          RECORD_PATH: publication-record.json
+          MODE: "${{ env.PUBLICATION_MODE }}"
+          PUBLISH_OUTCOME: "${{ steps.execute.outcome }}"
+        run: bash scripts/workflows/finalize-publication.sh

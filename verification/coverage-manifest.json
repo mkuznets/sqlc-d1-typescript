@@ -952,6 +952,90 @@
       "file": "test/managed-d1-contracts.test.ts",
       "title": "verification/managed-secret-rollout",
       "availability": "local"
+    },
+    {
+      "id": "verification/publication-workflow-security",
+      "layer": "verification",
+      "file": "test/verification-contracts.test.ts",
+      "title": "verification/publication-workflow-security",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-object-contract",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-object-contract",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-release-body",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-release-body",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-record-contract",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-record-contract",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-signature",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-signature",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-preflight",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-preflight",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-order",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-order",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-retry",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-retry",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-conflict",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-conflict",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-download-verification",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-download-verification",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-recovery",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-recovery",
+      "availability": "local"
+    },
+    {
+      "id": "verification/publication-dry-run",
+      "layer": "verification",
+      "file": "test/publication-scripts.test.ts",
+      "title": "verification/publication-dry-run",
+      "availability": "local"
     }
   ],
   "promises": [
