@@ -381,7 +381,6 @@ jobs:
     environment: release-publication
     permissions:
       contents: read
-      administration: read
     env:
       RELEASE_VERSION: "${{ needs.intent.outputs.version }}"
       RELEASE_TAG: "${{ needs.intent.outputs.tag }}"
