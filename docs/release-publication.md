@@ -6,7 +6,7 @@ Everything below is executed by `.github/workflows/release.yml`. Nothing here is
 
 ## What publication does, in order
 
-1. **Preflight** — read-only proof that immutable releases are enabled, the `sqlc` bucket is reachable, the R2 credential is scoped to that bucket alone, and the public custom domain answers for a known-absent key. It runs as its own job off the release identity, so a misconfigured account fails within a minute rather than after the full gate.
+1. **Preflight** — read-only proof that the `sqlc` bucket is reachable, the R2 credential is scoped to that bucket alone, and the public custom domain answers for a known-absent key. It runs as its own job off the release identity, so a misconfigured account fails within a minute rather than after the full gate. Two checks report `not-verifiable` rather than passing: the immutable-releases setting and the Environment ref policy both need the Administration permission, which no job-scoped `GITHUB_TOKEN` can hold, so the manual audit below is what proves them.
 2. **Draft release** — create or reuse a draft whose body is byte-identical to the body this run would publish, and attach the retained WASM and its release manifest.
 3. **Draft verification** — download both assets again through the API and hash them.
 4. **Version key** — `aws s3api put-object` with `--if-none-match '*'` and `--content-md5`. A `412` is accepted only after a full-byte comparison proves the existing object is this candidate.
@@ -33,7 +33,9 @@ Configure these identifiers (never commit their values):
 
 - Environment secret `R2_ACCESS_KEY_ID`;
 - Environment secret `R2_SECRET_ACCESS_KEY`;
-- existing repository variable `CLOUDFLARE_ACCOUNT_ID`.
+- Environment variable `CLOUDFLARE_ACCOUNT_ID`, the same account that carries the `sqlc` bucket.
+
+The ref rules are two separate kinds. `main` is a **branch** rule and `v*` is a **tag** rule; a `v*` rule created as a branch rule matches no tag, and every tag push is then refused the Environment.
 
 GitHub credentials are the job-scoped `GITHUB_TOKEN` only. `contents: write` appears on the publish job and nowhere else; there is no PAT and no OIDC token.
 
@@ -125,7 +127,7 @@ The rest of the body is derived from the release manifest and is deterministic: 
 
 1. Confirm the Environment ref rules, the absence of a reviewer, and the secret identifiers above.
 2. Confirm the R2 token grants Object Read & Write on `sqlc` only, and that it is account-owned.
-3. Confirm `gh api repos/mkuznets/sqlc-d1-typescript/immutable-releases` reports `enabled: true`.
+3. Confirm `gh api repos/mkuznets/sqlc-d1-typescript/immutable-releases` reports `enabled: true`. This is the only proof there is: the same call from inside a workflow answers `403`, and preflight records it as `not-verifiable`.
 4. Confirm repository artifact retention supports 30 days.
 5. Run a dry run; download its record and validate it with `make validate-publication-record`.
 6. Confirm the record's `order` ends with the publish phase, and that on a dry run there is no publish phase at all.
