@@ -82,8 +82,8 @@ gh workflow run release.yml --ref main -f version=0.0.0-dryrun1
 Then:
 
 1. Rerun with the same `version`; the new run id produces a fresh rehearsal key.
-2. Rerun the publish job of the **first** run to exercise the create-only conflict path against an existing key.
-3. Download `release-publication-<run>-<attempt>` and validate it:
+2. Rerun the publish job of the **first** run. It writes the same rehearsal key again from the retained candidate and reports `"outcome": "created"`, because teardown removed the previous attempt's object and draft before the run ended. What this proves is repeatability from retained bytes; it is not the conflict path. Neither the create-only conflict nor the draft-reuse path can be rehearsed at all — a dry run never leaves a surface behind for the next attempt to collide with — and `verification/publication-conflict` and `verification/publication-retry` own them instead.
+3. Download `release-publication-<run>-<attempt>` and validate it, once per attempt:
 
    ```sh
    make validate-publication-record RECORD=publication-record.json
