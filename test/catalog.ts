@@ -42,6 +42,7 @@ export const executableCatalog: readonly CatalogTest[] = [
   entry("verification/generated-tree-comparison", "verification", "test/candidate-scripts.test.ts"),
   entry("verification/generate-candidate-retained", "verification", "test/candidate-scripts.test.ts"),
   entry("verification/generated-drift", "verification", "scripts/check-generated-drift.mjs"),
+  entry("verification/agent-guidance", "verification", "test/agents-guidance.test.ts"),
 
   ...[
     [
