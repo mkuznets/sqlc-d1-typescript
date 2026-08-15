@@ -5,7 +5,6 @@ import { spawnSync } from "node:child_process";
 import type { GenerateResponse } from "../../src/gen/plugin/codegen_pb.ts";
 
 export interface CompileGeneratedOptions {
-  compiler?: "typescript-5-2" | "typescript";
   additionalFiles?: Readonly<Record<string, string>>;
 }
 
@@ -50,7 +49,7 @@ export function compileGeneratedResponse(response: GenerateResponse, options: Co
       }),
     );
 
-    const compiler = resolve(process.cwd(), `node_modules/${options.compiler ?? "typescript-5-2"}/lib/tsc.js`);
+    const compiler = resolve(process.cwd(), "node_modules/typescript/lib/tsc.js");
     const result = spawnSync(process.execPath, [compiler, "-p", resolve(directory, "tsconfig.json")], {
       encoding: "utf8",
     });

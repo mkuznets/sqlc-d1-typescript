@@ -28,7 +28,7 @@ sql:
           interface: workers
 ```
 
-The SHA-256 is part of the selected-release configuration, not a placeholder to omit. The release manifest binds the version, tag, source commit, artifact size, URL, and digest to the same published artifact, alongside the tool versions it was tested against.
+The SHA-256 is part of the selected-release configuration, not a placeholder to omit. The release manifest binds the version, tag, source commit, artifact size, URL, and digest to the same published artifact, alongside the sqlc versions it was tested against.
 
 ## Generate your first query
 

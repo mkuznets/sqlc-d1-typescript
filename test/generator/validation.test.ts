@@ -59,13 +59,13 @@ test("compatibility validation implements the sqlc semantic-version floor and wa
   assert.deepEqual(reasons(request({ settings: new Settings({ engine: "postgresql" }) })), [
     "COMPATIBILITY/UNSUPPORTED_ENGINE",
   ]);
-  for (const sqlcVersion of ["v1.18.0", "1.18.0", "v1.31.1", "v1.31.1+build.7"]) {
+  for (const sqlcVersion of ["v1.25.0", "1.25.0", "v1.28.0", "v1.31.1", "v1.31.1+build.7"]) {
     assert.equal(validateGenerateRequest(request({ sqlcVersion })).warnings.length, 0);
   }
-  for (const sqlcVersion of ["1.18", "1.018.0", "1.18.0-", "1.18.0-01", "1.18.0+bad..build"]) {
+  for (const sqlcVersion of ["1.25", "1.025.0", "1.25.0-", "1.25.0-01", "1.25.0+bad..build"]) {
     assert.deepEqual(reasons(request({ sqlcVersion })), ["COMPATIBILITY/MALFORMED_SQLC_VERSION"]);
   }
-  for (const sqlcVersion of ["v1.17.9", "v1.18.0-rc.1"]) {
+  for (const sqlcVersion of ["v1.18.0", "v1.24.9", "v1.25.0-rc.1"]) {
     assert.deepEqual(reasons(request({ sqlcVersion })), ["COMPATIBILITY/UNSUPPORTED_SQLC_VERSION"]);
   }
   for (const sqlcVersion of ["v1.31.2", "v1.32.0-rc.1", "999999999999999999999.0.0"]) {

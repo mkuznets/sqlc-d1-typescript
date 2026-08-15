@@ -9,8 +9,7 @@
     "@types/node": "^24.13.3",
     "esbuild": "^0.27.3",
     "prettier": "3.9.6",
-    "typescript": "^5.2.2",
-    "typescript-5-2": "npm:typescript@5.2.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^1.4.2",
