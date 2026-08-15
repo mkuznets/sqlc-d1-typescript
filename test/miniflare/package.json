@@ -10,7 +10,7 @@
     "test:run": "vitest --run"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.10",
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
     "@types/node": "^25.2.1",
     "typescript": "^5.5.2",
     "vitest": "^3.2.4",
