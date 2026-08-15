@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - id: config
         name: Read authoritative compatibility inputs
-        run: node scripts/workflows/emit-compatibility-outputs.mjs
+        run: node scripts/workflows/emit-compatibility-outputs.ts
   build-candidate:
     name: Build the candidate under managed verification
     needs: default-branch
@@ -115,7 +115,7 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN is empty; the managed-d1 environment secret is missing"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID is empty; the repository variable is missing"; exit 1; }
           echo "==> Reaping managed D1 resources left behind by earlier runs; the report lists everything deleted"
-          node scripts/reap-managed-d1.mjs reap --output managed-d1-reaper-report.json
+          node scripts/reap-managed-d1.ts reap --output managed-d1-reaper-report.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

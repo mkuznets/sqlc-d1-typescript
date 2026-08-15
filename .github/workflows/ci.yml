@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - id: config
         name: Read authoritative compatibility inputs
-        run: node scripts/workflows/emit-compatibility-outputs.mjs
+        run: node scripts/workflows/emit-compatibility-outputs.ts
 
   baseline-and-build:
     name: Baseline checks and candidate build
@@ -62,7 +62,7 @@ jobs:
       - name: Run generator unit tests
         run: make test-generator
       - name: Check the compatibility contract is internally consistent
-        run: node scripts/check-compatibility.mjs
+        run: node scripts/check-compatibility.ts
       - name: Build the publication candidate
         run: make build
 
@@ -266,9 +266,9 @@ jobs:
       - name: Verify cell and write actual evidence
         run: |
           echo "==> Verifying the candidate against sqlc ${{ matrix.sqlc.version }}"
-          node scripts/verify-sqlc-compatibility.mjs --candidate "$PWD/candidate/build/plugin.wasm" --sha256 "$(cat candidate/candidate.sha256)" --sqlc-version "${{ matrix.sqlc.version }}" --sqlc "$(command -v sqlc)" --output matrix-result.json
+          node scripts/verify-sqlc-compatibility.ts --candidate "$PWD/candidate/build/plugin.wasm" --sha256 "$(cat candidate/candidate.sha256)" --sqlc-version "${{ matrix.sqlc.version }}" --sqlc "$(command -v sqlc)" --output matrix-result.json
           echo "==> Recording the versions actually observed on this runner as evidence"
-          node scripts/write-compatibility-evidence.mjs result=matrix-result.json output=compatibility-evidence.json node="$(node --version | sed 's/^v//')" npm="$(npm --version)" bun="$(bun --version)"
+          node scripts/write-compatibility-evidence.ts result=matrix-result.json output=compatibility-evidence.json node="$(node --version | sed 's/^v//')" npm="$(npm --version)" bun="$(bun --version)"
           echo "==> Matrix result for sqlc ${{ matrix.sqlc.version }}:"
           cat matrix-result.json
           cat compatibility-evidence.json >>"$GITHUB_STEP_SUMMARY"
@@ -304,4 +304,4 @@ jobs:
         run: |
           echo "==> Comparing verification/compatibility.json against published upstream releases"
           set -o pipefail
-          node scripts/check-upstream-compatibility.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          node scripts/check-upstream-compatibility.ts 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
