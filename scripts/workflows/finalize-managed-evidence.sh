@@ -23,7 +23,7 @@ test -f "$EVIDENCE_PATH" ||
   fail "managed evidence '$EVIDENCE_PATH' was never written: verification did not reach the evidence stage, see the verification step log above"
 
 log "Validating evidence against candidate $CANDIDATE_SHA256 from commit $SOURCE_COMMIT"
-node scripts/managed-d1-contract.mjs validate-evidence \
+node scripts/managed-d1-contract.ts validate-evidence \
   --path "$EVIDENCE_PATH" \
   --sha256 "$CANDIDATE_SHA256" \
   --source-commit "$SOURCE_COMMIT" \

@@ -4,7 +4,7 @@ JAVY := ./bin/javy
 GENERATOR_SOURCES := \
 	src/app.ts src/plugin.ts src/validation.ts src/diagnostics.ts src/generator.ts \
 	src/emission-plan.ts src/embeds.ts src/sqlite-types.ts src/d1.ts src/runtime.ts \
-	src/runtime.d1.ts src/gen/plugin/codegen_pb.ts build.mjs scripts/runtime-text-plugin.mjs \
+	src/runtime.d1.ts src/gen/plugin/codegen_pb.ts build.ts scripts/runtime-text-plugin.ts \
 	verification/compatibility.json
 
 ROOT_TESTS := \
@@ -13,23 +13,20 @@ ROOT_TESTS := \
 	test/generator/embeds.test.ts test/generator/source.test.ts \
 	test/verification-contracts.test.ts test/candidate-scripts.test.ts \
 	test/compatibility-scripts.test.ts test/release-scripts.test.ts \
-	test/managed-d1-contracts.test.ts test/agents-guidance.test.ts \
-	test/consumer-skill.test.ts test/publication-scripts.test.ts
+	test/managed-d1-contracts.test.ts
 ROOT_SCRIPTS := \
-	scripts/compatibility-config.mjs scripts/check-compatibility.mjs \
-	scripts/verify-sqlc-compatibility.mjs scripts/check-upstream-compatibility.mjs \
-	scripts/write-compatibility-evidence.mjs scripts/release-contract.mjs \
-	scripts/github-run-artifacts.mjs scripts/select-managed-d1-evidence.mjs scripts/managed-d1-contract.mjs \
-	scripts/managed-d1.mjs scripts/reap-managed-d1.mjs \
-	scripts/publication-contract.mjs scripts/r2-cli.mjs scripts/github-release-api.mjs scripts/publish-release.mjs
+	scripts/compatibility-config.ts scripts/check-compatibility.ts \
+	scripts/verify-sqlc-compatibility.ts scripts/check-upstream-compatibility.ts \
+	scripts/write-compatibility-evidence.ts scripts/release-contract.ts \
+	scripts/github-run-artifacts.ts scripts/select-managed-d1-evidence.ts scripts/managed-d1-contract.ts \
+	scripts/managed-d1.ts scripts/reap-managed-d1.ts
 ROOT_DIST := \
 	test/dist/generator-diagnostics.test.cjs test/dist/generator-validation.test.cjs \
 	test/dist/generator-sqlite-types.test.cjs test/dist/generator-emission-plan.test.cjs \
 	test/dist/generator-embeds.test.cjs test/dist/generator-source.test.cjs \
 	test/dist/verification-contracts.test.cjs test/dist/candidate-scripts.test.cjs \
 	test/dist/compatibility-scripts.test.cjs test/dist/release-scripts.test.cjs \
-	test/dist/managed-d1-contracts.test.cjs test/dist/agents-guidance.test.cjs \
-	test/dist/consumer-skill.test.cjs test/dist/publication-scripts.test.cjs
+	test/dist/managed-d1-contracts.test.cjs
 
 build: build/plugin.wasm
 
@@ -42,7 +39,8 @@ node_modules: package.json package-lock.json
 	touch node_modules
 build/out.js: node_modules $(GENERATOR_SOURCES)
 	npx tsc --noEmit
-	node build.mjs
+	npx tsc -p scripts/tsconfig.json --noEmit
+	node build.ts
 src/gen/plugin/codegen_pb.ts: buf.gen.yaml | $(BUF)
 	$(BUF) generate --template buf.gen.yaml buf.build/sqlc/sqlc --path plugin/
 build/plugin.wasm: build/out.js | $(JAVY)
@@ -61,77 +59,59 @@ validate-candidate:
 	@test -n "$(CANDIDATE_WASM)" || (echo "CANDIDATE_WASM is required" >&2; exit 2)
 	@test -n "$(CANDIDATE_SHA256)" || (echo "CANDIDATE_SHA256 is required" >&2; exit 2)
 	@printf '%s' "$(CANDIDATE_SHA256)" | grep -Eq '^[0-9a-f]{64}$$' || (echo "CANDIDATE_SHA256 must be exactly 64 lowercase hexadecimal characters" >&2; exit 2)
-	@node -e 'import("./scripts/candidate-utils.mjs").then(m=>m.validateCandidate(process.argv[1],process.argv[2])).catch(e=>{console.error(e.message);process.exit(e.exitCode||1)})' "$(CANDIDATE_WASM)" "$(CANDIDATE_SHA256)"
+	@node -e 'import("./scripts/candidate-utils.ts").then(m=>m.validateCandidate(process.argv[1],process.argv[2])).catch(e=>{console.error(e.message);process.exit(e.exitCode||1)})' "$(CANDIDATE_WASM)" "$(CANDIDATE_SHA256)"
 
 define validate_candidate
 	@$(MAKE) --no-print-directory validate-candidate CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)"
 endef
 
-.PHONY: test-publication-contract
-test-publication-contract: node_modules $(ROOT_SCRIPTS) verification/publication-record.schema.json
-	npx tsc -p test/tsconfig.json --noEmit
-	node test/build.mjs test/publication-scripts.test.ts
-	node --test test/dist/publication-scripts.test.cjs
-
-.PHONY: validate-publication-record
-validate-publication-record:
-	@test -n "$(RECORD)" || (echo "RECORD is required" >&2; exit 2)
-	node scripts/publication-contract.mjs validate-record --path "$(RECORD)"
-
-# Needs GITHUB_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and CLOUDFLARE_ACCOUNT_ID
-# in the environment. Reads only; it writes nothing to GitHub or R2.
-.PHONY: publication-preflight
-publication-preflight:
-	@test -n "$(REPOSITORY)" || (echo "REPOSITORY is required" >&2; exit 2)
-	@test -n "$(VERSION)" || (echo "VERSION is required" >&2; exit 2)
-	node scripts/publish-release.mjs preflight --repository "$(REPOSITORY)" --version "$(VERSION)" --output publication-preflight.json
-
 .PHONY: test-generator
-test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json verification/compatibility.schema.json verification/managed-d1-evidence.schema.json verification/publication-record.schema.json
+test-generator: node_modules $(ROOT_SCRIPTS) verification/compatibility.json
 	npx tsc -p test/tsconfig.json --noEmit
 	npx tsc -p test/managed-d1/tsconfig.json --noEmit
-	node test/build.mjs $(ROOT_TESTS)
+	npx tsc -p scripts/tsconfig.json --noEmit
+	node test/build.ts $(ROOT_TESTS)
 	node --test $(ROOT_DIST)
 
 .PHONY: test-managed-d1-contract
-test-managed-d1-contract: node_modules $(ROOT_SCRIPTS) verification/managed-d1-evidence.schema.json
+test-managed-d1-contract: node_modules $(ROOT_SCRIPTS)
 	npx tsc -p test/tsconfig.json --noEmit
 	npx tsc -p test/managed-d1/tsconfig.json --noEmit
-	node test/build.mjs test/managed-d1-contracts.test.ts
+	node test/build.ts test/managed-d1-contracts.test.ts
 	node --test test/dist/managed-d1-contracts.test.cjs
 
 .PHONY: validate-managed-d1-evidence
 validate-managed-d1-evidence:
 	@test -n "$(EVIDENCE)" || (echo "EVIDENCE is required" >&2; exit 2)
-	node scripts/managed-d1-contract.mjs validate-evidence --path "$(EVIDENCE)"
+	node scripts/managed-d1-contract.ts validate-evidence --path "$(EVIDENCE)"
 
 .PHONY: reap-managed-d1
 reap-managed-d1:
-	node scripts/reap-managed-d1.mjs reap --output managed-d1-reaper-report.json
+	node scripts/reap-managed-d1.ts reap --output managed-d1-reaper-report.json
 
 .PHONY: test-release-contract
-test-release-contract: node_modules $(ROOT_SCRIPTS) verification/release-manifest.schema.json
+test-release-contract: node_modules $(ROOT_SCRIPTS)
 	npx tsc -p test/tsconfig.json --noEmit
-	node test/build.mjs test/release-scripts.test.ts test/verification-contracts.test.ts
+	node test/build.ts test/release-scripts.test.ts test/verification-contracts.test.ts
 	node --test test/dist/release-scripts.test.cjs test/dist/verification-contracts.test.cjs
 
 .PHONY: test-compatibility-config
 test-compatibility-config: node_modules
 	npx tsc -p test/tsconfig.json --noEmit
-	node test/build.mjs test/compatibility-scripts.test.ts
+	node test/build.ts test/compatibility-scripts.test.ts
 	node --test test/dist/compatibility-scripts.test.cjs
-	node scripts/check-compatibility.mjs
+	node scripts/check-compatibility.ts
 
 .PHONY: test-candidate
 test-candidate: node_modules
 	$(validate_candidate)
-	node test/build.mjs test/generator/candidate.test.ts
+	node test/build.ts test/generator/candidate.test.ts
 	CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)" node --test test/dist/generator-candidate.test.cjs
 
 .PHONY: test-types
 test-types: node_modules
 	$(validate_candidate)
-	node test/build.mjs test/types/candidate.test.ts
+	node test/build.ts test/types/candidate.test.ts
 	CANDIDATE_WASM="$(CANDIDATE_WASM)" CANDIDATE_SHA256="$(CANDIDATE_SHA256)" node --test test/dist/types-candidate.test.cjs
 
 .PHONY: test-miniflare
@@ -149,22 +129,22 @@ test-example:
 .PHONY: test-generated-drift test-generated-drift-worktree
 test-generated-drift:
 	$(validate_candidate)
-	node scripts/check-generated-drift.mjs --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --mode mirror
+	node scripts/check-generated-drift.ts --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --mode mirror
 
 test-generated-drift-worktree:
 	$(validate_candidate)
-	node scripts/check-generated-drift.mjs --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --mode worktree
+	node scripts/check-generated-drift.ts --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --mode worktree
 
 .PHONY: test-sqlc-compatibility
 test-sqlc-compatibility:
 	$(validate_candidate)
 	@test -n "$(SQLC_VERSION)" || (echo "SQLC_VERSION is required" >&2; exit 2)
 	@test -n "$(SQLC_BIN)" || (echo "SQLC_BIN is required" >&2; exit 2)
-	node scripts/verify-sqlc-compatibility.mjs --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --sqlc-version "$(SQLC_VERSION)" --sqlc "$(SQLC_BIN)"
+	node scripts/verify-sqlc-compatibility.ts --candidate "$(CANDIDATE_WASM)" --sha256 "$(CANDIDATE_SHA256)" --sqlc-version "$(SQLC_VERSION)" --sqlc "$(SQLC_BIN)"
 
 .PHONY: check-upstream-compatibility
 check-upstream-compatibility: node_modules
-	node scripts/check-upstream-compatibility.mjs
+	node scripts/check-upstream-compatibility.ts
 
 .PHONY: verify-candidate
 verify-candidate:

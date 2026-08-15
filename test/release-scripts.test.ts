@@ -4,43 +4,21 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 
-const release = () => import("../scripts/release-contract.mjs");
-const artifactsApi = () => import("../scripts/github-run-artifacts.mjs");
-const compatibility = () => import("../scripts/compatibility-config.mjs");
-const evidenceWriter = () => import("../scripts/write-compatibility-evidence.mjs");
+const release = () => import("../scripts/release-contract.ts");
+const artifactsApi = () => import("../scripts/github-run-artifacts.ts");
+const compatibility = () => import("../scripts/compatibility-config.ts");
+const evidenceWriter = () => import("../scripts/write-compatibility-evidence.ts");
 
-type ReleaseIntent = {
-  version: string;
-  tag: string | null;
-  sourceCommit: string;
-  defaultBranch: string;
-  dryRun: boolean;
-  workflowRunId: string;
-  workflowUrl: string;
-};
-
-type CandidateDescriptor = {
-  schemaVersion: 1;
-  plugin: "sqlc-d1-typescript";
-  version: string;
-  tag: string | null;
-  sourceCommit: string;
-  workflowRunId: string;
-  workflowUrl: string;
-  buildPolicy: "build-once-exact-artifact";
-  filename: string;
-  size: number;
-  sha256: string;
-};
+import type { CandidateDescriptor, ReleaseIntent } from "../scripts/release-contract.ts";
+import type { ManagedD1Evidence } from "../scripts/managed-d1-contract.ts";
 
 const sha = "0123456789abcdef0123456789abcdef01234567";
 const digest = "a".repeat(64);
 const baseIntent = (overrides: Partial<ReleaseIntent> = {}): ReleaseIntent => ({
   version: "0.2.0",
-  tag: null,
+  tag: "v0.2.0",
   sourceCommit: sha,
   defaultBranch: "main",
-  dryRun: true,
   workflowRunId: "123",
   workflowUrl: "https://github.com/o/r/actions/runs/123",
   ...overrides,
@@ -70,7 +48,7 @@ for (const value of [
     assert.throws(() => parseSemver(value), /expected/);
   });
 
-test("release/intent resolves tag and manual identity only after ancestry", async () => {
+test("release/intent resolves the tag identity only after ancestry", async () => {
   const { resolveReleaseIntent } = await release();
   const calls: string[] = [];
   const tag = await resolveReleaseIntent({
@@ -89,14 +67,14 @@ test("release/intent resolves tag and manual identity only after ancestry", asyn
 
   assert.equal(tag.version, "0.2.0-rc.1");
   assert.equal(tag.tag, "v0.2.0-rc.1");
-  assert.equal(tag.dryRun, false);
   assert.equal(tag.workflowUrl, "https://github.com/o/r/actions/runs/456");
   assert.deepEqual(calls, [`${sha}:main`]);
 
   await assert.rejects(
     resolveReleaseIntent({
-      eventName: "workflow_dispatch",
-      manualVersion: "0.2.0",
+      eventName: "push",
+      refType: "tag",
+      refName: "v0.2.0",
       sourceCommit: sha,
       defaultBranch: "main",
       workflowRunId: "456",
@@ -108,15 +86,28 @@ test("release/intent resolves tag and manual identity only after ancestry", asyn
 
   await assert.rejects(
     resolveReleaseIntent({
-      eventName: "workflow_dispatch",
-      manualVersion: "v0.2.0",
+      eventName: "push",
+      refType: "tag",
+      refName: "0.2.0",
       sourceCommit: sha,
       defaultBranch: "main",
       workflowRunId: "456",
       repository: "o/r",
       isAncestor: async () => true,
     }),
-    /expected MAJOR/,
+    /expected vMAJOR/,
+  );
+
+  await assert.rejects(
+    resolveReleaseIntent({
+      eventName: "workflow_dispatch",
+      sourceCommit: sha,
+      defaultBranch: "main",
+      workflowRunId: "456",
+      repository: "o/r",
+      isAncestor: async () => true,
+    }),
+    /unsupported release event/,
   );
 });
 
@@ -209,25 +200,23 @@ test("release/artifact discovery is run-scoped, exact, paginated, and token-reda
   assert.match(urls[0], /actions\/runs\/123\/artifacts\?name=candidate-123/);
   assert.doesNotMatch(urls[0], /secret/);
 
-  assert.deepEqual(selectExactRunArtifact([{ id: 1, name: "candidate-123-extra", expired: false }], "candidate-123"), {
-    mode: "create",
-  });
   assert.throws(
-    () => selectExactRunArtifact([], "candidate-123", { allowCreate: false }),
+    () => selectExactRunArtifact([{ id: "1", name: "candidate-123-extra", expired: false }], "candidate-123"),
     /missing; start a new workflow run/,
   );
+  assert.throws(() => selectExactRunArtifact([], "candidate-123"), /missing; start a new workflow run/);
   assert.throws(
     () =>
       selectExactRunArtifact(
         [
-          { id: 1, name: "x", expired: false },
-          { id: 2, name: "x", expired: false },
+          { id: "1", name: "x", expired: false },
+          { id: "2", name: "x", expired: false },
         ],
         "x",
       ),
     /duplicate/,
   );
-  assert.throws(() => selectExactRunArtifact([{ id: 1, name: "x", expired: true }], "x"), /expired/);
+  assert.throws(() => selectExactRunArtifact([{ id: "1", name: "x", expired: true }], "x"), /expired/);
 
   const timeoutFetch = (async () => {
     throw new Error(`timeout ${token}`);
@@ -297,7 +286,7 @@ async function evidenceFiles(root: string, candidateSha256 = digest): Promise<st
   return paths;
 }
 
-const managedEvidence = () => ({
+const managedEvidence = (): ManagedD1Evidence => ({
   schemaVersion: 1,
   candidateSha256: digest,
   sourceCommit: sha,
@@ -331,7 +320,7 @@ const managedEvidence = () => ({
     "bookmark-transfer",
     "native-error-identity",
     "post-execution-result-error",
-  ].map((id) => ({ id: `managed-d1/${id}`, status: "passed", attempts: 1 })),
+  ].map((id) => ({ id: `managed-d1/${id}`, status: "passed" as const, attempts: 1 })),
   test: { status: "passed" },
   cleanup: { status: "confirmed", worker: "deleted", database: "deleted", emergencyRecovery: "not-needed" },
 });
@@ -340,7 +329,7 @@ const descriptor = (): CandidateDescriptor => ({
   schemaVersion: 1,
   plugin: "sqlc-d1-typescript",
   version: "0.2.0",
-  tag: null,
+  tag: "v0.2.0",
   sourceCommit: sha,
   workflowRunId: "123",
   workflowUrl: "https://github.com/o/r/actions/runs/123",
@@ -391,8 +380,7 @@ test("release/evidence aggregation and deterministic manifest use authoritative 
     });
 
     assert.deepEqual(manifest.remote_d1, { result: "passed", date: "2026-02-05", evidence_artifact_id: "789" });
-    assert.equal(manifest.tag, null);
-    assert.equal(manifest.dry_run, true);
+    assert.equal(manifest.tag, "v0.2.0");
     assert.deepEqual(
       (manifest.tested_versions as { sqlc: string[] }).sqlc,
       config.sqlc.samples.map(({ version }) => version),
@@ -490,29 +478,29 @@ test("release/manifest rejects unknown fields and inconsistent remote or tag sta
 
     await assert.rejects(
       validateReleaseManifest({
-        manifest: { ...manifest, credentials: "secret" },
+        manifest: { ...manifest, tag: null },
         managedEvidence: managed,
         managedEvidenceArtifactId: "789",
       }),
-      /schema mismatch/,
+      /must name the tag/,
     );
 
     await assert.rejects(
       validateReleaseManifest({
-        manifest: { ...manifest, dry_run: false },
+        manifest: { ...manifest, remote_d1: { ...manifest.remote_d1, evidence_artifact_id: "not-a-number" } },
         managedEvidence: managed,
-        managedEvidenceArtifactId: "789",
+        managedEvidenceArtifactId: "not-a-number",
       }),
-      /tag\/dry_run mismatch/,
+      /must be a decimal string/,
     );
 
     await assert.rejects(
       validateReleaseManifest({
-        manifest: { ...manifest, remote_d1: { result: "passed", date: null, evidence_artifact_id: null } },
+        manifest: { ...manifest, remote_d1: { ...manifest.remote_d1, date: "1999-01-01" } },
         managedEvidence: managed,
         managedEvidenceArtifactId: "789",
       }),
-      /schema mismatch/,
+      /remote date mismatch/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
