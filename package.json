@@ -5,9 +5,9 @@
   "author": "Max Kuznetsov",
   "license": "MIT",
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260214.0",
+    "@cloudflare/workers-types": "^5.20260815.1",
     "@types/node": "^24.13.3",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.2",
     "prettier": "3.9.6",
     "typescript": "^5.9.3"
   },

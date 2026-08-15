@@ -1,7 +1,8 @@
-import { env } from "cloudflare:test";
+import { env, reset } from "cloudflare:test";
 import { beforeEach, expect } from "vitest";
 
 beforeEach(async () => {
+  await reset();
   const before = await env.DB.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_%' ESCAPE '\\' ORDER BY name",
   ).all<{ name: string }>();

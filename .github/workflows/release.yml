@@ -27,7 +27,7 @@ jobs:
       wasm-filename: ${{ steps.intent.outputs.wasm-filename }}
       manifest-filename: ${{ steps.intent.outputs.manifest-filename }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
@@ -67,7 +67,7 @@ jobs:
       matrix:
         sqlc: ["1.25.0", "1.31.1"]
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
         with:
           sqlc: ${{ matrix.sqlc }}
@@ -97,7 +97,7 @@ jobs:
       WASM: ${{ needs.verify.outputs.wasm-filename }}
       MANIFEST: ${{ needs.verify.outputs.manifest-filename }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true

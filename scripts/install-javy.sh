@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="v8.0.0"
+VERSION="v9.1.0"
 BASE_URL="https://github.com/bytecodealliance/javy/releases/download/${VERSION}"
 
 OS="$(uname -s)"
