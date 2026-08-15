@@ -492,6 +492,13 @@
       "availability": "local"
     },
     {
+      "id": "verification/agent-guidance",
+      "layer": "verification",
+      "file": "test/agents-guidance.test.ts",
+      "title": "verification/agent-guidance",
+      "availability": "local"
+    },
+    {
       "id": "miniflare/command-execrows",
       "layer": "miniflare",
       "file": "test/miniflare/test/commands.spec.ts",
