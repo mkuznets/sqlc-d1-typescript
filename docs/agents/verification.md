@@ -24,7 +24,7 @@ Seven layers, each answering a different question about the same candidate:
 | `generator`    | Pure request-to-file behavior of the generator sources.             |
 | `types`        | Public-only strict compilation on the floor and current TypeScript. |
 | `candidate`    | The same generator scenarios executed through the real WASM.        |
-| `verification` | Contracts over manifests, scripts, and workflow text.               |
+| `verification` | Contracts over manifests, publication, scripts, and workflow text.  |
 | `miniflare`    | Isolated D1 with fresh storage per test.                            |
 | `example`      | The canonical Worker in `examples/d1-worker/`.                      |
 | `managed-d1`   | Real D1 seams that only a live account can show.                    |
@@ -97,10 +97,20 @@ endpoint accepts those ids and returns scenario outcomes; SQL, bind values, and 
 protocol in both directions. Operations, the protected Environment, token scopes, and the audit checklist live
 in `docs/managed-d1-verification.md`.
 
+## Publication is a verification layer too
+
+The `verification` layer also owns the publication contracts: object keys and their permanent HTTP metadata,
+the release body, the closed publication record, and the order in which surfaces may be written. Those rules
+live in `scripts/publication-contract.mjs`; ordering and the version-key boundary live in
+`scripts/publish-release.mjs`. Both are exercised without credentials and without touching the network — every
+seam is an injected `fetchImpl` whose double throws on any request it was not primed for. Operations and the
+audit checklist are in `docs/release-publication.md`.
+
 ## Sensitive data stays inside the run
 
-`verification/evidence.schema.json` and `verification/managed-d1-evidence.schema.json` are closed schemas
-(`additionalProperties: false`); keep them closed, and add a field by naming it in the schema.
+`verification/evidence.schema.json`, `verification/managed-d1-evidence.schema.json`, and
+`verification/publication-record.schema.json` are closed schemas (`additionalProperties: false`); keep them
+closed, and add a field by naming it in the schema.
 
 Evidence, logs, artifacts, and issues carry candidate identity, configuration, scenario outcomes, exact
 resource identifiers, and cleanup facts. SQL text, bind values, result rows, session bookmarks, authorization

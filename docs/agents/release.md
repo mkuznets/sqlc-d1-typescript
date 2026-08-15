@@ -6,12 +6,17 @@ manifest, or the R2 publication contract.
 ## What the spine does today
 
 `.github/workflows/release.yml` validates release intent, builds or reuses one publication candidate, runs the
-uncredentialed gates, calls managed-D1 verification through `.github/workflows/_managed-d1.yml`, and assembles
-the release manifest.
+uncredentialed gates, calls managed-D1 verification through `.github/workflows/_managed-d1.yml`, assembles the
+release manifest, and then publishes.
 
-It publishes nothing: no GitHub Release, no R2 object, no tag creation. That is deliberate, and
-`test/verification-contracts.test.ts` holds the spine to it. Publication arrives with
-[#44](https://github.com/mkuznets/sqlc-d1-typescript/issues/44).
+Publication is one process, `scripts/publish-release.mjs`, and its order is the safety property: draft release,
+assets, create-only R2 write, independent downloads of every surface, and the GitHub Release published last.
+Nothing else in the workflow writes anywhere; `contents: write` appears on the `publish` job and nowhere else,
+and `test/verification-contracts.test.ts` holds the workflow to that. Operations, the protected Environment,
+token scopes, the dry-run procedure, and the recovery playbook live in `docs/release-publication.md`.
+
+The workflow still creates no tag. A dry run rehearses the whole path against the real accounts using a
+rehearsal object key and a draft name that can never become a tag, then deletes both.
 
 ## A valid tag is the approval
 
@@ -49,6 +54,10 @@ cached anywhere. A later retry re-uploads the exact retained bytes; any change t
 version. Publication is create-only (`If-None-Match: *`), and a `412` on an existing key is acceptable only
 after verifying full-byte identity.
 
+This is live behavior, not a plan. `scripts/publish-release.mjs` writes the key, then proves the artifact by
+downloading it from the S3 endpoint and again from the public URL unauthenticated, and only then publishes.
+Every failure names the phase and the recovery that applies to the side of the boundary it reached.
+
 **Decided, against the obvious default:** burning the version on any failed tag was considered and rejected
 ([#16](https://github.com/mkuznets/sqlc-d1-typescript/issues/16),
 [#17](https://github.com/mkuznets/sqlc-d1-typescript/issues/17),
@@ -62,8 +71,8 @@ workflows are the maintainer's to run.
 
 ## Credentials
 
-Secret identifiers and minimum permission scopes are documented in `docs/managed-d1-verification.md`. Their
-values live only in the protected Environment.
+Secret identifiers and minimum permission scopes are documented in `docs/managed-d1-verification.md` and
+`docs/release-publication.md`. Their values live only in the protected Environments.
 
 ## Decisions governing this area
 

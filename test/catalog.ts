@@ -44,6 +44,21 @@ export const executableCatalog: readonly CatalogTest[] = [
   entry("verification/generated-drift", "verification", "scripts/check-generated-drift.mjs"),
   entry("verification/agent-guidance", "verification", "test/agents-guidance.test.ts"),
   entry("verification/consumer-skill", "verification", "test/consumer-skill.test.ts"),
+  entry("verification/publication-workflow-security", "verification", "test/verification-contracts.test.ts"),
+
+  ...[
+    "publication-object-contract",
+    "publication-release-body",
+    "publication-record-contract",
+    "publication-signature",
+    "publication-preflight",
+    "publication-order",
+    "publication-retry",
+    "publication-conflict",
+    "publication-download-verification",
+    "publication-recovery",
+    "publication-dry-run",
+  ].map((id) => entry(`verification/${id}`, "verification", "test/publication-scripts.test.ts")),
 
   ...[
     [

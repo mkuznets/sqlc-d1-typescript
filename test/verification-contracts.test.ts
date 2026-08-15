@@ -125,14 +125,19 @@ function extractRegisteredIds(source: string): string[] {
   ].map((match) => match[1]);
 }
 
-test("release workflow is an exact-artifact managed-D1-gated non-publishing spine", () => {
+test("release workflow is an exact-artifact managed-D1-gated publication spine", () => {
   const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/release.yml"), "utf8");
   assert.match(workflow, /tags: \["v\*"\]/);
   assert.match(workflow, /workflow_dispatch:\s*\n\s+inputs:\s*\n\s+version:/);
   assert.match(workflow, /group: \$\{\{ github\.repository \}\}-release/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /permissions:\s*\n\s+contents: read\s*\n\s+actions: read/);
-  assert.doesNotMatch(workflow, /id-token: write|pull_request_target|gh release|\br2\b|s3|git tag|create-a-release/i);
+  // Publication writes releases and R2 objects, so the blanket prohibition is gone;
+  // what replaces it is narrower and sharper. Nothing may create or move a tag, no
+  // job may mint an OIDC token, and exactly one job may write repository contents.
+  assert.doesNotMatch(workflow, /id-token: write|pull_request_target|pull_request:/);
+  assert.doesNotMatch(workflow, /gh release|git tag|git push|actions\/create-release/);
+  assert.equal((workflow.match(/contents: write/g) ?? []).length, 1);
   assert.equal((workflow.match(/make build/g) ?? []).length, 1);
   for (const action of workflow.matchAll(/uses:\s*([^\s#]+)/g))
     if (!action[1].startsWith("./")) assert.match(action[1], /@[0-9a-f]{40}$/, action[1]);
@@ -143,6 +148,8 @@ test("release workflow is an exact-artifact managed-D1-gated non-publishing spin
     "uncredentialed-gates",
     "managed-d1",
     "release-spine-complete",
+    "publication-preflight",
+    "publish",
   ])
     assert.match(workflow, new RegExp(`  ${job}:`));
 
@@ -157,6 +164,14 @@ test("release workflow is an exact-artifact managed-D1-gated non-publishing spin
   );
   assert.match(workflow, dependsOn("managed-d1", "intent, candidate, uncredentialed-gates"));
   assert.match(workflow, dependsOn("release-spine-complete", "intent, candidate, uncredentialed-gates, managed-d1"));
+  assert.match(workflow, dependsOn("publication-preflight", "intent"));
+  assert.match(
+    workflow,
+    dependsOn(
+      "publish",
+      "intent, candidate, uncredentialed-gates, managed-d1, release-spine-complete, publication-preflight",
+    ),
+  );
   assert.doesNotMatch(workflow, /make verify-local|make test(?:\s|$)/);
   assert.match(workflow, /make verify-candidate/);
 
@@ -181,6 +196,63 @@ test("release workflow is an exact-artifact managed-D1-gated non-publishing spin
 
   assert.match(workflow, /validate-compatibility-set/);
   assert.match(workflow, /--managed-evidence managed\/managed-d1-evidence\.json/);
+});
+
+test("verification/publication-workflow-security - confines writing and R2 credentials to the two publication jobs", () => {
+  const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/release.yml"), "utf8");
+  const ci = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+
+  const slice = (job: string, next?: string): string =>
+    workflow.slice(workflow.indexOf(`  ${job}:`), next ? workflow.indexOf(`  ${next}:`) : workflow.length);
+  const preflight = slice("publication-preflight", "release-spine-complete");
+  const publish = slice("publish");
+  const others = workflow.replace(preflight, "").replace(publish, "");
+
+  for (const job of [preflight, publish]) assert.match(job, /environment: release-publication/);
+  assert.match(preflight, /permissions:\s*\n\s+contents: read\s*\n\s+administration: read/);
+  assert.match(publish, /permissions:\s*\n\s+contents: write\s*\n\s+actions: read/);
+  assert.doesNotMatch(others, /contents: write|secrets\.R2_|environment: release-publication/);
+
+  // Credentials reach one step each and never a job-level `env:` block, which every
+  // step of the job would inherit.
+  for (const job of [preflight, publish]) {
+    const jobEnv = /\n    env:\n((?:      [^\n]*\n)*)/.exec(job)?.[1] ?? "";
+    assert.doesNotMatch(jobEnv, /secrets\.|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|GITHUB_TOKEN/);
+    assert.match(job, /R2_ACCESS_KEY_ID: "\$\{\{ secrets\.R2_ACCESS_KEY_ID \}\}"/);
+    assert.match(job, /CLOUDFLARE_ACCOUNT_ID: "\$\{\{ vars\.CLOUDFLARE_ACCOUNT_ID \}\}"/);
+  }
+
+  // Publication is one process invoked from one script, not a pile of CLI calls.
+  assert.match(preflight, /node scripts\/publish-release\.mjs preflight/);
+  assert.match(publish, /node scripts\/publish-release\.mjs publish/);
+  assert.match(publish, /node scripts\/publish-release\.mjs teardown/);
+  assert.doesNotMatch(workflow, /\bgh api\b|\bwrangler\b|aws s3/);
+
+  // The mode a publication runs in is derived from the validated dry-run identity,
+  // and the script refuses to advertise anything when that mode is a dry run.
+  assert.match(
+    publish,
+    /PUBLICATION_MODE: "\$\{\{ needs\.intent\.outputs\.dry-run == 'true' && 'dry-run' \|\| 'publish' \}\}"/,
+  );
+  assert.match(publish, /--mode "\$PUBLICATION_MODE"/);
+  assert.match(
+    publish,
+    /if: \$\{\{ always\(\) && needs\.intent\.outputs\.dry-run == 'true' && !hashFiles\('publication-record\.json'\) \}\}/,
+  );
+  assert.match(publish, /name: "\$\{\{ env\.PUBLICATION_ARTIFACT \}\}"[\s\S]*?retention-days: 30/);
+  assert.equal((publish.match(/if: \$\{\{ always\(\)/g) ?? []).length, 3);
+  assert.equal((workflow.match(/continue-on-error: true/g) ?? []).length, 1);
+  assert.match(publish, /continue-on-error: true/, "only the publication step may continue so teardown can run");
+
+  // The outcome of the credentialed job is decided in one extracted script.
+  const finalize = readFileSync(resolve(process.cwd(), "scripts/workflows/finalize-publication.sh"), "utf8");
+  assert.match(publish, /run: bash scripts\/workflows\/finalize-publication\.sh/);
+  assert.match(publish, /PUBLISH_OUTCOME: "\$\{\{ steps\.execute\.outcome \}\}"/);
+  assert.match(finalize, /validate-record/);
+  assert.match(finalize, /a dry run published a release/);
+  assert.match(finalize, /test "\$\{PUBLISH_OUTCOME:-\}" = success/);
+
+  assert.doesNotMatch(ci, /R2_|release-publication|immutable-releases/);
 });
 
 test("verification/managed-workflow-security - isolates credentials and exact candidates from ordinary CI", () => {
