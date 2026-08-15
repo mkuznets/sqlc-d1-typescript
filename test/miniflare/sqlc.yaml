@@ -1,6 +1,6 @@
 version: "2"
 plugins:
-  - name: ts
+  - name: d1-ts
     wasm:
       url: file:///candidate-required/plugin.wasm
 sql:
@@ -8,7 +8,7 @@ sql:
     queries: "queries.sql"
     engine: "sqlite"
     codegen:
-      - plugin: ts
+      - plugin: d1-ts
         out: src
         options:
           interface: workers

@@ -54,7 +54,7 @@ Point sqlc at the project's schema and queries, and at the artifact selected in 
 ```yaml
 version: "2"
 plugins:
-  - name: ts
+  - name: d1-ts
     wasm:
       url: https://sqlc.mkuznets.com/plugins/sqlc-gen-d1-typescript_<version>.wasm
       sha256: <sha256-from-the-same-release-record>
@@ -63,7 +63,7 @@ sql:
     queries: "queries.sql"
     engine: "sqlite"
     codegen:
-      - plugin: ts
+      - plugin: d1-ts
         out: src
         options:
           interface: workers

@@ -13,7 +13,7 @@ In the configuration below, replace `<selected-version>` and `<selected-sha256>`
 ```yaml
 version: "2"
 plugins:
-  - name: ts
+  - name: d1-ts
     wasm:
       url: https://sqlc.mkuznets.com/plugins/sqlc-gen-d1-typescript_<selected-version>.wasm
       sha256: <selected-sha256>
@@ -22,7 +22,7 @@ sql:
     queries: "queries.sql"
     engine: "sqlite"
     codegen:
-      - plugin: ts
+      - plugin: d1-ts
         out: src
         options:
           interface: workers
