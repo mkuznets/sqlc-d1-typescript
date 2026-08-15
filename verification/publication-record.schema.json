@@ -129,8 +129,12 @@
         "immutable_releases": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "enforced_by_owner"],
-          "properties": { "enabled": { "type": "boolean" }, "enforced_by_owner": { "type": "boolean" } }
+          "required": ["enabled", "enforced_by_owner", "readable"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "enforced_by_owner": { "type": "boolean" },
+            "readable": { "type": "boolean" }
+          }
         }
       }
     },

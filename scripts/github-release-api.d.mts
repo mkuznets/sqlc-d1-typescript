@@ -24,7 +24,9 @@ export interface Release {
   target_commitish?: string;
 }
 
-export function getImmutableReleases(options: GitHubCall): Promise<{ enabled: boolean; enforced_by_owner: boolean }>;
+export function getImmutableReleases(
+  options: GitHubCall,
+): Promise<{ enabled: boolean; enforced_by_owner: boolean; readable: boolean }>;
 export function findDraftRelease(options: GitHubCall & { tagName: string }): Promise<Release | null>;
 export function getRelease(options: GitHubCall & { releaseId: string }): Promise<Release>;
 export function createDraftRelease(

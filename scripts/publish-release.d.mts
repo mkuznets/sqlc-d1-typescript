@@ -25,7 +25,7 @@ export interface PreflightResult {
   checkedAt: string;
   status: "passed" | "failed";
   checks: PreflightCheck[];
-  immutableReleases: { enabled: boolean; enforced_by_owner: boolean };
+  immutableReleases: { enabled: boolean; enforced_by_owner: boolean; readable: boolean };
 }
 
 export function credentialsFromEnvironment(env?: NodeJS.ProcessEnv): PublicationCredentials;

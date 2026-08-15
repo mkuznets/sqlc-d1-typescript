@@ -76,20 +76,22 @@ async function json({ action, ...options }) {
   return parseIdSafeJson(await response.text());
 }
 
+// Tri-state, because "unreadable" is not "disabled". Reading this setting needs the
+// Administration permission, which a job-scoped GITHUB_TOKEN cannot hold — Actions has
+// no such permission scope to request — so a 403 is the normal answer from inside a
+// workflow and the manual audit checklist is what covers it.
 export async function getImmutableReleases({ repository, token, fetchImpl, signal }) {
   assertRepository(repository);
   const response = await call({ url: `${API}/repos/${repository}/immutable-releases`, token, fetchImpl, signal });
-  if (response.status === 404)
-    throw apiError(
-      "the immutable-releases setting could not be read (HTTP 404); confirm it manually in repository settings before publishing",
-    );
+  if (response.status === 403 || response.status === 404)
+    return { enabled: false, enforced_by_owner: false, readable: false };
   if (!response.ok)
     throw apiError(
       `reading the immutable-releases setting failed with HTTP ${response.status}: ${await excerpt(response, token)}`,
     );
   const value = parseIdSafeJson(await response.text());
   if (typeof value?.enabled !== "boolean") throw apiError("the immutable-releases setting was malformed");
-  return { enabled: value.enabled, enforced_by_owner: value.enforced_by_owner === true };
+  return { enabled: value.enabled, enforced_by_owner: value.enforced_by_owner === true, readable: true };
 }
 
 async function listPaged({ action, url, token, fetchImpl, signal }) {
