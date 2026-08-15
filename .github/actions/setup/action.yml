@@ -1,0 +1,47 @@
+name: Set up the pinned toolchain
+description: Install the Node, npm, Bun and sqlc versions pinned by verification/compatibility.json, then install project dependencies.
+
+inputs:
+  bun:
+    description: Install the pinned Bun when "true".
+    default: "false"
+  sqlc:
+    description: Install sqlc — "ceiling" for the tested ceiling, or an explicit version such as 1.24.0. Empty installs none.
+    default: ""
+
+outputs:
+  sqlc-matrix:
+    description: The sqlc sample matrix as JSON.
+    value: ${{ steps.pins.outputs.sqlc-matrix }}
+
+runs:
+  using: composite
+  steps:
+    - id: pins
+      shell: bash
+      run: node scripts/workflows/pins.mjs
+
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: ${{ steps.pins.outputs.node }}
+        cache: npm
+
+    - if: inputs.bun == 'true'
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      with:
+        bun-version: ${{ steps.pins.outputs.bun }}
+
+    - if: inputs.sqlc != ''
+      uses: sqlc-dev/setup-sqlc@6bd2de0e87f5adfd968b55f140ce55461f71db69 # v4
+      with:
+        sqlc-version: ${{ inputs.sqlc == 'ceiling' && steps.pins.outputs.sqlc-ceiling || inputs.sqlc }}
+
+    - shell: bash
+      run: |
+        npm install --global "npm@${{ steps.pins.outputs.npm }}"
+        npm ci
+        echo "==> Toolchain on this runner:"
+        echo "    node  $(node --version)"
+        echo "    npm   $(npm --version)"
+        if [ "${{ inputs.bun }}" = "true" ]; then echo "    bun   $(bun --version)"; fi
+        if [ -n "${{ inputs.sqlc }}" ]; then echo "    sqlc  $(sqlc version)"; fi

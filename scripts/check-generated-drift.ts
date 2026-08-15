@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-import { chmod, cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
-import { parseArguments, readCandidate, runAsCli, usageError, type Candidate } from "./candidate-utils.ts";
-import { combinedError, generateCandidate } from "./generate-candidate.ts";
+import { parseArguments, readCandidate, runAsCli } from "./candidate-utils.ts";
+import { generateCandidate } from "./generate-candidate.ts";
 
 export interface Fixture {
   directory: string;
@@ -51,28 +50,21 @@ export async function clearGeneratedDirectory(directory: string, staticFiles: re
 
 export interface DriftOptions {
   candidate: string;
-  sha256: string;
   root?: string;
-  mode?: string;
   sqlc?: string;
 }
 
+// Regenerates every fixture into a throwaway copy of the repository and diffs the
+// result byte-for-byte against what is checked in. It needs no git and never touches
+// the working tree.
 export async function checkGeneratedDrift({
   candidate,
-  sha256,
   root = process.cwd(),
-  mode = "mirror",
   sqlc = "sqlc",
 }: DriftOptions): Promise<void> {
-  if (!["mirror", "worktree"].includes(mode)) throw usageError("--mode must be mirror or worktree");
-  const retained = await readCandidate(candidate, sha256);
+  const retained = await readCandidate(candidate);
   const repository = resolve(root);
-  return mode === "worktree" ? checkWorktree(retained, repository, sqlc) : checkMirror(retained, repository, sqlc);
-}
-
-async function checkMirror(retained: Candidate, repository: string, sqlc: string): Promise<void> {
   const mirror = await mkdtemp(resolve(tmpdir(), "sqlc-d1-generated-drift-"));
-  let primaryError: unknown;
   try {
     const changed: string[] = [];
     for (const fixture of fixtures) {
@@ -83,9 +75,7 @@ async function checkMirror(retained: Candidate, repository: string, sqlc: string
         filter: (path) => !path.includes("node_modules") && !path.includes(".wrangler"),
       });
       await clearGeneratedDirectory(resolve(copy, fixture.generatedDirectory), fixture.staticFiles);
-      await withRetainedCandidate(retained, (candidate) =>
-        generateCandidate({ candidate, sha256: retained.sha256, config: fixture.config, cwd: copy, sqlc }),
-      );
+      await generateCandidate({ candidate: retained.path, config: fixture.config, cwd: copy, sqlc });
       const differences = await compareGeneratedTrees(
         resolve(source, fixture.generatedDirectory),
         resolve(copy, fixture.generatedDirectory),
@@ -96,86 +86,9 @@ async function checkMirror(retained: Candidate, repository: string, sqlc: string
       );
     }
     if (changed.length) throw new Error(`generated drift:\n${changed.join("\n")}`);
-  } catch (error) {
-    primaryError = error;
-  }
-  const cleanupErrors: unknown[] = [];
-  try {
+  } finally {
     await rm(mirror, { recursive: true, force: true });
-  } catch (error) {
-    cleanupErrors.push(error);
   }
-  if (primaryError || cleanupErrors.length)
-    throw combinedError(primaryError, cleanupErrors, "generated drift mirror cleanup failed");
-}
-
-async function checkWorktree(retained: Candidate, repository: string, sqlc: string): Promise<void> {
-  const directory = await mkdtemp(resolve(tmpdir(), "sqlc-d1-clean-worktree-"));
-  await rm(directory, { recursive: true, force: true });
-  let added = false;
-  let primaryError: unknown;
-  try {
-    await run("git", ["worktree", "add", "--detach", directory, "HEAD"], repository);
-    added = true;
-    for (const fixture of fixtures) {
-      await clearGeneratedDirectory(
-        resolve(directory, fixture.directory, fixture.generatedDirectory),
-        fixture.staticFiles,
-      );
-      await withRetainedCandidate(retained, (candidate) =>
-        generateCandidate({
-          candidate,
-          sha256: retained.sha256,
-          config: fixture.config,
-          cwd: resolve(directory, fixture.directory),
-          sqlc,
-        }),
-      );
-    }
-    const paths = fixtures.map(({ directory: path, generatedDirectory }) => `${path}/${generatedDirectory}`);
-    const output = await capture("git", ["status", "--porcelain", "--untracked-files=all", "--", ...paths], directory);
-    if (output.trim()) throw new Error(`generated drift in clean worktree:\n${output.trim()}`);
-  } catch (error) {
-    primaryError = error;
-  }
-  const cleanupErrors: unknown[] = [];
-  if (added)
-    try {
-      await run("git", ["worktree", "remove", "--force", directory], repository);
-    } catch (error) {
-      cleanupErrors.push(error);
-    }
-  try {
-    await rm(directory, { recursive: true, force: true });
-  } catch (error) {
-    cleanupErrors.push(error);
-  }
-  if (primaryError || cleanupErrors.length)
-    throw combinedError(primaryError, cleanupErrors, "generated drift worktree cleanup failed");
-}
-
-async function withRetainedCandidate(
-  retained: Candidate,
-  callback: (candidate: string) => Promise<void>,
-): Promise<void> {
-  const directory = await mkdtemp(resolve(tmpdir(), "sqlc-d1-retained-candidate-"));
-  const candidate = resolve(directory, "plugin.wasm");
-  let primaryError: unknown;
-  try {
-    await writeFile(candidate, retained.bytes, { mode: 0o400 });
-    await chmod(candidate, 0o400);
-    await callback(candidate);
-  } catch (error) {
-    primaryError = error;
-  }
-  const cleanupErrors: unknown[] = [];
-  try {
-    await rm(directory, { recursive: true, force: true });
-  } catch (error) {
-    cleanupErrors.push(error);
-  }
-  if (primaryError || cleanupErrors.length)
-    throw combinedError(primaryError, cleanupErrors, "retained candidate cleanup failed");
 }
 
 async function listFiles(directory: string): Promise<string[]> {
@@ -195,27 +108,7 @@ async function listFiles(directory: string): Promise<string[]> {
   return files.sort();
 }
 
-function run(command: string, args: readonly string[], cwd: string): Promise<void> {
-  return new Promise<void>((ok, fail) => {
-    const child = spawn(command, [...args], { cwd, stdio: "inherit" });
-    child.on("error", fail);
-    child.on("exit", (code) => (code === 0 ? ok() : fail(new Error(`${command} exited ${code}`))));
-  });
-}
-
-function capture(command: string, args: readonly string[], cwd: string): Promise<string> {
-  return new Promise<string>((ok, fail) => {
-    const child = spawn(command, [...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "",
-      stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
-    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
-    child.on("error", fail);
-    child.on("exit", (code) => (code === 0 ? ok(stdout) : fail(new Error(stderr || `${command} exited ${code}`))));
-  });
-}
-
 runAsCli(import.meta.url, async () => {
-  const args = parseArguments(process.argv.slice(2), ["candidate", "sha256"], ["candidate", "sha256", "mode"]);
+  const args = parseArguments(process.argv.slice(2), ["candidate"], ["candidate", "sqlc"]);
   await checkGeneratedDrift(args as unknown as DriftOptions);
 });

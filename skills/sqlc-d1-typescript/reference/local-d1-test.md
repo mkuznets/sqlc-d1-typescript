@@ -29,11 +29,11 @@ npm install --save-dev @cloudflare/vitest-pool-workers vitest wrangler
 
 The exact versions this Plugin version was verified against are in
 [`docs/compatibility.md`](https://github.com/mkuznets/sqlc-d1-typescript/blob/v<version>/docs/compatibility.md)
-at the installed tag. Match them when a test fails in a way the project's own code does not explain.
+at the selected tag. Match them when a test fails in a way the project's own code does not explain.
 
 ## 2. `wrangler.jsonc`
 
-The D1 binding the Worker and the tests share, plus the compatibility date the release's evidence names:
+The D1 binding the Worker and the tests share, plus a compatibility date:
 
 ```jsonc
 {

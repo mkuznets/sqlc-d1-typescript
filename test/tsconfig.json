@@ -3,26 +3,8 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
     "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": [
-    "./generator/**/*.ts",
-    "./types/**/*.ts",
-    "./verification-contracts.test.ts",
-    "./candidate-scripts.test.ts",
-    "./compatibility-scripts.test.ts",
-    "./release-scripts.test.ts",
-    "./managed-d1-contracts.test.ts",
-    "./managed-d1/src/**/*.ts",
-    "../src/**/*.ts"
-  ],
-  "exclude": [
-    "../src/runtime.d1.ts",
-    "../src/app.ts",
-    "./miniflare",
-    "./managed-d1/src/index.ts",
-    "./managed-d1/src/scenarios.ts"
-  ]
+  "include": ["./**/*.ts", "../src/**/*.ts"],
+  "exclude": ["../src/runtime.d1.ts", "../src/app.ts", "./miniflare"]
 }

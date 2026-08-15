@@ -1,8 +1,8 @@
 import test from "node:test";
-import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb";
-import { runPlugin } from "../../src/plugin";
-import { GeneratorHarness } from "./harness";
-import { generatorScenarios, runScenario } from "./scenarios";
+import { GenerateRequest, GenerateResponse } from "../../src/gen/plugin/codegen_pb.ts";
+import { runPlugin } from "../../src/plugin.ts";
+import type { GeneratorHarness } from "./harness.ts";
+import { generatorScenarios, runScenario } from "./scenarios.ts";
 
 const sourceHarness: GeneratorHarness = {
   async run(request: GenerateRequest) {

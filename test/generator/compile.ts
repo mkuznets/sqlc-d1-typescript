@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import type { GenerateResponse } from "../../src/gen/plugin/codegen_pb";
+import type { GenerateResponse } from "../../src/gen/plugin/codegen_pb.ts";
 
 export interface CompileGeneratedOptions {
   compiler?: "typescript-5-2" | "typescript";

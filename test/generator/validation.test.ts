@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GenerationDiagnosticError } from "../../src/diagnostics";
-import { Column, GenerateRequest, Identifier, Parameter, Query, Settings } from "../../src/gen/plugin/codegen_pb";
-import { validateGenerateRequest } from "../../src/validation";
+import { GenerationDiagnosticError } from "../../src/diagnostics.ts";
+import { Column, GenerateRequest, Identifier, Parameter, Query, Settings } from "../../src/gen/plugin/codegen_pb.ts";
+import { validateGenerateRequest } from "../../src/validation.ts";
 
 const encoder = new TextEncoder();
 const identifier = (name: string) => new Identifier({ name });

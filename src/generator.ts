@@ -1,13 +1,13 @@
-import { File, GenerateRequest, GenerateResponse } from "./gen/plugin/codegen_pb";
-import { Driver as D1Driver } from "./d1";
+import { File, GenerateRequest, GenerateResponse } from "./gen/plugin/codegen_pb.ts";
+import { Driver as D1Driver } from "./d1.ts";
 import {
   planEmission,
   RUNTIME_VALUE_ALIAS,
   type ArgumentFieldPlan,
   type QueryPlan,
   type RowFieldPlan,
-} from "./emission-plan";
-import { validateGenerateRequest, type ValidatedGeneration } from "./validation";
+} from "./emission-plan.ts";
+import { validateGenerateRequest, type ValidatedGeneration } from "./validation.ts";
 
 type Options = ValidatedGeneration["options"];
 

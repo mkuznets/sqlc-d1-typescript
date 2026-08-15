@@ -12,10 +12,10 @@ import {
   Schema,
   Settings,
   Table,
-} from "../../src/gen/plugin/codegen_pb";
-import { GeneratorHarness, GeneratorOutcome } from "./harness";
-import { compileGeneratedResponse } from "./compile";
-import { DEFAULT_FAKE_META, FakeDatabase, FakeExecutor, loadGeneratedModules } from "./evaluate";
+} from "../../src/gen/plugin/codegen_pb.ts";
+import type { GeneratorHarness, GeneratorOutcome } from "./harness.ts";
+import { compileGeneratedResponse } from "./compile.ts";
+import { DEFAULT_FAKE_META, FakeDatabase, FakeExecutor, loadGeneratedModules } from "./evaluate.ts";
 
 export type GeneratorScenarioInput =
   { kind: "request"; request: GenerateRequest } | { kind: "bytes"; bytes: Uint8Array };

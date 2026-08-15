@@ -8,24 +8,6 @@ import test from "node:test";
 const bytes = Buffer.from("candidate");
 const digest = createHash("sha256").update(bytes).digest("hex");
 
-test("verification/generate-candidate-digest rejects mismatch before invoking sqlc", async () => {
-  const { generateCandidate } = await import("../scripts/generate-candidate.ts");
-  const directory = mkdtempSync(join(tmpdir(), "candidate-generation-"));
-  try {
-    const candidate = join(directory, "plugin.wasm");
-    writeFileSync(candidate, bytes);
-    writeFileSync(join(directory, "sqlc.yaml"), "plugins:\n  - wasm:\n      url: file:///old/plugin.wasm\n");
-
-    await assert.rejects(
-      generateCandidate({ candidate, sha256: "0".repeat(64), config: "sqlc.yaml", cwd: directory, sqlc: "not-called" }),
-      /SHA-256 mismatch/,
-    );
-    assert.deepEqual(readdirSync(directory).sort(), ["plugin.wasm", "sqlc.yaml"]);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test("verification/generated-tree-comparison detects changed, added, and deleted output", async () => {
   const { compareGeneratedTrees } = await import("../scripts/check-generated-drift.ts");
   const directory = mkdtempSync(join(tmpdir(), "generated-trees-"));
@@ -51,34 +33,34 @@ test("verification/generated-tree-comparison detects changed, added, and deleted
   }
 });
 
-test("verification/generate-candidate-retained uses retained protected bytes and cleans temporary files", async () => {
+test("verification/generate-candidate points sqlc at the candidate bytes and cleans temporary files", async () => {
   const { generateCandidate } = await import("../scripts/generate-candidate.ts");
   const directory = mkdtempSync(join(tmpdir(), "candidate-generation-"));
   try {
     const candidate = join(directory, "plugin.wasm");
     const fakeSqlc = join(directory, "fake-sqlc.mjs");
     writeFileSync(candidate, bytes);
+    // The literal $& in the URL is a regex replacement hazard: an unguarded
+    // String.replace would splice the whole match back into the rewritten config.
     writeFileSync(join(directory, "sqlc.yaml"), "plugins:\n  - wasm:\n      url: file:///old/$&/plugin.wasm\n");
     writeFileSync(
       fakeSqlc,
       `#!/usr/bin/env node
-import {readFileSync,writeFileSync,statSync} from 'node:fs';
-writeFileSync(${JSON.stringify(candidate)}, 'substituted-after-validation');
+import {readFileSync,writeFileSync} from 'node:fs';
 const config=readFileSync(process.argv[3],'utf8'); const url=/url: (\\S+)/.exec(config)[1]; const path=new URL(url);
-writeFileSync('observed.json', JSON.stringify({config,bytes:readFileSync(path,'utf8'),mode:statSync(path).mode & 0o777}));`,
+writeFileSync('observed.json', JSON.stringify({config,bytes:readFileSync(path,'utf8')}));`,
     );
     chmodSync(fakeSqlc, 0o755);
 
-    await generateCandidate({ candidate, sha256: digest, config: "sqlc.yaml", cwd: directory, sqlc: fakeSqlc });
+    await generateCandidate({ candidate, config: "sqlc.yaml", cwd: directory, sqlc: fakeSqlc });
     const observed = JSON.parse(readFileSync(join(directory, "observed.json"), "utf8")) as {
       config: string;
       bytes: string;
-      mode: number;
     };
 
     assert.equal(observed.bytes, "candidate");
-    assert.equal(observed.mode, 0o400);
     assert.doesNotMatch(observed.config, /\$&/);
+    assert.match(observed.config, new RegExp(`sha256: ${digest}`));
     assert.equal(
       readdirSync(directory).some((name) => name.includes(".candidate-")),
       false,

@@ -1,6 +1,6 @@
-import { Column, GenerateRequest, Identifier, Query } from "./gen/plugin/codegen_pb";
-import compatibility from "../verification/compatibility.json";
-import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics";
+import { Column, GenerateRequest, Identifier, Query } from "./gen/plugin/codegen_pb.ts";
+import compatibility from "../verification/compatibility.json" with { type: "json" };
+import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics.ts";
 
 export const SQLC_COMPATIBILITY_POLICY = Object.freeze({
   supportedFloor: compatibility.sqlc.supportedFloor.replace(/^v/, ""),

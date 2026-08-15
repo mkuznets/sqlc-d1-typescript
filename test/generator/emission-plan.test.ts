@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GenerationDiagnosticError } from "../../src/diagnostics";
+import { GenerationDiagnosticError } from "../../src/diagnostics.ts";
 import {
   FIELD_NAME_PATTERN,
   PhysicalKeyNamespace,
@@ -15,7 +15,7 @@ import {
   runtimeImportSpecifier,
   toPublicFieldCamelCase,
   toQueryFactoryCamelCase,
-} from "../../src/emission-plan";
+} from "../../src/emission-plan.ts";
 import {
   Catalog,
   Column,
@@ -26,8 +26,8 @@ import {
   Schema,
   Settings,
   Table,
-} from "../../src/gen/plugin/codegen_pb";
-import { validateGenerateRequest } from "../../src/validation";
+} from "../../src/gen/plugin/codegen_pb.ts";
+import { validateGenerateRequest } from "../../src/validation.ts";
 
 const identifier = (name: string) => new Identifier({ name });
 const column = (name: string) => new Column({ name, type: identifier("text"), notNull: true });

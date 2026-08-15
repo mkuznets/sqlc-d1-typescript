@@ -24,7 +24,7 @@ continue; carry it into the step 7 report rather than absorbing it.
 
 The exact identifier, its correction, and the full inventory live in
 [`docs/troubleshooting.md`](https://github.com/mkuznets/sqlc-d1-typescript/blob/v<version>/docs/troubleshooting.md)
-at the installed tag. Search that page for the identifier the Plugin printed; the identifiers are stable.
+at the selected tag. Search that page for the identifier the Plugin printed; the identifiers are stable.
 
 The commands, macros, metadata shapes, and value representations the Plugin promises to translate — the
 compatibility surface — are in
@@ -48,7 +48,7 @@ already ran.
 Descriptor reuse, batch atomicity, session executors, session bookmarks, retry safety, and the logging rules
 are in
 [`docs/runtime-and-errors.md`](https://github.com/mkuznets/sqlc-d1-typescript/blob/v<version>/docs/runtime-and-errors.md)
-at the installed tag.
+at the selected tag.
 
 ## The fail-closed rule
 

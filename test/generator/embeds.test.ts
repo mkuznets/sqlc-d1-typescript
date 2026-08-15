@@ -6,8 +6,8 @@ import {
   findEmbedExpansions,
   rewriteProjection,
   type ExpansionSpan,
-} from "../../src/embeds";
-import { Catalog, Column, Identifier, Schema, Table } from "../../src/gen/plugin/codegen_pb";
+} from "../../src/embeds.ts";
+import { Catalog, Column, Identifier, Schema, Table } from "../../src/gen/plugin/codegen_pb.ts";
 
 const identifier = (name: string, schema = "", catalog = "") => new Identifier({ name, schema, catalog });
 const catalogColumn = (name: string) => new Column({ name, type: identifier("text"), notNull: true });

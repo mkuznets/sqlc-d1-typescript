@@ -1,5 +1,5 @@
-import { Column, Identifier, Query } from "./gen/plugin/codegen_pb";
-import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics";
+import { Column, Identifier, Query } from "./gen/plugin/codegen_pb.ts";
+import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics.ts";
 import {
   CatalogIndex,
   EMBED_ALIAS_PREFIX,
@@ -7,7 +7,7 @@ import {
   rewriteProjection,
   type AliasedItem,
   type ExpansionSpan,
-} from "./embeds";
+} from "./embeds.ts";
 import {
   RUNTIME_TYPE_IMPORT_ORDER,
   VALUE_KINDS,
@@ -15,8 +15,8 @@ import {
   type RuntimeTypeImport,
   type ValueFieldPlan,
   type ValueKind,
-} from "./sqlite-types";
-import { ROW_COMMANDS, type SupportedCommand, type ValidatedGeneration } from "./validation";
+} from "./sqlite-types.ts";
+import { ROW_COMMANDS, type SupportedCommand, type ValidatedGeneration } from "./validation.ts";
 
 export type { RuntimeTypeImport, ValueFieldPlan, ValueKind };
 export { RUNTIME_TYPE_IMPORT_ORDER };

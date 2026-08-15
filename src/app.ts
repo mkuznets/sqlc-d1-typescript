@@ -1,7 +1,7 @@
 // @ts-expect-error javy/fs is provided by the Javy runtime.
 import { readFileSync, writeFileSync, STDIO } from "javy/fs";
 
-import { runPlugin } from "./plugin";
+import { runPlugin } from "./plugin.ts";
 
 const result = runPlugin(readFileSync(STDIO.Stdin));
 if (result.stderr) {

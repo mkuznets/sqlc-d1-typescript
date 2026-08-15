@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { chmod, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArguments, readCandidate, runAsCli, UsageError } from "./candidate-utils.ts";
 
 export interface GenerateCandidateOptions {
   candidate: string;
-  sha256: string;
   config: string;
   cwd: string;
   sqlc?: string;
@@ -16,29 +15,27 @@ export interface GenerateCandidateOptions {
 
 export async function generateCandidate({
   candidate,
-  sha256,
   config,
   cwd,
   sqlc = "sqlc",
 }: GenerateCandidateOptions): Promise<void> {
-  const retained = await readCandidate(candidate, sha256);
+  const retained = await readCandidate(candidate);
   const workingDirectory = resolve(cwd);
   const configPath = resolve(workingDirectory, config);
   const source = await readFile(configPath, "utf8");
-  const token = randomUUID();
-  const temporaryConfig = resolve(dirname(configPath), `.${basename(configPath)}.candidate-${token}.yaml`);
-  const temporaryCandidate = resolve(dirname(configPath), `.plugin.candidate-${token}.wasm`);
+  const temporaryConfig = resolve(dirname(configPath), `.${basename(configPath)}.candidate-${randomUUID()}.yaml`);
 
   let primaryError: unknown;
   try {
-    await writeFile(temporaryCandidate, retained.bytes, { mode: 0o400 });
-    await chmod(temporaryCandidate, 0o400);
-    const wasmUrl = pathToFileURL(temporaryCandidate).href;
+    // sqlc checks the configured sha256 against the wasm it loads, so the generated
+    // config carries the digest of the exact bytes this run is testing.
+    const sha256 = createHash("sha256").update(retained.bytes).digest("hex");
+    const wasmUrl = pathToFileURL(retained.path).href;
     let replaced = source.replace(/(^\s*url:\s*)\S+/m, (_match, prefix: string) => `${prefix}${wasmUrl}`);
     if (replaced === source) throw new Error(`config has no Plugin WASM URL: ${configPath}`);
-    if (/^\s*sha256:\s*\S+/m.test(replaced))
-      replaced = replaced.replace(/(^\s*sha256:\s*)\S+/m, `$1${retained.sha256}`);
-    else replaced = replaced.replace(/^(\s*url:\s*\S+)$/m, `$1\n      sha256: ${retained.sha256}`);
+    replaced = /^\s*sha256:\s*\S+/m.test(replaced)
+      ? replaced.replace(/(^\s*sha256:\s*)\S+/m, (_match, prefix: string) => `${prefix}${sha256}`)
+      : replaced.replace(/^(\s*url:\s*\S+)$/m, (_match, line: string) => `${line}\n      sha256: ${sha256}`);
     await writeFile(temporaryConfig, replaced, { mode: 0o600 });
     await run(sqlc, ["-f", temporaryConfig, "generate"], workingDirectory);
   } catch (error) {
@@ -46,12 +43,10 @@ export async function generateCandidate({
   }
 
   const cleanupErrors: unknown[] = [];
-  for (const path of [temporaryConfig, temporaryCandidate]) {
-    try {
-      await rm(path, { force: true });
-    } catch (error) {
-      cleanupErrors.push(error);
-    }
+  try {
+    await rm(temporaryConfig, { force: true });
+  } catch (error) {
+    cleanupErrors.push(error);
   }
   if (primaryError || cleanupErrors.length)
     throw combinedError(primaryError, cleanupErrors, "candidate generation cleanup failed");
@@ -78,6 +73,10 @@ function run(command: string, args: readonly string[], cwd: string): Promise<voi
 }
 
 runAsCli(import.meta.url, async () => {
-  const args = parseArguments(process.argv.slice(2), ["candidate", "sha256", "config", "cwd"]);
+  const args = parseArguments(
+    process.argv.slice(2),
+    ["candidate", "config", "cwd"],
+    ["candidate", "config", "cwd", "sqlc"],
+  );
   await generateCandidate(args as unknown as GenerateCandidateOptions);
 });

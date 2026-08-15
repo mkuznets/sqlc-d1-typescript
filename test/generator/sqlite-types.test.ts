@@ -7,8 +7,8 @@ import {
   normalizeDeclaredTypeName,
   valueKindForColumn,
   type ValueKind,
-} from "../../src/sqlite-types";
-import { Column, Identifier } from "../../src/gen/plugin/codegen_pb";
+} from "../../src/sqlite-types.ts";
+import { Column, Identifier } from "../../src/gen/plugin/codegen_pb.ts";
 
 const declared = (name: string) => new Column({ name: "value", type: new Identifier({ name }), notNull: true });
 

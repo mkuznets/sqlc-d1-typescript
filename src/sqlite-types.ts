@@ -1,4 +1,4 @@
-import type { Column, Identifier } from "./gen/plugin/codegen_pb";
+import type { Column, Identifier } from "./gen/plugin/codegen_pb.ts";
 
 export type ValueKind = "integer" | "number" | "text" | "boolean" | "blob" | "json" | "unknown";
 
