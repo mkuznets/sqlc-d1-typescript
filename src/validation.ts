@@ -1,14 +1,9 @@
 import { Column, GenerateRequest, Identifier, Query } from "./gen/plugin/codegen_pb.ts";
-import compatibility from "../verification/compatibility.json" with { type: "json" };
 import { GenerationDiagnosticError, quoteDiagnosticValue, type Diagnostic } from "./diagnostics.ts";
+import { MINIMUM_SQLC_VERSION, TESTED_SQLC_VERSION } from "./compatibility.ts";
+import { compareSemVer, parseSemVer, type SemVer } from "./semver.ts";
 
-export const SQLC_COMPATIBILITY_POLICY = Object.freeze({
-  supportedFloor: compatibility.sqlc.supportedFloor.replace(/^v/, ""),
-  testedCeiling: compatibility.sqlc.testedCeiling.replace(/^v/, ""),
-});
-
-export const MINIMUM_SQLC_VERSION = SQLC_COMPATIBILITY_POLICY.supportedFloor;
-export const TESTED_SQLC_VERSION = SQLC_COMPATIBILITY_POLICY.testedCeiling;
+export { MINIMUM_SQLC_VERSION, TESTED_SQLC_VERSION };
 export const SUPPORTED_COMMANDS = [":one", ":many", ":exec", ":execrows", ":execlastid", ":execresult"] as const;
 export type SupportedCommand = (typeof SUPPORTED_COMMANDS)[number];
 
@@ -21,13 +16,8 @@ export interface ValidatedGeneration {
   warnings: Diagnostic[];
 }
 
-interface SemVer {
-  core: [string, string, string];
-  prerelease: string[];
-}
-
-const minimumVersion = parseSemVer(SQLC_COMPATIBILITY_POLICY.supportedFloor)!;
-const testedVersion = parseSemVer(SQLC_COMPATIBILITY_POLICY.testedCeiling)!;
+const minimumVersion = parseSemVer(MINIMUM_SQLC_VERSION)!;
+const testedVersion = parseSemVer(TESTED_SQLC_VERSION)!;
 
 export function validateGenerateRequest(request: GenerateRequest): ValidatedGeneration {
   const diagnostics: Diagnostic[] = [];
@@ -145,52 +135,6 @@ function decodeOptions(bytes: Uint8Array, diagnostics: Diagnostic[]): { interfac
     return undefined;
   }
   return { interface: "workers" };
-}
-
-export function parseSemVer(value: string): SemVer | undefined {
-  const match =
-    /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(
-      value,
-    );
-  if (!match) return undefined;
-  const prerelease = match[4]?.split(".") ?? [];
-  if (prerelease.some((identifier) => /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0")))
-    return undefined;
-  return { core: [match[1], match[2], match[3]], prerelease };
-}
-
-export function compareSemVer(left: SemVer, right: SemVer): number {
-  for (let index = 0; index < 3; index++) {
-    const comparison = compareNumericText(left.core[index], right.core[index]);
-    if (comparison !== 0) return comparison;
-  }
-
-  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
-    return left.prerelease.length === right.prerelease.length ? 0 : left.prerelease.length === 0 ? 1 : -1;
-  }
-
-  const length = Math.max(left.prerelease.length, right.prerelease.length);
-  for (let index = 0; index < length; index++) {
-    const a = left.prerelease[index];
-    const b = right.prerelease[index];
-    if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? -1 : 1;
-    const aNumeric = /^\d+$/.test(a);
-    const bNumeric = /^\d+$/.test(b);
-    if (aNumeric && bNumeric) {
-      const comparison = compareNumericText(a, b);
-      if (comparison !== 0) return comparison;
-    } else if (aNumeric !== bNumeric) {
-      return aNumeric ? -1 : 1;
-    } else {
-      const comparison = compareText(a, b);
-      if (comparison !== 0) return comparison;
-    }
-  }
-  return 0;
-}
-
-function compareNumericText(left: string, right: string): number {
-  return left.length - right.length || compareText(left, right);
 }
 
 function validateQuery(query: Query, queryIndex: number, diagnostics: Diagnostic[]): void {

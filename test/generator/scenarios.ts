@@ -244,12 +244,9 @@ const currentCommands: GeneratorScenario = {
       expected: "the private DB.withSession capability",
       received: "an invalid capability",
     });
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(response, {
-        compiler,
-        additionalFiles: { "consumer.ts": publicApiConsumer },
-      });
-    }
+    compileGeneratedResponse(response, {
+      additionalFiles: { "consumer.ts": publicApiConsumer },
+    });
     for (const unsafePath of ["../consumer.ts", "/consumer.ts", "tsconfig.json", "queries_sql.ts"]) {
       assert.throws(() =>
         compileGeneratedResponse(response, {
@@ -467,9 +464,7 @@ const commandSemantics: GeneratorScenario = {
     assert.doesNotMatch(bare, /generatedInternals|d1_values|d1_Context/);
     assert.match(bare, /^import type \{ QueryDescriptor \} from "\.\/runtime";$/m);
 
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": commandsConsumer } });
-    }
+    compileGeneratedResponse(response, { additionalFiles: { "consumer.ts": commandsConsumer } });
   },
 };
 
@@ -898,9 +893,7 @@ const argumentModel: GeneratorScenario = {
       assert.equal(JSON.parse(literal), query.text, query.name);
     }
 
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": argumentsConsumer } });
-    }
+    compileGeneratedResponse(response, { additionalFiles: { "consumer.ts": argumentsConsumer } });
   },
 };
 
@@ -1350,23 +1343,9 @@ const many: Promise<ListItemsRow[]> = db.execute(listItems());
 const descriptor: QueryDescriptor<CreateItemRow | null> = createItem();
 void [one, many, descriptor];
 `;
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(outcome.response, {
-        compiler,
-        additionalFiles: { "admin/consumer.ts": nestedConsumer },
-      });
-    }
-  },
-};
-
-const typescriptFloor: GeneratorScenario = {
-  id: "generator/typescript-floor",
-  createInput: () => queryInput(createSafeEmissionRequest()),
-  assert(outcome) {
-    assert.equal(outcome.exitCode, 0, outcome.diagnostics);
-    assert.ok(outcome.response);
-    compileGeneratedResponse(outcome.response, { compiler: "typescript-5-2" });
-    compileGeneratedResponse(outcome.response, { compiler: "typescript" });
+    compileGeneratedResponse(outcome.response, {
+      additionalFiles: { "admin/consumer.ts": nestedConsumer },
+    });
   },
 };
 
@@ -1495,12 +1474,9 @@ const value: D1Value = null;
 const error: Error = new QueryResultError("bad row", { operation: "execute", queryName: "GetUser", rowIndex: 0 });
 void [session, value, error];
 `;
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(outcome.response, {
-        compiler,
-        additionalFiles: { "consumer.ts": consumer },
-      });
-    }
+    compileGeneratedResponse(outcome.response, {
+      additionalFiles: { "consumer.ts": consumer },
+    });
   },
 };
 
@@ -1718,9 +1694,7 @@ const checkedValues: GeneratorScenario = {
       assert.doesNotMatch(source, /row\[[^\]]+\] as /);
     }
 
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": checkedValuesConsumer } });
-    }
+    compileGeneratedResponse(response, { additionalFiles: { "consumer.ts": checkedValuesConsumer } });
   },
 };
 
@@ -3149,9 +3123,7 @@ const embedModel: GeneratorScenario = {
       /^ {8}"users": \{\n {12}"id": d1_values\.rowInteger\(row, "d1_embed_0_0", "users\.id", ctx\),\n {12}"name": d1_values\.rowText\(row, "d1_embed_0_1", "users\.name", ctx\)\n {8}\},$/m,
     );
 
-    for (const compiler of ["typescript-5-2", "typescript"] as const) {
-      compileGeneratedResponse(response, { compiler, additionalFiles: { "consumer.ts": embedsConsumer } });
-    }
+    compileGeneratedResponse(response, { additionalFiles: { "consumer.ts": embedsConsumer } });
   },
 };
 
@@ -3573,7 +3545,6 @@ export const generatorScenarios = [
   embedBoundary,
   diagnosticAggregation,
   safeEmission,
-  typescriptFloor,
   emissionDiagnostics,
   emissionDeterminism,
   noQueryRuntime,

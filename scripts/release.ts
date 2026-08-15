@@ -7,10 +7,9 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { parseArguments, runAsCli, usageError } from "./candidate-utils.ts";
-import { loadCompatibilityConfig, type CompatibilityConfig } from "./compatibility-config.ts";
+import { MINIMUM_SQLC_VERSION, TESTED_SQLC_VERSION } from "../src/compatibility.ts";
+import { parseSemVer } from "../src/semver.ts";
 
-const SEMVER =
-  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$/;
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const PUBLIC_ORIGIN = "https://sqlc.mkuznets.com/plugins";
 
@@ -25,7 +24,7 @@ export interface ReleaseManifest {
   artifact: { filename: string; sha256: string; size: number; url: string };
   source_commit: string;
   tag: string;
-  tested_versions: { bun: string; node: string; npm: string; sqlc: string[]; typescript: string[] };
+  tested_versions: { sqlc: { floor: string; ceiling: string } };
   version: string;
   workflow_url: string;
 }
@@ -35,7 +34,11 @@ export function parseSemver(value: unknown, { prefixed = false }: { prefixed?: b
   if (typeof value !== "string" || (prefixed ? !value.startsWith("v") : value.startsWith("v")))
     throw usageError(`rejected version ${JSON.stringify(value)}; expected ${shape}`);
   const version = prefixed ? value.slice(1) : value;
-  if (!SEMVER.test(version)) throw usageError(`rejected version ${JSON.stringify(value)}; expected ${shape}`);
+  // The shared parser takes an optional `v` and keeps build metadata; a release identity
+  // allows neither, because two tags would otherwise name the same published artifact.
+  const parsed = version.startsWith("v") ? undefined : parseSemVer(version);
+  if (!parsed || parsed.build.length > 0)
+    throw usageError(`rejected version ${JSON.stringify(value)}; expected ${shape}`);
   return version;
 }
 
@@ -105,11 +108,9 @@ export async function resolveReleaseIntent({
 export function createReleaseManifest({
   intent,
   bytes,
-  config,
 }: {
   intent: ReleaseIntent;
   bytes: Uint8Array;
-  config: CompatibilityConfig;
 }): ReleaseManifest {
   const filename = canonicalWasmFilename(intent.version);
   if (parseSemver(intent.tag, { prefixed: true }) !== intent.version)
@@ -123,13 +124,7 @@ export function createReleaseManifest({
     },
     source_commit: intent.sourceCommit,
     tag: intent.tag,
-    tested_versions: {
-      bun: config.tools.bun,
-      node: config.tools.node,
-      npm: config.tools.npm,
-      sqlc: config.sqlc.samples.map(({ version }) => version),
-      typescript: [config.typescript.floor, config.typescript.current],
-    },
+    tested_versions: { sqlc: { floor: MINIMUM_SQLC_VERSION, ceiling: TESTED_SQLC_VERSION } },
     version: intent.version,
     workflow_url: intent.workflowUrl,
   };
@@ -200,7 +195,6 @@ async function cli(): Promise<void> {
         workflowUrl: values["workflow-url"],
       },
       bytes,
-      config: await loadCompatibilityConfig(),
     });
     const expected = canonicalManifestFilename(manifest.version);
     if (!values.output.endsWith(expected)) throw usageError(`manifest filename must be ${expected}`);

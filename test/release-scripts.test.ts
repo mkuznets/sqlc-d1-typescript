@@ -9,7 +9,7 @@ import {
   stableJson,
   type ReleaseIntent,
 } from "../scripts/release.ts";
-import { loadCompatibilityConfig } from "../scripts/compatibility-config.ts";
+import { MINIMUM_SQLC_VERSION, TESTED_SQLC_VERSION } from "../src/compatibility.ts";
 
 const sha = "0123456789abcdef0123456789abcdef01234567";
 const intent: ReleaseIntent = {
@@ -76,10 +76,9 @@ test("release/intent refuses anything that is not a tag on default-branch lineag
   await assert.rejects(resolveReleaseIntent({ ...base, sourceCommit: "abc" }), /40-character/);
 });
 
-test("release/manifest describes the exact bytes and is byte-stable", async () => {
-  const config = await loadCompatibilityConfig();
+test("release/manifest describes the exact bytes and is byte-stable", () => {
   const bytes = new TextEncoder().encode("plugin bytes");
-  const manifest = createReleaseManifest({ intent, bytes, config });
+  const manifest = createReleaseManifest({ intent, bytes });
 
   assert.equal(manifest.artifact.filename, "sqlc-gen-d1-typescript_0.2.0.wasm");
   assert.equal(manifest.artifact.size, bytes.length);
@@ -87,22 +86,20 @@ test("release/manifest describes the exact bytes and is byte-stable", async () =
   assert.equal(manifest.artifact.url, `https://sqlc.mkuznets.com/plugins/${manifest.artifact.filename}`);
   assert.equal(manifest.source_commit, sha);
   assert.equal(manifest.version, "0.2.0");
-  assert.deepEqual(
-    manifest.tested_versions.sqlc,
-    config.sqlc.samples.map(({ version }) => version),
-  );
-  assert.deepEqual(manifest.tested_versions.typescript, [config.typescript.floor, config.typescript.current]);
+  assert.deepEqual(manifest.tested_versions.sqlc, {
+    floor: MINIMUM_SQLC_VERSION,
+    ceiling: TESTED_SQLC_VERSION,
+  });
 
   // The manifest is published, so its encoding must not depend on key insertion order.
-  assert.equal(stableJson(createReleaseManifest({ intent, bytes, config })), stableJson(manifest));
+  assert.equal(stableJson(createReleaseManifest({ intent, bytes })), stableJson(manifest));
   assert.equal(stableJson(manifest), stableJson(JSON.parse(stableJson(manifest))));
   assert.ok(stableJson(manifest).endsWith("}\n"));
 });
 
-test("release/manifest refuses a tag that does not name its version", async () => {
-  const config = await loadCompatibilityConfig();
+test("release/manifest refuses a tag that does not name its version", () => {
   assert.throws(
-    () => createReleaseManifest({ intent: { ...intent, tag: "v0.3.0" }, bytes: new Uint8Array(1), config }),
+    () => createReleaseManifest({ intent: { ...intent, tag: "v0.3.0" }, bytes: new Uint8Array(1) }),
     /does not name version/,
   );
 });

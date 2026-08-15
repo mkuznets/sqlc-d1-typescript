@@ -8,7 +8,7 @@ Everything below is executed by the `publish` job in [`.github/workflows/release
 
 The `verify` job validates the tag, builds the plugin once, and runs every uncredentialed check against it. The `sqlc-compatibility` matrix tests those same bytes across the sampled sqlc versions. Only then does `publish` run:
 
-1. **Manifest** — the wasm is renamed to its canonical filename and `scripts/release.ts manifest` records its digest, size, permanent URL, and the tested tool versions.
+1. **Manifest** — the wasm is renamed to its canonical filename and `scripts/release.ts manifest` records its digest, size, permanent URL, and the tested sqlc range.
 2. **Version key** — `aws s3api put-object` with `--if-none-match '*'` and `--content-md5`. The conditional write is what makes the key immutable: if it already holds bytes, R2 answers `412` and the step fails rather than replacing what is already advertised.
 3. **Public verification** — the public URL is fetched unauthenticated, exactly as a consumer does, and its SHA-256 compared to the bytes just published. The release notes may only advertise a URL that already serves the right bytes.
 4. **Publish** — `gh release create` attaches the wasm and its manifest. This is the last write of the run.
@@ -31,7 +31,7 @@ Configure these identifiers (never commit their values):
 
 The `v*` rule must be created as a **tag** rule; created as a branch rule it matches no tag, and every tag push is then refused the Environment.
 
-GitHub credentials are the job-scoped `GITHUB_TOKEN` only. `contents: write` appears on the publish job and nowhere else; `test/verification-contracts.test.ts` holds the workflow to that.
+GitHub credentials are the job-scoped `GITHUB_TOKEN` only. `contents: write` appears on the publish job and nowhere else.
 
 ## How R2 is reached
 

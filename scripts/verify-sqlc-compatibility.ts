@@ -3,9 +3,8 @@ import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { readCandidate, parseArguments, runAsCli, usageError } from "./candidate-utils.ts";
-import { fixtures, clearGeneratedDirectory, type Fixture } from "./check-generated-drift.ts";
+import { fixtures, clearGeneratedDirectory } from "./check-generated-drift.ts";
 import { generateCandidate } from "./generate-candidate.ts";
-import { loadCompatibilityConfig } from "./compatibility-config.ts";
 
 function capture(command: string, args: readonly string[], cwd: string): Promise<string> {
   return new Promise<string>((ok, fail) => {
@@ -31,23 +30,7 @@ function run(command: string, args: readonly string[], cwd: string): Promise<voi
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-const floorFixture: Fixture = {
-  directory: "test/sqlc-v1-18",
-  config: "sqlc.yaml",
-  generatedDirectory: "src",
-  staticFiles: [],
-};
-
-// sqlc v1.18.0 cannot parse the current fixture syntax, so the floor cell runs its own
-// corpus. Every other sample runs the fixtures the repository actually ships.
-export function fixturesForSqlcVersion(version: string): readonly Fixture[] {
-  return version === "v1.18.0" ? [floorFixture] : fixtures;
-}
-
-const normalizeVersion = (text: string): string | undefined => {
-  const match = text.match(/v?(\d+\.\d+\.\d+)/);
-  return match ? `v${match[1]}` : undefined;
-};
+const normalizeVersion = (text: string): string | undefined => text.match(/v?(\d+\.\d+\.\d+)/)?.[1];
 
 export async function verifySqlcCompatibility({
   candidate,
@@ -61,9 +44,6 @@ export async function verifySqlcCompatibility({
   root?: string;
 }): Promise<void> {
   const retained = await readCandidate(candidate);
-  const config = await loadCompatibilityConfig({ root });
-  if (!config.sqlc.samples.some(({ version }) => version === sqlcVersion))
-    throw usageError(`sqlc version ${sqlcVersion} is not listed in compatibility.sqlc.samples`);
   const actual = normalizeVersion(await capture(sqlc, ["version"], root));
   if (actual !== sqlcVersion)
     throw usageError(
@@ -74,7 +54,7 @@ export async function verifySqlcCompatibility({
   await mkdir(cacheRoot, { recursive: true });
   const mirror = await mkdtemp(resolve(cacheRoot, "sqlc-compatibility-"));
   try {
-    for (const fixture of fixturesForSqlcVersion(sqlcVersion)) {
+    for (const fixture of fixtures) {
       const destination = resolve(mirror, fixture.directory);
       await cp(resolve(root, fixture.directory), destination, {
         recursive: true,
@@ -100,9 +80,7 @@ export async function verifySqlcCompatibility({
           destination,
         );
       } catch (error) {
-        throw new Error(
-          `${sqlcVersion} compile failed for ${fixture.directory} with TypeScript ${config.typescript.current}: ${describe(error)}`,
-        );
+        throw new Error(`${sqlcVersion} compile failed for ${fixture.directory} with TypeScript: ${describe(error)}`);
       }
     }
   } finally {

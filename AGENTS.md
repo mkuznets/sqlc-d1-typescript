@@ -4,7 +4,7 @@ A sqlc code-generation plugin that emits TypeScript executed through a Cloudflar
 
 Prettier owns formatting. Run `make fmt` before committing; `make fmt-check` gates CI.
 
-Everything in `scripts/` is TypeScript run directly by Node (`node scripts/foo.ts`) — Node strips the types, so those files must stay within erasable syntax (no `enum`, no `namespace`, no constructor parameter properties) and must use explicit `.ts` extensions on relative imports. The same applies to `src/` and `test/`, because the tests run those sources directly. `scripts/workflows/pins.mjs` is the one exception: it chooses the Node version, so it runs before the toolchain is pinned and must stay plain JavaScript.
+Everything in `scripts/` is TypeScript run directly by Node (`node scripts/foo.ts`) — Node strips the types, so those files must stay within erasable syntax (no `enum`, no `namespace`, no constructor parameter properties) and must use explicit `.ts` extensions on relative imports. The same applies to `src/` and `test/`, because the tests run those sources directly.
 
 ## The generator and the shipped runtime (`src/`)
 
@@ -13,6 +13,8 @@ Everything in `scripts/` is TypeScript run directly by Node (`node scripts/foo.t
 | `src/app.ts`                   | Javy entry point: read stdin, write stdout and stderr, throw on failure.                                                     |
 | `src/plugin.ts`                | Decode the generate request, run validation and generation, render diagnostics. The one place a failure becomes stderr text. |
 | `src/validation.ts`            | Protocol, options, and query boundary validation. `SUPPORTED_COMMANDS` is the command surface.                               |
+| `src/compatibility.ts`         | The supported sqlc floor and the tested ceiling, as two literals and nothing else.                                           |
+| `src/semver.ts`                | SemVer parsing and precedence, shared with `scripts/release.ts`. Carries build metadata; never compares it.                  |
 | `src/diagnostics.ts`           | `[CATEGORY/REASON]` identifiers, severity, and redaction of SQL and values.                                                  |
 | `src/emission-plan.ts`         | Naming, collision avoidance, argument and row field plans, per-command result shapes.                                        |
 | `src/embeds.ts`                | `sqlc.embed` reconstruction and private alias rewriting.                                                                     |
@@ -43,13 +45,13 @@ Native D1 errors pass through unwrapped, so a consumer can recognize them. A `Qu
 
 `make verify-local` builds the plugin once and runs everything that needs no credentials. The layers each answer a different question about the same build:
 
-| Target                | Question                                                                                                   |
-| --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `make test-unit`      | Pure request-to-file generator behaviour, plus the script contracts.                                       |
-| `make test-candidate` | The same scenarios through the real wasm, and the public type surface on the floor and current TypeScript. |
-| `make test-drift`     | Does the committed generated output still match what the plugin emits?                                     |
-| `make test-miniflare` | Real workerd and D1 storage, fresh per test.                                                               |
-| `make test-example`   | The canonical Worker still builds and passes.                                                              |
+| Target                | Question                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `make test-unit`      | Pure request-to-file generator behaviour, plus the script contracts.                    |
+| `make test-candidate` | The same scenarios through the real wasm, and the public type surface under TypeScript. |
+| `make test-drift`     | Does the committed generated output still match what the plugin emits?                  |
+| `make test-miniflare` | Real workerd and D1 storage, fresh per test.                                            |
+| `make test-example`   | The canonical Worker still builds and passes.                                           |
 
 Tests run straight from TypeScript (`node --test`), and the unit target globs `test/*.test.ts test/generator/*.test.ts` — adding a test file needs no list edited anywhere.
 
@@ -68,9 +70,11 @@ done
 
 **Sub-project formatting.** `examples/d1-worker/` and `test/miniflare/` are bun sub-projects that keep their own Prettier configuration; Prettier resolves configuration per file, so their hand-written sources stay tab-indented. Use bun inside those directories.
 
-**Compatibility configuration.** `verification/compatibility.json` pins the sqlc samples and their rationale, the known exceptions, the TypeScript floor and current versions, and the Node/npm/Bun versions CI installs. It holds only what is not already recorded elsewhere — the Cloudflare versions live in the fixtures' `bun.lock` and `wrangler.jsonc`, and the buf and javy pins live in their install scripts. `scripts/workflows/pins.mjs` feeds the workflows from it and `docs/compatibility.md` presents it to consumers.
+**The supported sqlc range is two literals.** `src/compatibility.ts` holds the supported floor and the tested ceiling; validation enforces the floor, `docs/compatibility.md` presents both to consumers, and the CI matrix runs exactly those two versions. Every other pinned version lives with the thing it pins — Node, npm and Bun in `.github/actions/setup/action.yml`, the Cloudflare versions in the fixtures' `bun.lock` and `wrangler.jsonc`, the buf and javy pins in their install scripts.
 
-**Decided, against the obvious default:** sqlc is sampled strategically — the floor, the tested ceiling, and the intervening releases tied to a material protocol or metadata change. A matrix over every sqlc minor was considered and rejected ([#13](https://github.com/mkuznets/sqlc-d1-typescript/issues/13), [#38](https://github.com/mkuznets/sqlc-d1-typescript/issues/38)).
+**The floor cell does not run on macOS.** `make test-sqlc-compatibility SQLC_VERSION=1.25.0` dies with `SIGKILL` on macOS arm64: that sqlc's wasm runtime cannot execute the plugin there, though the binary itself runs. It passes on the Linux x64 CI runner, which is where that cell is meant to run. Reproduce it locally with Docker rather than concluding the plugin is broken.
+
+**Decided, against the obvious default:** the matrix samples only the floor and the ceiling. A matrix over every sqlc minor, and a matrix with intervening samples, were both considered and rejected ([#13](https://github.com/mkuznets/sqlc-d1-typescript/issues/13), [#38](https://github.com/mkuznets/sqlc-d1-typescript/issues/38)).
 
 ## Release
 
@@ -78,7 +82,7 @@ done
 
 **A valid tag is the approval.** A strict SemVer `v*` tag on default-branch lineage is the maintainer's release approval, and it is the only one. There is no dry-run mode: to rehearse a release, cut the next patch version.
 
-**Publication order is the safety property.** R2 first, then the public origin is re-downloaded and compared, then the GitHub Release is cut — the release notes may only advertise a URL that already serves the right bytes. The R2 write uses `--if-none-match '*'`, so a version key can never be replaced once published. `contents: write` appears on the `publish` job and nowhere else, and `test/verification-contracts.test.ts` holds the workflow to that. Operations live in `docs/release-publication.md`.
+**Publication order is the safety property.** R2 first, then the public origin is re-downloaded and compared, then the GitHub Release is cut — the release notes may only advertise a URL that already serves the right bytes. The R2 write uses `--if-none-match '*'`, so a version key can never be replaced once published. `contents: write` appears on the `publish` job and nowhere else. Operations live in `docs/release-publication.md`.
 
 **Canonical names.** `sqlc-gen-d1-typescript_<version>.wasm` and `sqlc-gen-d1-typescript_<version>.manifest.json`, with no aliases. The URL shape and the manifest contract live in `scripts/release.ts`.
 

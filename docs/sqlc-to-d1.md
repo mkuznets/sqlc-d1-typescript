@@ -70,4 +70,4 @@ Generation stops instead of guessing when analyzed metadata cannot be translated
 - duplicate physical row keys without unique SQL aliases;
 - unsafe/colliding output paths or TypeScript declarations.
 
-A sqlc version newer than the tested ceiling is different: `[COMPATIBILITY/UNTESTED_SQLC_VERSION]` is a warning and generation continues unless another incompatibility exists. See [compatibility](compatibility.md) for the current floor and tested samples, [troubleshooting](troubleshooting.md) for corrections, and [runtime and errors](runtime-and-errors.md) for execution behavior.
+A sqlc version newer than the tested ceiling is different: `[COMPATIBILITY/UNTESTED_SQLC_VERSION]` is a warning and generation continues unless another incompatibility exists. See [compatibility](compatibility.md) for the current floor and tested ceiling, [troubleshooting](troubleshooting.md) for corrections, and [runtime and errors](runtime-and-errors.md) for execution behavior.

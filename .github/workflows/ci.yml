@@ -12,15 +12,12 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    outputs:
-      sqlc-matrix: ${{ steps.setup.outputs.sqlc-matrix }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - id: setup
-        uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup
         with:
           bun: "true"
-          sqlc: ceiling
+          sqlc: 1.31.1
 
       - name: Check formatting (run make fmt to fix)
         run: make fmt-check
@@ -35,26 +32,26 @@ jobs:
           if-no-files-found: error
 
   sqlc-compatibility:
-    name: sqlc ${{ matrix.sqlc.version }}
+    name: sqlc ${{ matrix.sqlc }}
     needs: verify
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        sqlc: ${{ fromJSON(needs.verify.outputs.sqlc-matrix) }}
+        sqlc: ["1.25.0", "1.31.1"]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: ./.github/actions/setup
         with:
-          sqlc: ${{ matrix.sqlc.install }}
+          sqlc: ${{ matrix.sqlc }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: plugin-wasm
           path: build
 
-      - name: Generate and type-check the fixtures with sqlc ${{ matrix.sqlc.version }}
+      - name: Generate and type-check the fixtures with sqlc ${{ matrix.sqlc }}
         run: |
           node scripts/verify-sqlc-compatibility.ts \
             --candidate "$PWD/build/plugin.wasm" \
-            --sqlc-version "${{ matrix.sqlc.version }}" \
+            --sqlc-version "${{ matrix.sqlc }}" \
             --sqlc "$(command -v sqlc)"
