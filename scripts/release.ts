@@ -20,6 +20,10 @@ export interface ReleaseIntent {
   workflowUrl: string;
 }
 
+export interface ResolvedReleaseIntent extends ReleaseIntent {
+  isPrerelease: boolean;
+}
+
 export interface ReleaseManifest {
   artifact: { filename: string; sha256: string; size: number; url: string };
   source_commit: string;
@@ -86,7 +90,7 @@ export async function resolveReleaseIntent({
   serverUrl = "https://github.com",
   repository,
   isAncestor,
-}: ResolveIntentOptions): Promise<ReleaseIntent> {
+}: ResolveIntentOptions): Promise<ResolvedReleaseIntent> {
   if (!SOURCE_SHA.test(sourceCommit ?? "")) throw usageError("sourceCommit must be a full 40-character lowercase SHA");
   if (!/^\d+$/.test(workflowRunId ?? "")) throw usageError("workflowRunId must be a decimal string");
   if (!defaultBranch || !repository) throw usageError("defaultBranch and repository are required");
@@ -102,6 +106,7 @@ export async function resolveReleaseIntent({
     tag: refName!,
     sourceCommit: sourceCommit!,
     workflowUrl: `${serverUrl.replace(/\/$/, "")}/${repository}/actions/runs/${workflowRunId}`,
+    isPrerelease: (parseSemVer(version)?.prerelease.length ?? 0) > 0,
   };
 }
 
@@ -130,14 +135,92 @@ export function createReleaseManifest({
   };
 }
 
-function gitAncestor(source: string, branch: string): Promise<boolean> {
-  return new Promise<boolean>((ok, fail) => {
-    const child = spawn("git", ["merge-base", "--is-ancestor", source, `origin/${branch}`], { stdio: "ignore" });
-    child.on("error", fail);
-    child.on("exit", (code) =>
-      code === 0 ? ok(true) : code === 1 ? ok(false) : fail(new Error(`git merge-base exited ${code}`)),
+export interface RenderNotesOptions {
+  manifest: ReleaseManifest;
+  previousTag?: string;
+  commits: readonly string[]; // already formatted "- subject (abcdef1)" lines
+  repository: string;
+  serverUrl?: string;
+}
+
+// The release body is generated in full: the manifest is the only source of the facts it
+// states, so the advertised URL and digest cannot drift from the bytes R2 receives.
+export function renderReleaseNotes({
+  manifest,
+  previousTag,
+  commits,
+  repository,
+  serverUrl = "https://github.com",
+}: RenderNotesOptions): string {
+  const configuration = [
+    "## Configuration",
+    "",
+    "```yaml",
+    'version: "2"',
+    "plugins:",
+    "  - name: d1-ts",
+    "    wasm:",
+    `      url: ${manifest.artifact.url}`,
+    `      sha256: ${manifest.artifact.sha256}`,
+    "```",
+  ].join("\n");
+
+  const noChangesLine = previousTag ? `- No changes since ${previousTag}.` : "- No changes.";
+  const changes = [
+    previousTag ? "## Changes" : "## Initial release",
+    "",
+    commits.length > 0 ? commits.join("\n") : noChangesLine,
+  ].join("\n");
+
+  const sections = [configuration, changes];
+  if (previousTag)
+    sections.push(
+      `**Full changelog**: ${serverUrl.replace(/\/$/, "")}/${repository}/compare/${previousTag}...${manifest.tag}`,
     );
+  return `${sections.join("\n\n")}\n`;
+}
+
+function git(args: readonly string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((ok, fail) => {
+    const child = spawn("git", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (stdout += chunk));
+    child.stderr.on("data", (chunk: string) => (stderr += chunk));
+    child.on("error", fail);
+    child.on("exit", (code) => ok({ code: code ?? 1, stdout, stderr }));
   });
+}
+
+// The only two failures that mean "there is no earlier tag". Every other non-zero exit —
+// a bad ref, an unreadable object, no repository — is a real failure, and silently
+// reading it as a first release would replay the whole history into the notes.
+const NO_EARLIER_TAG = /No names found|No tags can describe/;
+
+// Describes from the tag's own commit while excluding the tag itself: a tag on a root
+// commit has no `^`, and a tag landing on an already-tagged commit still resolves to that
+// tag, which is what renders an empty range as "no changes" rather than replaying commits
+// that already shipped.
+async function previousReleaseTag(tag: string): Promise<string | undefined> {
+  const { code, stdout, stderr } = await git(["describe", "--tags", "--abbrev=0", `--exclude=${tag}`, tag]);
+  if (code === 0) return stdout.trim() || undefined;
+  if (NO_EARLIER_TAG.test(stderr)) return undefined;
+  throw new Error(`git describe ${tag} exited ${code}: ${stderr.trim()}`);
+}
+
+async function changelogLines(tag: string, previousTag: string | undefined): Promise<string[]> {
+  const range = previousTag ? `${previousTag}..${tag}` : tag;
+  const { code, stdout, stderr } = await git(["log", "--no-merges", "--pretty=- %s (%h)", range]);
+  if (code !== 0) throw new Error(`git log ${range} exited ${code}: ${stderr.trim()}`);
+  return stdout.split("\n").filter((line) => line.length > 0);
+}
+
+async function gitAncestor(source: string, branch: string): Promise<boolean> {
+  const { code, stderr } = await git(["merge-base", "--is-ancestor", source, `origin/${branch}`]);
+  if (code > 1) throw new Error(`git merge-base exited ${code}: ${stderr.trim()}`);
+  return code === 0;
 }
 
 async function writeStepOutputs(outputs: Record<string, string>): Promise<void> {
@@ -179,6 +262,7 @@ async function cli(): Promise<void> {
       "workflow-url": intent.workflowUrl,
       "wasm-filename": canonicalWasmFilename(intent.version),
       "manifest-filename": canonicalManifestFilename(intent.version),
+      "is-prerelease": String(intent.isPrerelease),
     });
   } else if (command === "manifest") {
     const values = parseArguments(
@@ -202,6 +286,28 @@ async function cli(): Promise<void> {
     console.log(`==> Wrote ${expected}`);
     console.log(`    sha256 ${manifest.artifact.sha256}`);
     console.log(`    size   ${manifest.artifact.size} bytes`);
+  } else if (command === "notes") {
+    const values = parseArguments(
+      rest,
+      ["manifest", "repository", "output"],
+      ["manifest", "repository", "output", "server-url"],
+    );
+    const manifest = JSON.parse(await readFile(resolve(values.manifest), "utf8")) as ReleaseManifest;
+    const previousTag = await previousReleaseTag(manifest.tag);
+    const commits = await changelogLines(manifest.tag, previousTag);
+    await writeFile(
+      resolve(values.output),
+      renderReleaseNotes({
+        manifest,
+        previousTag,
+        commits,
+        repository: values.repository,
+        serverUrl: values["server-url"],
+      }),
+    );
+    console.log(`==> Wrote ${values.output} for ${manifest.tag}`);
+    console.log(`    previous tag ${previousTag ?? "none (first release)"}`);
+    console.log(`    commits      ${commits.length}`);
   } else throw usageError(`unknown release command ${command}`);
 }
 

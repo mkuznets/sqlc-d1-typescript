@@ -9,9 +9,10 @@ Everything below is executed by the `publish` job in [`.github/workflows/release
 The `verify` job validates the tag, builds the plugin once, and runs every uncredentialed check against it. The `sqlc-compatibility` matrix tests those same bytes across the sampled sqlc versions. Only then does `publish` run:
 
 1. **Manifest** — the wasm is renamed to its canonical filename and `scripts/release.ts manifest` records its digest, size, permanent URL, and the tested sqlc range.
-2. **Version key** — `aws s3api put-object` with `--if-none-match '*'` and `--content-md5`. The conditional write is what makes the key immutable: if it already holds bytes, R2 answers `412` and the step fails rather than replacing what is already advertised.
-3. **Public verification** — the public URL is fetched unauthenticated, exactly as a consumer does, and its SHA-256 compared to the bytes just published. The release notes may only advertise a URL that already serves the right bytes.
-4. **Publish** — `gh release create` attaches the wasm and its manifest. This is the last write of the run.
+2. **Release notes** — `scripts/release.ts notes` renders the release body from that manifest. It runs before the version key exists, so a git failure or an unreadable manifest stops the release while nothing permanent has happened.
+3. **Version key** — `aws s3api put-object` with `--if-none-match '*'` and `--content-md5`. The conditional write is what makes the key immutable: if it already holds bytes, R2 answers `412` and the step fails rather than replacing what is already advertised.
+4. **Public verification** — the public URL is fetched unauthenticated, exactly as a consumer does, and its SHA-256 compared to the bytes just published. The release notes may only advertise a URL that already serves the right bytes.
+5. **Publish** — `gh release create` attaches the wasm and its manifest, with the rendered body. A prerelease version is marked `--prerelease --latest=false`; a stable one keeps GitHub's automatic "Latest". This is the last write of the run.
 
 ## GitHub Environment
 
@@ -67,7 +68,14 @@ The version key is the boundary. Before it exists the version is free; after it 
 
 ## Release notes
 
-The maintainer writes the changelog in the annotated tag message; nothing generates it. The publish job reads `%(contents:body)` from the tag and passes it to `gh release create --notes-file`.
+The body is generated in full by `scripts/release.ts notes`; nothing reads the tag message, so a release tag may be lightweight. It has three parts: the sqlc configuration block quoting the manifest's URL and SHA-256, the commit subjects since the previous tag, and a compare link. The previous tag is `git describe --tags --abbrev=0 --exclude=<tag> <tag>`, so a tag that lands on an already-tagged commit renders "No changes since …" instead of replaying what shipped; the first release has no compare link and is headed "Initial release" instead.
+
+To preview a body before tagging, run the command against any manifest file:
+
+```sh
+node scripts/release.ts notes --manifest sqlc-gen-d1-typescript_<version>.manifest.json \
+  --repository mkuznets/sqlc-d1-typescript --output release-notes.md
+```
 
 ## Manual audit checklist
 

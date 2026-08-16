@@ -5,6 +5,7 @@ import {
   canonicalWasmFilename,
   createReleaseManifest,
   parseSemver,
+  renderReleaseNotes,
   resolveReleaseIntent,
   stableJson,
   type ReleaseIntent,
@@ -58,6 +59,20 @@ test("release/intent accepts a tag push only after proving default-branch ancest
   assert.deepEqual(calls, [`${sha}:main`]);
 });
 
+test("release/intent tells a prerelease version from a stable one so the shell never parses it", async () => {
+  const base = {
+    eventName: "push",
+    refType: "tag",
+    sourceCommit: sha,
+    defaultBranch: "main",
+    workflowRunId: "456",
+    repository: "o/r",
+    isAncestor: async () => true,
+  };
+  assert.equal((await resolveReleaseIntent({ ...base, refName: "v0.2.0-rc.1" })).isPrerelease, true);
+  assert.equal((await resolveReleaseIntent({ ...base, refName: "v0.2.0" })).isPrerelease, false);
+});
+
 test("release/intent refuses anything that is not a tag on default-branch lineage", async () => {
   const base = {
     eventName: "push",
@@ -102,4 +117,49 @@ test("release/manifest refuses a tag that does not name its version", () => {
     () => createReleaseManifest({ intent: { ...intent, tag: "v0.3.0" }, bytes: new Uint8Array(1) }),
     /does not name version/,
   );
+});
+
+const manifest = createReleaseManifest({ intent, bytes: new TextEncoder().encode("plugin bytes") });
+
+test("release/notes advertise the manifest's own URL and digest, and nothing else", () => {
+  const body = renderReleaseNotes({
+    manifest,
+    previousTag: "v0.1.0",
+    commits: ["- Second (abcdef1)", "- First (1234567)"],
+    repository: "o/r",
+  });
+
+  // The configuration block is the copy-paste path for a consumer, so the two facts a
+  // consumer pins must come from the manifest that describes the published bytes.
+  assert.match(body, /```yaml\nversion: "2"\nplugins:\n {2}- name: d1-ts\n {4}wasm:\n/);
+  assert.match(body, new RegExp(`      url: ${manifest.artifact.url}\n      sha256: ${manifest.artifact.sha256}\n`));
+  assert.equal(body.includes("## Changes\n\n- Second (abcdef1)\n- First (1234567)"), true);
+  assert.equal(body.endsWith("**Full changelog**: https://github.com/o/r/compare/v0.1.0...v0.2.0\n"), true);
+});
+
+test("release/notes render a first release without a range to compare against", () => {
+  const body = renderReleaseNotes({ manifest, commits: ["- First (1234567)"], repository: "o/r" });
+
+  assert.equal(body.includes("## Initial release\n\n- First (1234567)\n"), true);
+  assert.equal(body.includes("## Changes"), false);
+  assert.equal(body.includes("Full changelog"), false);
+});
+
+test("release/notes say so when a tag adds no commits, instead of replaying shipped ones", () => {
+  const body = renderReleaseNotes({ manifest, previousTag: "v0.1.9", commits: [], repository: "o/r" });
+
+  assert.equal(body.includes("## Changes\n\n- No changes since v0.1.9.\n"), true);
+  assert.equal(body.includes("**Full changelog**: https://github.com/o/r/compare/v0.1.9...v0.2.0"), true);
+});
+
+test("release/notes honour a non-default server url without doubling its slash", () => {
+  const body = renderReleaseNotes({
+    manifest,
+    previousTag: "v0.1.0",
+    commits: [],
+    repository: "o/r",
+    serverUrl: "https://ghe.example.com/",
+  });
+
+  assert.equal(body.includes("**Full changelog**: https://ghe.example.com/o/r/compare/v0.1.0...v0.2.0"), true);
 });
