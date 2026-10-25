@@ -1,6 +1,6 @@
 # Wiring a local D1 test
 
-Reached from step 6 of `SKILL.md` when the project has no `@cloudflare/vitest-pool-workers` harness. A project
+Reached from step 6 of `SKILL.md` when the project has no `@cloudflare/vitest-plugin` harness. A project
 that already runs Worker tests keeps its own harness and only adds the one spec at the end of this page.
 
 Everything here runs locally against Miniflare-backed D1 with isolated storage per test. No Cloudflare account,
@@ -24,7 +24,7 @@ Substitute the project's own schema, query, and generated factory throughout.
 ## 1. Dev dependencies
 
 ```sh
-npm install --save-dev @cloudflare/vitest-pool-workers vitest wrangler
+npm install --save-dev @cloudflare/vitest-plugin vitest wrangler
 ```
 
 The exact versions this Plugin version was verified against are in
@@ -55,29 +55,30 @@ Run `wrangler types` after editing this file so `Env` carries the binding.
 
 ## 3. `vitest.config.ts`
 
-`defineWorkersConfig` reads the same `wrangler.jsonc`. The schema is split into statements at config time and
+The `cloudflareTest` plugin reads the same `wrangler.jsonc`. The schema is split into statements at config time and
 handed to the test environment as a binding, so each test can apply it to its own isolated storage.
 `remoteBindings: false` keeps every run local.
 
 ```ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { defineConfig } from "vitest/config";
 import { unstable_splitSqlQuery } from "wrangler";
 
 const migration = fileURLToPath(new URL("./migrations/0001_init.sql", import.meta.url));
 const statements = unstable_splitSqlQuery(readFileSync(migration, "utf8"));
 
-export default defineWorkersConfig({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: "./wrangler.jsonc" },
+      remoteBindings: false,
+      miniflare: { bindings: { TEST_SCHEMA_QUERIES: JSON.stringify(statements) } },
+    }),
+  ],
   test: {
     setupFiles: ["./test/setup.ts"],
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: "./wrangler.jsonc" },
-        remoteBindings: false,
-        miniflare: { bindings: { TEST_SCHEMA_QUERIES: JSON.stringify(statements) } },
-      },
-    },
   },
 });
 ```
@@ -95,12 +96,12 @@ binding types:
 }
 ```
 
-Give the tests their own `test/tsconfig.json`, which extends it and adds the pool's types:
+Give the tests their own `test/tsconfig.json`, which extends it and adds the plugin's types:
 
 ```jsonc
 {
   "extends": "../tsconfig.json",
-  "compilerOptions": { "types": ["@cloudflare/vitest-pool-workers"] },
+  "compilerOptions": { "types": ["@cloudflare/vitest-plugin/types"] },
   "include": ["./**/*.ts", "../worker-configuration.d.ts"],
   "exclude": [],
 }
@@ -113,20 +114,21 @@ Step 5 of `SKILL.md` runs both: `tsc --noEmit` and `tsc -p test/tsconfig.json --
 `test/env.d.ts` declares the extra binding:
 
 ```ts
-declare module "cloudflare:test" {
-  interface ProvidedEnv extends Env {
+declare namespace Cloudflare {
+  interface Env {
     TEST_SCHEMA_QUERIES: string;
   }
 }
 ```
 
-`test/setup.ts` applies the schema before each test, into storage that starts empty:
+`test/setup.ts` clears every binding's storage with `reset()` and applies the schema before each test:
 
 ```ts
-import { env } from "cloudflare:test";
+import { env, reset } from "cloudflare:test";
 import { beforeEach } from "vitest";
 
 beforeEach(async () => {
+  await reset();
   for (const statement of JSON.parse(env.TEST_SCHEMA_QUERIES) as string[]) await env.DB.prepare(statement).run();
 });
 ```

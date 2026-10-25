@@ -140,7 +140,7 @@ generated file.
 Generation and compilation say nothing about execution. One test, against local D1, executes a generated query
 descriptor through the query executor and asserts the mapped row it returns.
 
-When the project has no `@cloudflare/vitest-pool-workers` harness, `reference/local-d1-test.md` carries the
+When the project has no `@cloudflare/vitest-plugin` harness, `reference/local-d1-test.md` carries the
 wiring: dev dependencies, the binding, the config, per-test schema application, and the spec.
 
 **Done when** one test executes a generated query descriptor against local D1, asserts the mapped row, and
